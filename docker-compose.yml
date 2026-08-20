@@ -1,0 +1,21 @@
+name: thaumaste
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: ${THAUMASTE_POSTGRES_USER:-thaumaste}
+      POSTGRES_PASSWORD: ${THAUMASTE_POSTGRES_PASSWORD:-thaumaste}
+      POSTGRES_DB: ${THAUMASTE_POSTGRES_DB:-thaumaste}
+    ports:
+      - "127.0.0.1:${THAUMASTE_POSTGRES_PORT:-5433}:5432"
+    volumes:
+      - pg-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${THAUMASTE_POSTGRES_USER:-thaumaste} -d ${THAUMASTE_POSTGRES_DB:-thaumaste}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  pg-data:
