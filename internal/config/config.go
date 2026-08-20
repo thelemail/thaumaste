@@ -32,7 +32,7 @@ type Health struct {
 
 type Postgres struct {
 	Host            string        `env:"THAUMASTE_POSTGRES_HOST"              envDefault:"127.0.0.1"`
-	Port            int           `env:"THAUMASTE_POSTGRES_PORT"              envDefault:"5433"`
+	Port            int           `env:"THAUMASTE_POSTGRES_PORT"              envDefault:"5435"`
 	User            string        `env:"THAUMASTE_POSTGRES_USER,required"`
 	Password        string        `env:"THAUMASTE_POSTGRES_PASSWORD,required,unset"`
 	Database        string        `env:"THAUMASTE_POSTGRES_DB,required"`

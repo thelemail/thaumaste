@@ -8,7 +8,7 @@ services:
       POSTGRES_PASSWORD: ${THAUMASTE_POSTGRES_PASSWORD:-thaumaste}
       POSTGRES_DB: ${THAUMASTE_POSTGRES_DB:-thaumaste}
     ports:
-      - "127.0.0.1:${THAUMASTE_POSTGRES_PORT:-5433}:5432"
+      - "127.0.0.1:${THAUMASTE_POSTGRES_PORT:-5435}:5432"
     volumes:
       - pg-data:/var/lib/postgresql/data
     healthcheck:
