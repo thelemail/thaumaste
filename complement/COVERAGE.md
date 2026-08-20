@@ -1,7 +1,7 @@
 # Complement coverage
 
 Suite: `./tests/csapi` at complement `6d2fdc2`.
-Federation tests are not run: this server does not implement federation (THE-45).
+Federation tests are not run: this server does not implement federation.
 
 | tests | pass | fail | skip | passing |
 |------:|-----:|-----:|-----:|--------:|

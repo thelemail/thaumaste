@@ -49,7 +49,7 @@ report() {
 		echo "# Complement coverage"
 		echo
 		echo "Suite: \`$PACKAGES\` at complement \`${COMPLEMENT_SHA:0:7}\`."
-		echo "Federation tests are not run: this server does not implement federation (THE-45)."
+		echo "Federation tests are not run: this server does not implement federation."
 		echo
 		echo "| tests | pass | fail | skip | passing |"
 		echo "|------:|-----:|-----:|-----:|--------:|"
