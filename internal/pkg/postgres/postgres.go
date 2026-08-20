@@ -47,7 +47,7 @@ func (c *Client) WithTx(ctx context.Context, fn func(context.Context) error) err
 	if _, ok := ctx.Value(txKey{}).(*sql.Tx); ok {
 		return fn(ctx)
 	}
-	tx, err := c.DB.BeginTx(ctx, nil)
+	tx, err := c.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("begin transaction: %w", err)
 	}
