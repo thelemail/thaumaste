@@ -18,18 +18,27 @@ func (s *State) StartDraining() { s.draining.Store(true) }
 
 func (s *State) Draining() bool { return s.draining.Load() }
 
-func Handler(s *State) http.Handler {
+type ReadyFunc func(ctx context.Context) error
+
+func Handler(s *State, ready ReadyFunc) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "text/plain")
 		_, _ = w.Write([]byte("ok"))
 	})
-	mux.HandleFunc("/readyz", func(w http.ResponseWriter, _ *http.Request) {
+	mux.HandleFunc("/readyz", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/plain")
 		if s.Draining() {
 			w.WriteHeader(http.StatusServiceUnavailable)
 			_, _ = w.Write([]byte("draining"))
 			return
+		}
+		if ready != nil {
+			if err := ready(r.Context()); err != nil {
+				w.WriteHeader(http.StatusServiceUnavailable)
+				_, _ = w.Write([]byte("not ready"))
+				return
+			}
 		}
 		_, _ = w.Write([]byte("ok"))
 	})
@@ -40,10 +49,10 @@ type Server struct {
 	srv *http.Server
 }
 
-func NewServer(addr string, s *State) *Server {
+func NewServer(addr string, s *State, ready ReadyFunc) *Server {
 	return &Server{srv: &http.Server{
 		Addr:              addr,
-		Handler:           Handler(s),
+		Handler:           Handler(s, ready),
 		ReadHeaderTimeout: shutdownBudget,
 	}}
 }

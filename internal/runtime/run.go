@@ -17,6 +17,7 @@ var ErrShutdownTimeout = errors.New("shutdown timeout exceeded; some services di
 type Options struct {
 	HealthAddr string
 	DrainDelay time.Duration
+	Ready      health.ReadyFunc
 }
 
 func Run(ctx context.Context, shutdownTimeout time.Duration, opts Options, services ...Service) error {
@@ -49,7 +50,7 @@ func Run(ctx context.Context, shutdownTimeout time.Duration, opts Options, servi
 	if opts.HealthAddr == "" {
 		close(healthDone)
 	} else {
-		srv := health.NewServer(opts.HealthAddr, state)
+		srv := health.NewServer(opts.HealthAddr, state, opts.Ready)
 		go func() {
 			defer close(healthDone)
 			if err := srv.Run(healthCtx); err != nil {
