@@ -1,6 +1,8 @@
 package cmd
 
 import (
+	"fmt"
+
 	"github.com/spf13/cobra"
 
 	thaumaste "github.com/thelemail/thaumaste/internal"
@@ -15,6 +17,11 @@ func newServeCmd() *cobra.Command {
 			cfg, err := loadConfig()
 			if err != nil {
 				return err
+			}
+			if cfg.Postgres.MigrateOnStart {
+				if err := migrateUp(c.Context(), cfg.Postgres); err != nil {
+					return fmt.Errorf("apply migrations: %w", err)
+				}
 			}
 			rt, cleanup, err := thaumaste.InitializeServe(c.Context(), cfg)
 			if err != nil {

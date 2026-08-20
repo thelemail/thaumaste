@@ -15,6 +15,22 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-24.04
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: thaumaste
+          POSTGRES_PASSWORD: thaumaste
+          POSTGRES_DB: thaumaste
+        ports:
+          - 5435:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      THAUMASTE_TEST_REQUIRE_POSTGRES: "1"
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7

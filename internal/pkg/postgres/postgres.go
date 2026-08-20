@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"time"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
 
@@ -21,13 +22,21 @@ type Querier interface {
 type txKey struct{}
 
 func New(ctx context.Context, cfg config.Postgres) (*Client, error) {
-	db, err := sql.Open("pgx", cfg.DSN())
+	return open(ctx, cfg.DSN(), cfg.MaxOpenConns, cfg.MaxIdleConns, cfg.ConnMaxLifetime)
+}
+
+func NewMigrator(ctx context.Context, cfg config.Postgres) (*Client, error) {
+	return open(ctx, cfg.MigratorDSN(), 1, 1, cfg.ConnMaxLifetime)
+}
+
+func open(ctx context.Context, dsn string, maxOpen, maxIdle int, maxLifetime time.Duration) (*Client, error) {
+	db, err := sql.Open("pgx", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("open postgres: %w", err)
 	}
-	db.SetMaxOpenConns(cfg.MaxOpenConns)
-	db.SetMaxIdleConns(cfg.MaxIdleConns)
-	db.SetConnMaxLifetime(cfg.ConnMaxLifetime)
+	db.SetMaxOpenConns(maxOpen)
+	db.SetMaxIdleConns(maxIdle)
+	db.SetConnMaxLifetime(maxLifetime)
 
 	if err := db.PingContext(ctx); err != nil {
 		_ = db.Close()
