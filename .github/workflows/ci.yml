@@ -36,3 +36,14 @@ jobs:
       - uses: golangci/golangci-lint-action@v9
         with:
           version: v2.13.0
+
+  complement:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+      - run: ./scripts/complement.sh allowlist
