@@ -62,7 +62,7 @@ func newMigrateStatusCmd() *cobra.Command {
 					if s.State == goose.StateApplied {
 						state = "applied"
 					}
-					fmt.Fprintf(c.OutOrStdout(), "%-8s %s\n", state, s.Source.Path)
+					_, _ = fmt.Fprintf(c.OutOrStdout(), "%-8s %s\n", state, s.Source.Path)
 				}
 				return nil
 			})
