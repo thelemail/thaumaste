@@ -37,10 +37,9 @@ func newTenantCreateCmd() *cobra.Command {
 		RunE: func(c *cobra.Command, args []string) error {
 			return withTenants(c.Context(), func(ctx context.Context, tenants service.Tenants) error {
 				t, err := tenants.Create(ctx, entity.NewTenant{
-					ServerName:         args[0],
-					Hosts:              args[1:],
-					RegistrationMode:   entity.RegistrationClosed,
-					EncryptionRequired: true,
+					ServerName:       args[0],
+					Hosts:            args[1:],
+					RegistrationMode: entity.RegistrationClosed,
 				})
 				if err != nil {
 					return err

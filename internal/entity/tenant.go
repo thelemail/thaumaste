@@ -90,10 +90,9 @@ func (s TenantScope) ServerName() string { return s.serverName }
 func (s TenantScope) Zero() bool         { return s.id == uuid.Nil }
 
 type NewTenant struct {
-	ServerName         string
-	Hosts              []string
-	RegistrationMode   RegistrationMode
-	EncryptionRequired bool
+	ServerName       string
+	Hosts            []string
+	RegistrationMode RegistrationMode
 }
 
 func (n NewTenant) Validate() error {

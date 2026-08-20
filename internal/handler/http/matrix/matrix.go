@@ -45,6 +45,7 @@ func (h *Handler) Mount(r chi.Router) {
 			r.Use(h.authenticate)
 
 			r.Get("/_matrix/client/v3/capabilities", h.capabilities)
+			r.Get("/_matrix/client/v3/account/whoami", h.whoami)
 		})
 	})
 

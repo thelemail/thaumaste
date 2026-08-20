@@ -30,13 +30,12 @@ id, server_name, state, registration_mode, encryption_required, created_at, upda
 `
 
 const insertSQL = `
-INSERT INTO tenants (server_name, registration_mode, encryption_required)
-VALUES ($1, $2, $3)
+INSERT INTO tenants (server_name, registration_mode)
+VALUES ($1, $2)
 RETURNING ` + selectFields
 
 func (r *repo) Create(ctx context.Context, in entity.NewTenant) (entity.Tenant, error) {
-	row := r.db.Querier(ctx).QueryRowContext(ctx, insertSQL,
-		in.ServerName, string(in.RegistrationMode), in.EncryptionRequired)
+	row := r.db.Querier(ctx).QueryRowContext(ctx, insertSQL, in.ServerName, string(in.RegistrationMode))
 	t, err := scanTenant(row)
 	if err != nil {
 		if isUniqueViolation(err) {
