@@ -1,0 +1,32 @@
+version: "2"
+
+run:
+  timeout: 5m
+
+linters:
+  enable:
+    - forbidigo
+    - revive
+
+  settings:
+    forbidigo:
+      analyze-types: true
+      forbid:
+        - pattern: ^errors\.New$
+          msg: "Sentinel errors belong with their entity in internal/entity/<domain>.go, next to the struct they constrain. Never in service packages, never in a shared errors.go bucket."
+
+    revive:
+      severity: error
+      rules:
+        - name: unexported-return
+          severity: error
+
+  exclusions:
+    rules:
+      - linters: [forbidigo]
+        path-except: ^internal/service/
+      - linters: [forbidigo]
+        path: _test\.go$
+      - linters: [revive]
+        text: unexported-return
+        path-except: ^internal/service/[^/]+/[^/]+\.go$
