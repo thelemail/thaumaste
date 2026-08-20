@@ -1,0 +1,34 @@
+name: complement-full
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 4 * * 1"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: complement-full
+  cancel-in-progress: false
+
+jobs:
+  full:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+      - run: ./scripts/complement.sh full
+      - if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: complement-results
+          path: |
+            complement/COVERAGE.md
+            complement/results.jsonl
+            complement/output.jsonl
+          if-no-files-found: warn
