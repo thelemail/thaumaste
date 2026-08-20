@@ -59,8 +59,6 @@ func newTenantCreateCmd() *cobra.Command {
 	}
 }
 
-// ensure exists for provisioning that runs more than once: config management, container
-// entrypoints, and anything else that has to reach a state rather than perform an action.
 func newTenantEnsureCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "ensure <server_name> [host...]",

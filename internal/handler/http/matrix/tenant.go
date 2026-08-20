@@ -50,7 +50,7 @@ func (h *Handler) requireActiveTenant(next http.Handler) http.Handler {
 	})
 }
 
-// requestHost prefers the forwarded host, because in production the client-server API is reached
+// requestHost prefers the forwarded host, because the client-server API is reached
 // through an edge that terminates TLS for the tenant's own domain and proxies onward.
 func requestHost(r *http.Request) string {
 	host := r.Host

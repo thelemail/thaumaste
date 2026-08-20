@@ -402,8 +402,6 @@ func TestWhoamiNamesTheCallerTheTokenWasMintedFor(t *testing.T) {
 		t.Fatalf("user_id = %q", body.UserID)
 	}
 
-	// The same localpart on the other domain is a different person, and must not be reachable
-	// with the first one's token.
 	foreign := s.get(t, "alpha.test", "/_matrix/client/v3/account/whoami", s.token(t, beta, "@someone:beta.test"))
 	if foreign.Code != http.StatusUnauthorized {
 		t.Fatalf("a token from the other domain = %d, want %d", foreign.Code, http.StatusUnauthorized)
