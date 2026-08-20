@@ -11,6 +11,9 @@ type Handler struct{}
 func New() *Handler { return &Handler{} }
 
 func (h *Handler) Mount(r chi.Router) {
+	r.Get("/_matrix/client/versions", h.versions)
+	r.Get("/_matrix/client/v3/capabilities", h.capabilities)
+
 	r.NotFound(notRecognized)
 	r.MethodNotAllowed(notRecognized)
 }
