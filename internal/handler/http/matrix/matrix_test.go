@@ -11,13 +11,18 @@ import (
 	"github.com/thelemail/thaumaste/internal/handler/http/matrix"
 )
 
-func get(t *testing.T, path string) *httptest.ResponseRecorder {
+func do(t *testing.T, method, path string) *httptest.ResponseRecorder {
 	t.Helper()
 	r := chi.NewRouter()
 	matrix.New().Mount(r)
 	rec := httptest.NewRecorder()
-	r.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
+	r.ServeHTTP(rec, httptest.NewRequest(method, path, nil))
 	return rec
+}
+
+func get(t *testing.T, path string) *httptest.ResponseRecorder {
+	t.Helper()
+	return do(t, http.MethodGet, path)
 }
 
 func decode[T any](t *testing.T, rec *httptest.ResponseRecorder) T {
@@ -84,6 +89,22 @@ func TestUnknownEndpointIsNotRecognised(t *testing.T) {
 
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusNotFound)
+	}
+
+	body := decode[struct {
+		ErrCode string `json:"errcode"`
+	}](t, rec)
+
+	if body.ErrCode != "M_UNRECOGNIZED" {
+		t.Fatalf("errcode = %q, want M_UNRECOGNIZED", body.ErrCode)
+	}
+}
+
+func TestWrongMethodOnAKnownEndpointIsNotAllowed(t *testing.T) {
+	rec := do(t, http.MethodPut, "/_matrix/client/versions")
+
+	if rec.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusMethodNotAllowed)
 	}
 
 	body := decode[struct {
