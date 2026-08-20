@@ -6,7 +6,10 @@ include .env
 export
 endif
 
-.PHONY: help env infra infra-down infra-reset psql build run gen test lint lint-fix complement complement-all complement-report
+GOOSE := go tool goose
+MIGRATIONS_DIR := db/migrations/postgres
+
+.PHONY: migrate-create migrate-up migrate-down migrate-status help env infra infra-down infra-reset psql build run gen test lint lint-fix complement complement-all complement-report
 
 help:
 	@printf "%s\n" \
@@ -14,6 +17,8 @@ help:
 	  "infra      start postgres" \
 	  "infra-down stop postgres, keep the volume" \
 	  "psql       psql shell against local postgres" \
+	  "migrate-create name=<snake_name>   new migration file" \
+	  "migrate-up / migrate-down / migrate-status" \
 	  "build      build the binary into bin/thaumaste" \
 	  "run        run the homeserver" \
 	  "gen        go generate ./..." \
@@ -42,6 +47,22 @@ infra-reset:
 
 psql:
 	docker compose exec postgres psql -U $(THAUMASTE_POSTGRES_USER) -d $(THAUMASTE_POSTGRES_DB)
+
+migrate-create:
+	@if [ -z "$(name)" ]; then \
+		echo "usage: make migrate-create name=<snake_name>" >&2; exit 1; \
+	fi
+	@mkdir -p $(MIGRATIONS_DIR)
+	$(GOOSE) -dir $(MIGRATIONS_DIR) create $(name) sql
+
+migrate-up:
+	go run . migrate up
+
+migrate-down:
+	go run . migrate down
+
+migrate-status:
+	go run . migrate status
 
 build:
 	@mkdir -p bin
