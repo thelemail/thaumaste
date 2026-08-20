@@ -94,8 +94,25 @@ func (s *srv) List(ctx context.Context) ([]entity.Tenant, error) {
 	return s.tenants.List(ctx)
 }
 
+// ByHost tries the host as it arrived before trying it without a port. A server name may itself
+// carry a port, so the port cannot simply be stripped, but a domain served on a non-default port
+// should not have to register every port it might be reached on.
 func (s *srv) ByHost(ctx context.Context, host string) (entity.Tenant, error) {
-	t, err := s.tenants.GetByHost(ctx, entity.NormaliseHost(host))
+	host = entity.NormaliseHost(host)
+
+	t, err := s.tenants.GetByHost(ctx, host)
+	if err == nil {
+		return t, nil
+	}
+	if !errors.Is(err, repository.ErrTenantNotFound) {
+		return entity.Tenant{}, err
+	}
+
+	bare, ok := withoutPort(host)
+	if !ok {
+		return entity.Tenant{}, entity.ErrTenantNotFound
+	}
+	t, err = s.tenants.GetByHost(ctx, bare)
 	if err != nil {
 		if errors.Is(err, repository.ErrTenantNotFound) {
 			return entity.Tenant{}, entity.ErrTenantNotFound
@@ -103,6 +120,14 @@ func (s *srv) ByHost(ctx context.Context, host string) (entity.Tenant, error) {
 		return entity.Tenant{}, err
 	}
 	return t, nil
+}
+
+func withoutPort(host string) (string, bool) {
+	bare, port, found := strings.Cut(host, ":")
+	if !found || bare == "" || port == "" || strings.Contains(port, ":") {
+		return "", false
+	}
+	return bare, true
 }
 
 func (s *srv) ByServerName(ctx context.Context, serverName string) (entity.Tenant, error) {

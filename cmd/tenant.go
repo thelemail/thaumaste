@@ -20,6 +20,7 @@ func newTenantCmd() *cobra.Command {
 	}
 	tenant.AddCommand(
 		newTenantCreateCmd(),
+		newTenantEnsureCmd(),
 		newTenantListCmd(),
 		newTenantSuspendCmd(),
 		newTenantResumeCmd(),
@@ -52,6 +53,39 @@ func newTenantCreateCmd() *cobra.Command {
 				for _, k := range keys {
 					_, _ = fmt.Fprintf(c.OutOrStdout(), "key      %s\n", k.KeyID)
 				}
+				return nil
+			})
+		},
+	}
+}
+
+// ensure exists for provisioning that runs more than once: config management, container
+// entrypoints, and anything else that has to reach a state rather than perform an action.
+func newTenantEnsureCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "ensure <server_name> [host...]",
+		Short: "Add a domain if it is not there already",
+		Args:  cobra.MinimumNArgs(1),
+		RunE: func(c *cobra.Command, args []string) error {
+			return withTenants(c.Context(), func(ctx context.Context, tenants service.Tenants) error {
+				existing, err := tenants.ByServerName(ctx, args[0])
+				switch {
+				case err == nil:
+					printTenant(c.OutOrStdout(), existing)
+					return nil
+				case errors.Is(err, entity.ErrTenantNotFound):
+				default:
+					return err
+				}
+				created, err := tenants.Create(ctx, entity.NewTenant{
+					ServerName:       args[0],
+					Hosts:            args[1:],
+					RegistrationMode: entity.RegistrationClosed,
+				})
+				if err != nil {
+					return err
+				}
+				printTenant(c.OutOrStdout(), created)
 				return nil
 			})
 		},

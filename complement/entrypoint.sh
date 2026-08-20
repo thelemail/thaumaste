@@ -2,6 +2,9 @@
 
 su-exec postgres pg_ctl -D "$PGDATA" -w -o "-c listen_addresses=127.0.0.1" start
 
+/usr/local/bin/thaumaste migrate up || exit 1
+/usr/local/bin/thaumaste tenant ensure "$SERVER_NAME" || exit 1
+
 /usr/local/bin/thaumaste serve &
 server=$!
 
