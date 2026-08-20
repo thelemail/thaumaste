@@ -6,7 +6,7 @@ include .env
 export
 endif
 
-.PHONY: help env infra infra-down infra-reset psql build run gen test lint lint-fix
+.PHONY: help env infra infra-down infra-reset psql build run gen test lint lint-fix complement complement-all complement-report
 
 help:
 	@printf "%s\n" \
@@ -18,7 +18,10 @@ help:
 	  "run        run the homeserver" \
 	  "gen        go generate ./..." \
 	  "test       go test ./... -race -count=1" \
-	  "lint       golangci-lint run ./..."
+	  "lint       golangci-lint run ./..." \
+	  "complement          run the complement allowlist" \
+	  "complement-all      run the whole complement csapi suite" \
+	  "complement-report   regenerate complement/COVERAGE.md"
 
 env:
 	@if [ -f .env ]; then \
@@ -58,3 +61,12 @@ lint:
 
 lint-fix:
 	golangci-lint run ./... --fix
+
+complement:
+	./scripts/complement.sh allowlist
+
+complement-all:
+	./scripts/complement.sh full
+
+complement-report:
+	./scripts/complement.sh report
