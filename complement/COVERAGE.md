@@ -18,7 +18,15 @@ Federation tests are not run: this server does not implement federation.
 
 ## Why the failures stop where they do
 
-Most frequent assertion failures across the run:
+Endpoints the suite asked for, most requested first. Whatever sits at the top is what
+the rest of the suite is waiting on.
+
+- 128 x POST hs1/_matrix/client/v3/register
+- 6 x GET hs1/_synapse/admin/v1/register
+- 2 x GET hs1/_matrix/client/v3/register/available
+- 1 x GET hs1/_matrix/client/versions
+
+Most frequent assertion failures:
 
 - 119 x Expected 401 Unauthorized, got 404
 
