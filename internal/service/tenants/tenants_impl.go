@@ -1,6 +1,7 @@
 package tenants
 
 import (
+	"bytes"
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
@@ -230,6 +231,57 @@ func (s *srv) SignAs(ctx context.Context, scope entity.TenantScope, document []b
 		return nil, fmt.Errorf("tenants: signing key for %s is %d bytes", scope.ServerName(), len(private))
 	}
 	return signing.Sign(document, scope.ServerName(), signing.KeyID(key.KeyID), ed25519.PrivateKey(private))
+}
+
+// ResealKeys re-encrypts every stored private key under a new master key. Without it the master key
+// could never be changed: swapping it leaves every sealed key unopenable, so no domain could sign
+// anything and the key endpoints would stop answering. Each key is opened and checked before any
+// row is written, and the whole sweep is one transaction, so a wrong old key changes nothing.
+func (s *srv) ResealKeys(ctx context.Context, next keyseal.Sealer) (int, error) {
+	stored, err := s.keys.AllSealed(ctx)
+	if err != nil {
+		return 0, err
+	}
+
+	resealed := make([]entity.SealedSigningKey, 0, len(stored))
+	for _, key := range stored {
+		private, err := s.sealer.Open(key.PrivateKey)
+		if err != nil {
+			return 0, fmt.Errorf("tenants: open %s: %w", key.KeyID, err)
+		}
+		if len(private) != ed25519.PrivateKeySize {
+			return 0, fmt.Errorf("tenants: signing key %s is %d bytes", key.KeyID, len(private))
+		}
+		sealed, err := next.Seal(private)
+		if err != nil {
+			return 0, err
+		}
+		reopened, err := next.Open(sealed)
+		if err != nil {
+			return 0, fmt.Errorf("tenants: reseal %s: %w", key.KeyID, err)
+		}
+		if !bytes.Equal(reopened, private) {
+			return 0, fmt.Errorf("tenants: reseal %s did not round-trip", key.KeyID)
+		}
+		resealed = append(resealed, entity.SealedSigningKey{
+			TenantID:   key.TenantID,
+			KeyID:      key.KeyID,
+			PrivateKey: sealed,
+		})
+	}
+
+	err = s.tx.WithTx(ctx, func(ctx context.Context) error {
+		for _, key := range resealed {
+			if err := s.keys.Reseal(ctx, key); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return 0, err
+	}
+	return len(resealed), nil
 }
 
 func (s *srv) mintKey(ctx context.Context, scope entity.TenantScope) (entity.SigningKey, error) {

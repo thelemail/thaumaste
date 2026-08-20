@@ -28,9 +28,13 @@ type aesSealer struct {
 }
 
 func New(cfg config.Signing) (Sealer, error) {
-	key, err := base64.StdEncoding.DecodeString(cfg.MasterKey)
+	return NewFromEncoded(cfg.MasterKey)
+}
+
+func NewFromEncoded(encoded string) (Sealer, error) {
+	key, err := base64.StdEncoding.DecodeString(encoded)
 	if err != nil {
-		key, err = base64.RawStdEncoding.DecodeString(cfg.MasterKey)
+		key, err = base64.RawStdEncoding.DecodeString(encoded)
 		if err != nil {
 			return nil, fmt.Errorf("keyseal: decode master key: %w", err)
 		}

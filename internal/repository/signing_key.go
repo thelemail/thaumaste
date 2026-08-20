@@ -16,4 +16,6 @@ type SigningKey interface {
 	ActivePrivate(ctx context.Context, scope entity.TenantScope) (entity.SigningKey, []byte, error)
 	List(ctx context.Context, scope entity.TenantScope) ([]entity.SigningKey, error)
 	Expire(ctx context.Context, scope entity.TenantScope, keyID string, at time.Time) error
+	AllSealed(ctx context.Context) ([]entity.SealedSigningKey, error)
+	Reseal(ctx context.Context, key entity.SealedSigningKey) error
 }

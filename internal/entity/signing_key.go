@@ -26,6 +26,14 @@ func (SigningKey) Validate() error { return nil }
 
 func (k SigningKey) Active() bool { return k.ExpiredAt == nil }
 
+type SealedSigningKey struct {
+	TenantID   uuid.UUID
+	KeyID      string
+	PrivateKey []byte
+}
+
+func (SealedSigningKey) Validate() error { return nil }
+
 type NewSigningKey struct {
 	TenantID   uuid.UUID
 	KeyID      string

@@ -221,3 +221,83 @@ func TestADomainNameThatIsNotAServerNameIsRefused(t *testing.T) {
 		t.Fatal("Create accepted a name the spec does not allow")
 	}
 }
+
+func TestResealingLetsTheMasterKeyChangeWithoutLosingAnything(t *testing.T) {
+	pg := pgtest.Connect(t, "tenants")
+	current, err := keyseal.NewWithKey(make([]byte, keyseal.MasterKeySize))
+	if err != nil {
+		t.Fatalf("keyseal: %v", err)
+	}
+	next, err := keyseal.NewWithKey(differentMasterKey())
+	if err != nil {
+		t.Fatalf("keyseal: %v", err)
+	}
+
+	before := tenants.New(tenant.New(pg), signingkey.New(pg), current, pg, nil, nil)
+	alpha := create(t, before, "alpha.test")
+	beta := create(t, before, "beta.test")
+	if _, err := before.RotateKey(t.Context(), alpha.Scope()); err != nil {
+		t.Fatalf("RotateKey: %v", err)
+	}
+
+	signed, err := before.SignAs(t.Context(), alpha.Scope(), []byte(`{"a":1}`))
+	if err != nil {
+		t.Fatalf("SignAs: %v", err)
+	}
+
+	n, err := before.ResealKeys(t.Context(), next)
+	if err != nil {
+		t.Fatalf("ResealKeys: %v", err)
+	}
+	if n != 3 {
+		t.Fatalf("resealed = %d, want 3", n)
+	}
+
+	after := tenants.New(tenant.New(pg), signingkey.New(pg), next, pg, nil, nil)
+	resigned, err := after.SignAs(t.Context(), alpha.Scope(), []byte(`{"a":1}`))
+	if err != nil {
+		t.Fatalf("SignAs under the new master key: %v", err)
+	}
+	if string(resigned) != string(signed) {
+		t.Fatal("the same document signs differently after resealing, so the key material changed")
+	}
+	if _, err := after.SignAs(t.Context(), beta.Scope(), []byte(`{"a":1}`)); err != nil {
+		t.Fatalf("the other domain cannot sign after resealing: %v", err)
+	}
+
+	if _, err := before.SignAs(t.Context(), alpha.Scope(), []byte(`{"a":1}`)); err == nil {
+		t.Fatal("the old master key still opens the stored keys")
+	}
+}
+
+func TestResealingWithTheWrongCurrentKeyChangesNothing(t *testing.T) {
+	pg := pgtest.Connect(t, "tenants")
+	current, err := keyseal.NewWithKey(make([]byte, keyseal.MasterKeySize))
+	if err != nil {
+		t.Fatalf("keyseal: %v", err)
+	}
+	right := tenants.New(tenant.New(pg), signingkey.New(pg), current, pg, nil, nil)
+	alpha := create(t, right, "alpha.test")
+
+	wrong, err := keyseal.NewWithKey(differentMasterKey())
+	if err != nil {
+		t.Fatalf("keyseal: %v", err)
+	}
+	third := make([]byte, keyseal.MasterKeySize)
+	for i := range third {
+		third[i] = 0x5c
+	}
+	target, err := keyseal.NewWithKey(third)
+	if err != nil {
+		t.Fatalf("keyseal: %v", err)
+	}
+
+	mistaken := tenants.New(tenant.New(pg), signingkey.New(pg), wrong, pg, nil, nil)
+	if _, err := mistaken.ResealKeys(t.Context(), target); err == nil {
+		t.Fatal("ResealKeys accepted the wrong current master key")
+	}
+
+	if _, err := right.SignAs(t.Context(), alpha.Scope(), []byte(`{"a":1}`)); err != nil {
+		t.Fatalf("a failed reseal damaged the stored keys: %v", err)
+	}
+}

@@ -30,6 +30,19 @@ If the rewind is more than a few seconds, invalidate client sessions and let cli
 fresh sync rather than trying to reconcile. It is the only way to guarantee no client carries a token
 that disagrees with the server about what a position means.
 
+## The signing master key
+
+Private signing keys are stored sealed under `THAUMASTE_SIGNING_MASTER_KEY`. A database backup on
+its own does not restore a working server: without that value every domain's signing key is
+unreadable, no domain can sign, and the key endpoints stop answering. Back it up separately from the
+database, or the pair is worthless to an attacker and to you alike.
+
+To change it, stop the server, set `THAUMASTE_SIGNING_NEXT_MASTER_KEY` and run
+`thaumaste keys reseal`. Every key is opened and round-tripped before any row is written and the
+sweep is one transaction, so a wrong current key changes nothing. Then move the new value into
+`THAUMASTE_SIGNING_MASTER_KEY` and start the server again. Published keys do not change and old
+signatures stay verifiable.
+
 ## Rehearsing it
 
 Restore into an empty environment and confirm the server starts, reports no pending migrations, and

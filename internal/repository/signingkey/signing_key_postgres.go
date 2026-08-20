@@ -133,6 +133,51 @@ func (r *repo) Expire(ctx context.Context, scope entity.TenantScope, keyID strin
 	return nil
 }
 
+const allSealedSQL = `SELECT tenant_id, key_id, private_key FROM tenant_signing_keys ORDER BY tenant_id, key_id`
+
+func (r *repo) AllSealed(ctx context.Context) ([]entity.SealedSigningKey, error) {
+	rows, err := r.db.Querier(ctx).QueryContext(ctx, allSealedSQL)
+	if err != nil {
+		return nil, fmt.Errorf("repository: list sealed signing keys: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	var out []entity.SealedSigningKey
+	for rows.Next() {
+		var (
+			tenantStr string
+			keyID     string
+			private   []byte
+		)
+		if err := rows.Scan(&tenantStr, &keyID, &private); err != nil {
+			return nil, fmt.Errorf("repository: scan sealed signing key: %w", err)
+		}
+		tenantID, err := uuid.Parse(tenantStr)
+		if err != nil {
+			return nil, fmt.Errorf("parse signing key tenant id: %w", err)
+		}
+		out = append(out, entity.SealedSigningKey{TenantID: tenantID, KeyID: keyID, PrivateKey: private})
+	}
+	return out, rows.Err()
+}
+
+const resealSQL = `UPDATE tenant_signing_keys SET private_key = $3 WHERE tenant_id = $1 AND key_id = $2`
+
+func (r *repo) Reseal(ctx context.Context, key entity.SealedSigningKey) error {
+	res, err := r.db.Querier(ctx).ExecContext(ctx, resealSQL, key.TenantID.String(), key.KeyID, key.PrivateKey)
+	if err != nil {
+		return fmt.Errorf("repository: reseal signing key: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("repository: reseal signing key: %w", err)
+	}
+	if n == 0 {
+		return repository.ErrSigningKeyNotFound
+	}
+	return nil
+}
+
 type scannableRow interface {
 	Scan(dest ...any) error
 }

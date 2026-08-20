@@ -6,6 +6,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/thelemail/thaumaste/internal/entity"
+	"github.com/thelemail/thaumaste/internal/pkg/keyseal"
 )
 
 type Tenants interface {
@@ -21,4 +22,5 @@ type Tenants interface {
 	Keys(ctx context.Context, scope entity.TenantScope) ([]entity.SigningKey, error)
 	RotateKey(ctx context.Context, scope entity.TenantScope) (entity.SigningKey, error)
 	SignAs(ctx context.Context, scope entity.TenantScope, document []byte) ([]byte, error)
+	ResealKeys(ctx context.Context, next keyseal.Sealer) (int, error)
 }

@@ -82,8 +82,9 @@ func (p Postgres) dsn(timeouts map[string]time.Duration) string {
 }
 
 type Signing struct {
-	MasterKey   string        `env:"THAUMASTE_SIGNING_MASTER_KEY,required,unset"`
-	KeyValidity time.Duration `env:"THAUMASTE_SIGNING_KEY_VALIDITY"           envDefault:"24h"`
+	MasterKey     string        `env:"THAUMASTE_SIGNING_MASTER_KEY,required,unset"`
+	NextMasterKey string        `env:"THAUMASTE_SIGNING_NEXT_MASTER_KEY,unset"`
+	KeyValidity   time.Duration `env:"THAUMASTE_SIGNING_KEY_VALIDITY"           envDefault:"24h"`
 }
 
 type Logger struct {
