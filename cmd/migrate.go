@@ -3,18 +3,14 @@ package cmd
 import (
 	"context"
 	"fmt"
-	"io/fs"
 
 	"github.com/pressly/goose/v3"
-	"github.com/pressly/goose/v3/lock"
 	"github.com/spf13/cobra"
 
 	"github.com/thelemail/thaumaste/db"
 	"github.com/thelemail/thaumaste/internal/config"
 	"github.com/thelemail/thaumaste/internal/pkg/postgres"
 )
-
-const migrationsDir = "migrations/postgres"
 
 func newMigrateCmd() *cobra.Command {
 	c := &cobra.Command{
@@ -86,27 +82,11 @@ func runMigrate(ctx context.Context, op func(context.Context, *goose.Provider) e
 	}
 	defer func() { _ = pg.Close() }()
 
-	p, err := migrationProvider(pg)
+	p, err := db.Provider(pg.DB)
 	if err != nil {
 		return err
 	}
 	return op(ctx, p)
-}
-
-func migrationProvider(pg *postgres.Client) (*goose.Provider, error) {
-	sub, err := fs.Sub(db.Migrations, migrationsDir)
-	if err != nil {
-		return nil, fmt.Errorf("migrations fs: %w", err)
-	}
-	locker, err := lock.NewPostgresSessionLocker()
-	if err != nil {
-		return nil, fmt.Errorf("migration locker: %w", err)
-	}
-	p, err := goose.NewProvider(goose.DialectPostgres, pg.DB, sub, goose.WithSessionLocker(locker))
-	if err != nil {
-		return nil, fmt.Errorf("migration provider: %w", err)
-	}
-	return p, nil
 }
 
 func migrateUp(ctx context.Context, cfg config.Postgres) error {
@@ -116,7 +96,7 @@ func migrateUp(ctx context.Context, cfg config.Postgres) error {
 	}
 	defer func() { _ = pg.Close() }()
 
-	p, err := migrationProvider(pg)
+	p, err := db.Provider(pg.DB)
 	if err != nil {
 		return err
 	}
