@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"net/url"
+	"strconv"
 	"time"
 
 	"github.com/caarlos0/env/v11"
@@ -40,15 +41,40 @@ type Postgres struct {
 	MaxOpenConns    int           `env:"THAUMASTE_POSTGRES_MAX_OPEN_CONNS"    envDefault:"25"`
 	MaxIdleConns    int           `env:"THAUMASTE_POSTGRES_MAX_IDLE_CONNS"    envDefault:"5"`
 	ConnMaxLifetime time.Duration `env:"THAUMASTE_POSTGRES_CONN_MAX_LIFETIME" envDefault:"30m"`
+
+	StatementTimeout         time.Duration `env:"THAUMASTE_POSTGRES_STATEMENT_TIMEOUT"           envDefault:"15s"`
+	LockTimeout              time.Duration `env:"THAUMASTE_POSTGRES_LOCK_TIMEOUT"                envDefault:"5s"`
+	IdleInTransactionTimeout time.Duration `env:"THAUMASTE_POSTGRES_IDLE_IN_TRANSACTION_TIMEOUT" envDefault:"30s"`
+	MigrateOnStart           bool          `env:"THAUMASTE_POSTGRES_MIGRATE_ON_START"            envDefault:"true"`
 }
 
 func (p Postgres) DSN() string {
+	return p.dsn(map[string]time.Duration{
+		"statement_timeout":                   p.StatementTimeout,
+		"lock_timeout":                        p.LockTimeout,
+		"idle_in_transaction_session_timeout": p.IdleInTransactionTimeout,
+	})
+}
+
+func (p Postgres) MigratorDSN() string {
+	return p.dsn(map[string]time.Duration{
+		"lock_timeout": p.LockTimeout,
+	})
+}
+
+func (p Postgres) dsn(timeouts map[string]time.Duration) string {
+	q := url.Values{"sslmode": []string{p.SSLMode}}
+	for name, d := range timeouts {
+		if d > 0 {
+			q.Set(name, strconv.FormatInt(d.Milliseconds(), 10))
+		}
+	}
 	u := url.URL{
 		Scheme:   "postgres",
 		User:     url.UserPassword(p.User, p.Password),
 		Host:     fmt.Sprintf("%s:%d", p.Host, p.Port),
 		Path:     p.Database,
-		RawQuery: "sslmode=" + url.QueryEscape(p.SSLMode),
+		RawQuery: q.Encode(),
 	}
 	return u.String()
 }
