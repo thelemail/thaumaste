@@ -16,6 +16,7 @@ type Config struct {
 	Server   Server
 	Health   Health
 	Postgres Postgres
+	Signing  Signing
 	Logger   Logger
 }
 
@@ -77,6 +78,11 @@ func (p Postgres) dsn(timeouts map[string]time.Duration) string {
 		RawQuery: q.Encode(),
 	}
 	return u.String()
+}
+
+type Signing struct {
+	MasterKey   string        `env:"THAUMASTE_SIGNING_MASTER_KEY,required,unset"`
+	KeyValidity time.Duration `env:"THAUMASTE_SIGNING_KEY_VALIDITY"           envDefault:"24h"`
 }
 
 type Logger struct {
