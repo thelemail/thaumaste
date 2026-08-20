@@ -63,9 +63,17 @@ report() {
 		echo
 		jq -sr '.[] | select((.Test | contains("/") | not) and .Action == "skip") | "- \(.Test)"' "$OUT/results.jsonl"
 		echo
-		echo "## Failing"
+		echo "## Why the failures stop where they do"
 		echo
-		echo "Blocked on registration (THE-11) unless noted."
+		echo "Most frequent assertion failures across the run:"
+		echo
+		jq -Rc 'fromjson? // empty' "$OUT/output.jsonl" \
+			| jq -r 'select(.Action == "output" and .Test != null) | .Output' \
+			| grep -oE '(Expected|want) [0-9]{3}[^,]*, got [0-9]{3}|Expected [0-9]{3} [A-Za-z ]+, got [0-9]{3}' \
+			| sort | uniq -c | sort -rn | head -5 \
+			| sed 's/^ *\([0-9]*\) /- \1 x /'
+		echo
+		echo "## Failing"
 		echo
 		jq -sr '.[] | select((.Test | contains("/") | not) and .Action == "fail") | "- \(.Test)"' "$OUT/results.jsonl"
 	} > "$OUT/COVERAGE.md"
@@ -83,10 +91,8 @@ full)
 	fetch_complement
 	build_image
 	cd "$COMPLEMENT_DIR"
-	set +o pipefail
 	COMPLEMENT_BASE_IMAGE="$IMAGE" COMPLEMENT_ENABLE_DIRTY_RUNS=1 \
-		go test -json -count=1 -timeout 45m $PACKAGES > "$OUT/output.jsonl"
-	set -o pipefail
+		go test -json -count=1 -timeout 45m $PACKAGES > "$OUT/output.jsonl" || true
 	normalise
 	report
 	jq -sr '"\([.[] | select(.Action == "pass")] | length) pass, \([.[] | select(.Action == "fail")] | length) fail, \([.[] | select(.Action == "skip")] | length) skip"' "$OUT/results.jsonl"
