@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"slices"
 	"strings"
 	"time"
 
@@ -55,12 +56,7 @@ func (s *srv) Create(ctx context.Context, in entity.NewTenant) (entity.Tenant, e
 		in.RegistrationMode = entity.RegistrationClosed
 	}
 	in.ServerName = entity.NormaliseHost(in.ServerName)
-	if len(in.Hosts) == 0 {
-		in.Hosts = []string{in.ServerName}
-	}
-	for i, host := range in.Hosts {
-		in.Hosts[i] = entity.NormaliseHost(host)
-	}
+	in.Hosts = hostsFor(in.ServerName, in.Hosts)
 	if err := in.Validate(); err != nil {
 		return entity.Tenant{}, err
 	}
@@ -239,6 +235,19 @@ func (s *srv) mintKey(ctx context.Context, scope entity.TenantScope) (entity.Sig
 		return entity.SigningKey{}, err
 	}
 	return s.keys.Insert(ctx, in)
+}
+
+// hostsFor always claims the server name itself. A tenant that only answers on a delegated host
+// still has to hold its own name, or another tenant could take it and serve that name's keys.
+func hostsFor(serverName string, extra []string) []string {
+	out := []string{serverName}
+	for _, host := range extra {
+		host = entity.NormaliseHost(host)
+		if host != "" && !slices.Contains(out, host) {
+			out = append(out, host)
+		}
+	}
+	return out
 }
 
 func (s *srv) keyVersion() (string, error) {

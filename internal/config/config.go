@@ -25,6 +25,7 @@ type Server struct {
 	ReadTimeout     time.Duration `env:"THAUMASTE_SERVER_READ_TIMEOUT"     envDefault:"15s"`
 	WriteTimeout    time.Duration `env:"THAUMASTE_SERVER_WRITE_TIMEOUT"    envDefault:"30s"`
 	ShutdownTimeout time.Duration `env:"THAUMASTE_SERVER_SHUTDOWN_TIMEOUT" envDefault:"30s"`
+	PublicScheme    string        `env:"THAUMASTE_SERVER_PUBLIC_SCHEME"    envDefault:"https"`
 }
 
 type Health struct {

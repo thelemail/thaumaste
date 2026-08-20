@@ -14,6 +14,7 @@ import (
 	"github.com/thelemail/thaumaste/internal/handler/http/matrix/middleware"
 	"github.com/thelemail/thaumaste/internal/pkg/postgres"
 	"github.com/thelemail/thaumaste/internal/runtime"
+	"github.com/thelemail/thaumaste/internal/service"
 )
 
 type ServeRuntime struct {
@@ -48,14 +49,21 @@ func (r *ServeRuntime) Run(ctx context.Context) error {
 
 var _ runtime.Service = (*ServeRuntime)(nil)
 
-func provideServeRuntime(cfg config.Server, db *postgres.Client) *ServeRuntime {
+func provideServeRuntime(
+	cfg config.Server,
+	sign config.Signing,
+	db *postgres.Client,
+	tenants service.Tenants,
+	tokens service.Tokens,
+	clock func() time.Time,
+) *ServeRuntime {
 	router := chi.NewRouter()
 	router.Use(middleware.CORS)
 	router.Use(middleware.RequestID)
 	router.Use(middleware.RecoverPanic)
 	router.Use(middleware.AccessLog)
 
-	matrix.New().Mount(router)
+	matrix.New(tenants, tokens, cfg, sign, clock).Mount(router)
 
 	return &ServeRuntime{
 		srv: &http.Server{

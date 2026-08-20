@@ -1,12 +1,11 @@
 package tenant
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"fmt"
 	"time"
-
-	"context"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -61,7 +60,8 @@ func (r *repo) GetByServerName(ctx context.Context, serverName string) (entity.T
 }
 
 const getByHostSQL = `
-SELECT ` + selectFields + `
+SELECT tenants.id, tenants.server_name, tenants.state, tenants.registration_mode,
+       tenants.encryption_required, tenants.created_at, tenants.updated_at
 FROM tenants
 JOIN tenant_hosts ON tenant_hosts.tenant_id = tenants.id
 WHERE tenant_hosts.host = $1
