@@ -13,6 +13,7 @@ import (
 	"github.com/thelemail/thaumaste/internal/repository/accesstoken"
 	"github.com/thelemail/thaumaste/internal/repository/alias"
 	"github.com/thelemail/thaumaste/internal/repository/authattempt"
+	"github.com/thelemail/thaumaste/internal/repository/connection"
 	"github.com/thelemail/thaumaste/internal/repository/credential"
 	"github.com/thelemail/thaumaste/internal/repository/device"
 	"github.com/thelemail/thaumaste/internal/repository/event"
@@ -27,6 +28,7 @@ import (
 	"github.com/thelemail/thaumaste/internal/repository/user"
 	"github.com/thelemail/thaumaste/internal/service"
 	"github.com/thelemail/thaumaste/internal/service/rooms"
+	"github.com/thelemail/thaumaste/internal/service/timeline"
 )
 
 // Injectors from wire.go:
@@ -77,12 +79,17 @@ func InitializeServe(ctx context.Context, cfg config.Config) (*ServeRuntime, fun
 		cleanup()
 		return nil, nil, err
 	}
+	notifier := provideNotifier(valkeyClient, valkey)
 	serialiser := provideSerialiser()
-	events := provideEvents(repositoryRoom, repositoryEvent, repositoryState, roomMember, repositoryRelation, repositoryTransaction, tenants, transactor, stream, valkeyClient, serialiser, server, v)
+	events := provideEvents(repositoryRoom, repositoryEvent, repositoryState, roomMember, repositoryRelation, repositoryTransaction, tenants, transactor, stream, valkeyClient, notifier, serialiser, server, v)
+	serviceTimeline := timeline.New(events, v)
 	repositoryAlias := alias.New(client)
 	sendLimits := provideSendLimits(limits)
-	serviceRooms := rooms.New(events, users, repositoryRoom, repositoryAlias, roomMember, transactor, valkeyClient, sendLimits, v)
-	serveRuntime := provideServeRuntime(server, signing, limits, client, tenants, tokens, users, serviceRooms, events, v)
+	serviceRooms := rooms.New(events, serviceTimeline, users, repositoryRoom, repositoryAlias, roomMember, transactor, valkeyClient, sendLimits, v)
+	repositoryConnection := connection.New(client)
+	sync := provideSyncConfig(cfg)
+	serviceSync := provideSync(repositoryConnection, roomMember, repositoryEvent, serviceTimeline, transactor, stream, notifier, serialiser, sync, v)
+	serveRuntime := provideServeRuntime(server, signing, limits, client, tenants, tokens, users, serviceRooms, events, serviceSync, notifier, sync, v)
 	return serveRuntime, func() {
 		cleanup2()
 		cleanup()

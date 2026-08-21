@@ -91,6 +91,26 @@ func (r *repo) SetVisibility(ctx context.Context, roomNID int64, visibility stri
 	return nil
 }
 
+func (r *repo) SetActivity(ctx context.Context, roomNID, stream int64, bumping bool) error {
+	query := `UPDATE rooms SET last_stream = GREATEST(last_stream, $2) WHERE room_nid = $1`
+	if bumping {
+		query = `UPDATE rooms SET last_stream = GREATEST(last_stream, $2),
+		                          bump_stream = GREATEST(bump_stream, $2) WHERE room_nid = $1`
+	}
+	result, err := r.db.Querier(ctx).ExecContext(ctx, query, roomNID, stream)
+	if err != nil {
+		return fmt.Errorf("repository: record room activity: %w", err)
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("repository: record room activity: %w", err)
+	}
+	if affected == 0 {
+		return repository.ErrRoomNotFound
+	}
+	return nil
+}
+
 func (r *repo) ListPublic(ctx context.Context, scope entity.TenantScope) ([]entity.Room, error) {
 	rows, err := dbpg.Rooms(
 		dbpg.RoomWhere.TenantID.EQ(scope.ID().String()),

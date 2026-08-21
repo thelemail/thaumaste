@@ -2074,7 +2074,7 @@ func (eventL) LoadRoomNidRooms(ctx context.Context, e boil.ContextExecutor, sing
 	}
 
 	query := NewQuery(
-		qm.Select("\"rooms\".\"room_nid\", \"rooms\".\"tenant_id\", \"rooms\".\"room_id\", \"rooms\".\"room_version\", \"rooms\".\"created_at\", \"rooms\".\"create_event_nid\", \"rooms\".\"visibility\", \"a\".\"event_nid\""),
+		qm.Select("\"rooms\".\"room_nid\", \"rooms\".\"tenant_id\", \"rooms\".\"room_id\", \"rooms\".\"room_version\", \"rooms\".\"created_at\", \"rooms\".\"create_event_nid\", \"rooms\".\"visibility\", \"rooms\".\"last_stream\", \"rooms\".\"bump_stream\", \"a\".\"event_nid\""),
 		qm.From("\"rooms\""),
 		qm.InnerJoin("\"room_extremities\" as \"a\" on \"rooms\".\"room_nid\" = \"a\".\"room_nid\""),
 		qm.WhereIn("\"a\".\"event_nid\" in ?", argsSlice...),
@@ -2095,7 +2095,7 @@ func (eventL) LoadRoomNidRooms(ctx context.Context, e boil.ContextExecutor, sing
 		one := new(Room)
 		var localJoinCol int64
 
-		err = results.Scan(&one.RoomNid, &one.TenantID, &one.RoomID, &one.RoomVersion, &one.CreatedAt, &one.CreateEventNid, &one.Visibility, &localJoinCol)
+		err = results.Scan(&one.RoomNid, &one.TenantID, &one.RoomID, &one.RoomVersion, &one.CreatedAt, &one.CreateEventNid, &one.Visibility, &one.LastStream, &one.BumpStream, &localJoinCol)
 		if err != nil {
 			return errors.Wrap(err, "failed to scan eager loaded results for rooms")
 		}

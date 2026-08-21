@@ -14,19 +14,21 @@ import (
 const defaultPublicRoomsLimit = 100
 
 type srv struct {
-	events  service.Events
-	users   service.Users
-	rooms   repository.Room
-	aliases repository.Alias
-	members repository.RoomMember
-	tx      repository.Transactor
-	limiter *valkey.Client
-	limits  entity.SendLimits
-	clock   func() time.Time
+	events   service.Events
+	timeline service.Timeline
+	users    service.Users
+	rooms    repository.Room
+	aliases  repository.Alias
+	members  repository.RoomMember
+	tx       repository.Transactor
+	limiter  *valkey.Client
+	limits   entity.SendLimits
+	clock    func() time.Time
 }
 
 func New(
 	events service.Events,
+	timeline service.Timeline,
 	users service.Users,
 	rooms repository.Room,
 	aliases repository.Alias,
@@ -39,7 +41,7 @@ func New(
 	if clock == nil {
 		clock = time.Now
 	}
-	return &srv{events: events, users: users, rooms: rooms, aliases: aliases, members: members,
+	return &srv{events: events, timeline: timeline, users: users, rooms: rooms, aliases: aliases, members: members,
 		tx: tx, limiter: limiter, limits: limits, clock: clock}
 }
 

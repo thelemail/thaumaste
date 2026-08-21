@@ -17,12 +17,14 @@ import (
 	"github.com/thelemail/thaumaste/internal/entity"
 	"github.com/thelemail/thaumaste/internal/handler/http/matrix"
 	"github.com/thelemail/thaumaste/internal/pkg/keyseal"
+	"github.com/thelemail/thaumaste/internal/pkg/notify"
 	"github.com/thelemail/thaumaste/internal/pkg/postgres"
 	"github.com/thelemail/thaumaste/internal/pkg/serialiser"
 	"github.com/thelemail/thaumaste/internal/pkg/valkey"
 	"github.com/thelemail/thaumaste/internal/repository/accesstoken"
 	"github.com/thelemail/thaumaste/internal/repository/alias"
 	"github.com/thelemail/thaumaste/internal/repository/authattempt"
+	"github.com/thelemail/thaumaste/internal/repository/connection"
 	"github.com/thelemail/thaumaste/internal/repository/credential"
 	"github.com/thelemail/thaumaste/internal/repository/device"
 	"github.com/thelemail/thaumaste/internal/repository/event"
@@ -39,7 +41,9 @@ import (
 	"github.com/thelemail/thaumaste/internal/service"
 	"github.com/thelemail/thaumaste/internal/service/events"
 	"github.com/thelemail/thaumaste/internal/service/rooms"
+	"github.com/thelemail/thaumaste/internal/service/sync"
 	"github.com/thelemail/thaumaste/internal/service/tenants"
+	"github.com/thelemail/thaumaste/internal/service/timeline"
 	"github.com/thelemail/thaumaste/internal/service/tokens"
 	"github.com/thelemail/thaumaste/internal/service/users"
 	"github.com/thelemail/thaumaste/internal/testutil/pgtest"
@@ -47,12 +51,14 @@ import (
 )
 
 type server struct {
-	router  chi.Router
-	tenants service.Tenants
-	tokens  service.Tokens
-	events  service.Events
-	users   service.Users
-	rooms   service.Rooms
+	router   chi.Router
+	tenants  service.Tenants
+	tokens   service.Tokens
+	events   service.Events
+	users    service.Users
+	rooms    service.Rooms
+	sync     service.Sync
+	notifier *notify.Notifier
 
 	assertionKey ed25519.PrivateKey
 	db           *postgres.Client
@@ -90,23 +96,28 @@ func signAssertion(key ed25519.PrivateKey, subject, serverName string, issued ti
 
 func buildServer(t *testing.T, assertion ed25519.PublicKey) *server {
 	t.Helper()
-	return wireServer(t, assertion, pgtest.Connect(t, "tenants"), nil, entity.SendLimits{})
+	return wireServer(t, "test", assertion, pgtest.Connect(t, "tenants", "stream_positions"), nil, entity.SendLimits{})
 }
 
 func reopen(t *testing.T, s *server) *server {
 	t.Helper()
-	next := wireServer(t, nil, pgtest.Connect(t), nil, entity.SendLimits{})
+	next := wireServer(t, "test", nil, pgtest.Connect(t), nil, entity.SendLimits{})
 	next.assertionKey = s.assertionKey
 	return next
 }
 
+func newSharedServer(t *testing.T, name string, pg *postgres.Client, bus *valkey.Client) *server {
+	t.Helper()
+	return wireServer(t, name, nil, pg, bus, entity.SendLimits{})
+}
+
 func newLimitedServer(t *testing.T, limits entity.SendLimits) *server {
 	t.Helper()
-	return wireServer(t, nil, pgtest.Connect(t, "tenants"),
+	return wireServer(t, "test", nil, pgtest.Connect(t, "tenants", "stream_positions"),
 		valkeytest.Connect(t, config.Limits{SendPerUser: limits.PerUser, SendWindow: limits.Window}), limits)
 }
 
-func wireServer(t *testing.T, assertion ed25519.PublicKey, pg *postgres.Client,
+func wireServer(t *testing.T, instance string, assertion ed25519.PublicKey, pg *postgres.Client,
 	limiter *valkey.Client, limits entity.SendLimits,
 ) *server {
 	t.Helper()
@@ -121,7 +132,7 @@ func wireServer(t *testing.T, assertion ed25519.PublicKey, pg *postgres.Client,
 
 	eventRepo := event.New(pg)
 	stream, err := postgres.NewStream(t.Context(), pg, postgres.StreamConfig{
-		Name: "events", Instance: "test", Sequence: "events_stream_seq",
+		Name: "events", Instance: instance, Sequence: "events_stream_seq",
 	})
 	if err != nil {
 		t.Fatalf("NewStream: %v", err)
@@ -131,8 +142,14 @@ func wireServer(t *testing.T, assertion ed25519.PublicKey, pg *postgres.Client,
 	queries := &atomic.Int64{}
 	relationRepo := countingRelations{inner: relation.New(pg), calls: queries}
 	eventRepo = countingEvents{Event: eventRepo, calls: queries}
+	var bus notify.Bus
+	if limiter != nil {
+		bus = limiter
+	}
+	notifier := notify.New(bus, "test:sync")
+
 	eventSvc := events.New(roomRepo, eventRepo, state.New(pg), memberRepo, relationRepo, transaction.New(pg),
-		tenantSvc, pg, stream, nil, serialiser.New(), "test", nil, nil)
+		tenantSvc, pg, stream, limiter, notifier, serialiser.New(), instance, nil, nil)
 
 	userSvc := users.New(
 		user.New(pg), credential.New(pg), device.New(pg), refreshtoken.New(pg),
@@ -144,7 +161,10 @@ func wireServer(t *testing.T, assertion ed25519.PublicKey, pg *postgres.Client,
 			AssertionKey: entity.EncodeBase64(assertion), AssertionTTL: 5 * time.Minute,
 		}, nil, nil)
 
-	roomSvc := rooms.New(eventSvc, userSvc, roomRepo, alias.New(pg), memberRepo, pg,
+	timelineSvc := timeline.New(eventSvc, nil)
+	syncSvc := sync.New(connection.New(pg), memberRepo, eventRepo, timelineSvc, pg, stream,
+		notifier, serialiser.New(), config.Sync{MaxTimeout: 2 * time.Second, MaxRoomsPerSync: 200}, nil)
+	roomSvc := rooms.New(eventSvc, timelineSvc, userSvc, roomRepo, alias.New(pg), memberRepo, pg,
 		limiter, limits, nil)
 
 	r := chi.NewRouter()
@@ -153,13 +173,14 @@ func wireServer(t *testing.T, assertion ed25519.PublicKey, pg *postgres.Client,
 		tokenSvc,
 		userSvc,
 		roomSvc,
+		syncSvc,
 		config.Server{PublicScheme: "https"},
 		config.Signing{KeyValidity: 24 * time.Hour},
 		nil,
 	).Mount(r)
 
 	return &server{router: r, tenants: tenantSvc, tokens: tokenSvc, events: eventSvc,
-		users: userSvc, rooms: roomSvc, db: pg, queries: queries}
+		users: userSvc, rooms: roomSvc, sync: syncSvc, notifier: notifier, db: pg, queries: queries}
 }
 
 func (s *server) tenant(t *testing.T, serverName string, hosts ...string) entity.Tenant {
@@ -602,6 +623,16 @@ func (s *server) seedRoom(t *testing.T, of entity.Tenant, resident sessionBody) 
 		}})
 	if reacted.Code != http.StatusOK {
 		t.Fatalf("seed a reaction = %d: %s", reacted.Code, reacted.Body)
+	}
+
+	synced := s.do(t, http.MethodPost, of.ServerName,
+		"/_matrix/client/unstable/org.matrix.simplified_msc3575/sync", resident.AccessToken,
+		map[string]any{"conn_id": "seeded", "lists": map[string]any{"all": map[string]any{
+			"range": []int{0, 9}, "timeline_limit": 1,
+			"required_state": map[string]any{"include": []map[string]any{{}}},
+		}}})
+	if synced.Code != http.StatusOK {
+		t.Fatalf("seed a sync connection = %d: %s", synced.Code, synced.Body)
 	}
 	return created
 }

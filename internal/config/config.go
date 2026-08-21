@@ -20,6 +20,7 @@ type Config struct {
 	Signing  Signing
 	Auth     Auth
 	Limits   Limits
+	Sync     Sync
 	Logger   Logger
 }
 
@@ -28,6 +29,7 @@ type Server struct {
 	Addr            string        `env:"THAUMASTE_SERVER_ADDR"             envDefault:":8008"`
 	ReadTimeout     time.Duration `env:"THAUMASTE_SERVER_READ_TIMEOUT"     envDefault:"15s"`
 	WriteTimeout    time.Duration `env:"THAUMASTE_SERVER_WRITE_TIMEOUT"    envDefault:"30s"`
+	IdleTimeout     time.Duration `env:"THAUMASTE_SERVER_IDLE_TIMEOUT"     envDefault:"120s"`
 	ShutdownTimeout time.Duration `env:"THAUMASTE_SERVER_SHUTDOWN_TIMEOUT" envDefault:"30s"`
 	PublicScheme    string        `env:"THAUMASTE_SERVER_PUBLIC_SCHEME"    envDefault:"https"`
 }
@@ -125,6 +127,13 @@ type Auth struct {
 
 	AssertionKey string        `env:"THAUMASTE_AUTH_ASSERTION_KEY"`
 	AssertionTTL time.Duration `env:"THAUMASTE_AUTH_ASSERTION_TTL" envDefault:"5m"`
+}
+
+type Sync struct {
+	MaxTimeout      time.Duration `env:"THAUMASTE_SYNC_MAX_TIMEOUT"      envDefault:"25s"`
+	ConnectionTTL   time.Duration `env:"THAUMASTE_SYNC_CONNECTION_TTL"   envDefault:"1h"`
+	SweepEvery      time.Duration `env:"THAUMASTE_SYNC_SWEEP_EVERY"      envDefault:"10m"`
+	MaxRoomsPerSync int           `env:"THAUMASTE_SYNC_MAX_ROOMS"        envDefault:"200"`
 }
 
 type Logger struct {

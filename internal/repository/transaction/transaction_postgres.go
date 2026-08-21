@@ -36,20 +36,24 @@ func (r *repo) Get(ctx context.Context, key entity.TransactionKey) (entity.Event
 	return toTransaction(row)
 }
 
-func (r *repo) ForEvent(ctx context.Context, sender entity.TransactionSender, eventID string) (entity.EventTransaction, error) {
-	row, err := dbpg.EventTransactions(
-		dbpg.EventTransactionWhere.EventID.EQ(eventID),
+func (r *repo) ForEvents(ctx context.Context, sender entity.TransactionSender, eventIDs []string) (map[string]string, error) {
+	if len(eventIDs) == 0 {
+		return nil, nil
+	}
+	rows, err := dbpg.EventTransactions(
+		dbpg.EventTransactionWhere.EventID.IN(eventIDs),
 		dbpg.EventTransactionWhere.TenantID.EQ(sender.TenantID.String()),
 		dbpg.EventTransactionWhere.UserID.EQ(sender.UserID),
 		dbpg.EventTransactionWhere.DeviceID.EQ(sender.DeviceID),
-	).One(ctx, r.db.Querier(ctx))
+	).All(ctx, r.db.Querier(ctx))
 	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return entity.EventTransaction{}, repository.ErrTransactionNotFound
-		}
-		return entity.EventTransaction{}, fmt.Errorf("repository: get transaction by event: %w", err)
+		return nil, fmt.Errorf("repository: get transactions by event: %w", err)
 	}
-	return toTransaction(row)
+	out := make(map[string]string, len(rows))
+	for _, row := range rows {
+		out[row.EventID] = row.TXNID
+	}
+	return out, nil
 }
 
 func (r *repo) Record(ctx context.Context, in entity.NewEventTransaction) error {

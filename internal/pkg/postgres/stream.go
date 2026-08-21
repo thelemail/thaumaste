@@ -11,9 +11,18 @@ import (
 	"time"
 )
 
-const positionPersistTimeout = 5 * time.Second
+const (
+	positionPersistTimeout = 5 * time.Second
+	writerStaleAfter       = 5 * time.Minute
+)
 
 var ErrNonPositiveCount = errors.New("postgres: stream position count must be positive")
+
+const publishedPositionSQL = `
+	SELECT COALESCE(
+		(SELECT min(abs(stream_id)) FROM stream_positions
+		  WHERE stream_name = $1 AND instance_name <> $2 AND updated_at > now() - $3::interval), 0),
+	       (SELECT last_value FROM %s)`
 
 type StreamConfig struct {
 	Name     string
@@ -61,6 +70,28 @@ func (s *Stream) Current() int64 {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.sign() * s.upTo
+}
+
+func (s *Stream) Published(ctx context.Context) (int64, error) {
+	var others, issued int64
+	query := fmt.Sprintf(publishedPositionSQL, s.cfg.Sequence)
+	err := s.db.Querier(ctx).QueryRowContext(ctx, query,
+		s.cfg.Name, s.cfg.Instance, writerStaleAfter.String()).Scan(&others, &issued)
+	if err != nil {
+		return 0, fmt.Errorf("postgres: read published stream position: %w", err)
+	}
+
+	s.mu.Lock()
+	published := s.upTo
+	if len(s.inFlight) == 0 && len(s.fetching) == 0 {
+		published = max(published, issued)
+	}
+	s.mu.Unlock()
+
+	if others > 0 && others < published {
+		published = others
+	}
+	return s.sign() * published, nil
 }
 
 func (s *Stream) Next(ctx context.Context, n int) (*Positions, error) {
@@ -180,7 +211,8 @@ func (s *Stream) persist(upTo int64) {
 	_, err := s.db.ExecContext(ctx,
 		`INSERT INTO stream_positions (stream_name, instance_name, stream_id)
 		 VALUES ($1, $2, $3)
-		 ON CONFLICT (stream_name, instance_name) DO UPDATE SET stream_id = EXCLUDED.stream_id
+		 ON CONFLICT (stream_name, instance_name)
+		 DO UPDATE SET stream_id = EXCLUDED.stream_id, updated_at = now()
 		 WHERE abs(stream_positions.stream_id) < abs(EXCLUDED.stream_id)`,
 		s.cfg.Name, s.cfg.Instance, s.sign()*upTo)
 	if err != nil {

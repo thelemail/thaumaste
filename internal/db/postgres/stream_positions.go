@@ -23,9 +23,10 @@ import (
 
 // StreamPosition is an object representing the database table.
 type StreamPosition struct {
-	StreamName   string `boil:"stream_name" json:"stream_name" toml:"stream_name" yaml:"stream_name"`
-	InstanceName string `boil:"instance_name" json:"instance_name" toml:"instance_name" yaml:"instance_name"`
-	StreamID     int64  `boil:"stream_id" json:"stream_id" toml:"stream_id" yaml:"stream_id"`
+	StreamName   string    `boil:"stream_name" json:"stream_name" toml:"stream_name" yaml:"stream_name"`
+	InstanceName string    `boil:"instance_name" json:"instance_name" toml:"instance_name" yaml:"instance_name"`
+	StreamID     int64     `boil:"stream_id" json:"stream_id" toml:"stream_id" yaml:"stream_id"`
+	UpdatedAt    time.Time `boil:"updated_at" json:"updated_at" toml:"updated_at" yaml:"updated_at"`
 
 	R *streamPositionR `boil:"-" json:"-" toml:"-" yaml:"-"`
 	L streamPositionL  `boil:"-" json:"-" toml:"-" yaml:"-"`
@@ -35,20 +36,24 @@ var StreamPositionColumns = struct {
 	StreamName   string
 	InstanceName string
 	StreamID     string
+	UpdatedAt    string
 }{
 	StreamName:   "stream_name",
 	InstanceName: "instance_name",
 	StreamID:     "stream_id",
+	UpdatedAt:    "updated_at",
 }
 
 var StreamPositionTableColumns = struct {
 	StreamName   string
 	InstanceName string
 	StreamID     string
+	UpdatedAt    string
 }{
 	StreamName:   "stream_positions.stream_name",
 	InstanceName: "stream_positions.instance_name",
 	StreamID:     "stream_positions.stream_id",
+	UpdatedAt:    "stream_positions.updated_at",
 }
 
 // Generated where
@@ -57,10 +62,12 @@ var StreamPositionWhere = struct {
 	StreamName   whereHelperstring
 	InstanceName whereHelperstring
 	StreamID     whereHelperint64
+	UpdatedAt    whereHelpertime_Time
 }{
 	StreamName:   whereHelperstring{field: "\"stream_positions\".\"stream_name\""},
 	InstanceName: whereHelperstring{field: "\"stream_positions\".\"instance_name\""},
 	StreamID:     whereHelperint64{field: "\"stream_positions\".\"stream_id\""},
+	UpdatedAt:    whereHelpertime_Time{field: "\"stream_positions\".\"updated_at\""},
 }
 
 // StreamPositionRels is where relationship names are stored.
@@ -80,9 +87,9 @@ func (*streamPositionR) NewStruct() *streamPositionR {
 type streamPositionL struct{}
 
 var (
-	streamPositionAllColumns            = []string{"stream_name", "instance_name", "stream_id"}
+	streamPositionAllColumns            = []string{"stream_name", "instance_name", "stream_id", "updated_at"}
 	streamPositionColumnsWithoutDefault = []string{"stream_name", "instance_name", "stream_id"}
-	streamPositionColumnsWithDefault    = []string{}
+	streamPositionColumnsWithDefault    = []string{"updated_at"}
 	streamPositionPrimaryKeyColumns     = []string{"stream_name", "instance_name"}
 	streamPositionGeneratedColumns      = []string{}
 )
@@ -441,6 +448,13 @@ func (o *StreamPosition) Insert(ctx context.Context, exec boil.ContextExecutor, 
 	}
 
 	var err error
+	if !boil.TimestampsAreSkipped(ctx) {
+		currTime := time.Now().In(boil.GetLocation())
+
+		if o.UpdatedAt.IsZero() {
+			o.UpdatedAt = currTime
+		}
+	}
 
 	if err := o.doBeforeInsertHooks(ctx, exec); err != nil {
 		return err
@@ -516,6 +530,12 @@ func (o *StreamPosition) Insert(ctx context.Context, exec boil.ContextExecutor, 
 // See boil.Columns.UpdateColumnSet documentation to understand column list inference for updates.
 // Update does not automatically update the record in case of default values. Use .Reload() to refresh the records.
 func (o *StreamPosition) Update(ctx context.Context, exec boil.ContextExecutor, columns boil.Columns) (int64, error) {
+	if !boil.TimestampsAreSkipped(ctx) {
+		currTime := time.Now().In(boil.GetLocation())
+
+		o.UpdatedAt = currTime
+	}
+
 	var err error
 	if err = o.doBeforeUpdateHooks(ctx, exec); err != nil {
 		return 0, err
@@ -645,6 +665,11 @@ func (o StreamPositionSlice) UpdateAll(ctx context.Context, exec boil.ContextExe
 func (o *StreamPosition) Upsert(ctx context.Context, exec boil.ContextExecutor, updateOnConflict bool, conflictColumns []string, updateColumns, insertColumns boil.Columns, opts ...UpsertOptionFunc) error {
 	if o == nil {
 		return errors.New("dbpostgres: no stream_positions provided for upsert")
+	}
+	if !boil.TimestampsAreSkipped(ctx) {
+		currTime := time.Now().In(boil.GetLocation())
+
+		o.UpdatedAt = currTime
 	}
 
 	if err := o.doBeforeUpsertHooks(ctx, exec); err != nil {

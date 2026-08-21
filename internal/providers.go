@@ -11,6 +11,7 @@ import (
 	"github.com/thelemail/thaumaste/internal/config"
 	"github.com/thelemail/thaumaste/internal/entity"
 	"github.com/thelemail/thaumaste/internal/pkg/keyseal"
+	"github.com/thelemail/thaumaste/internal/pkg/notify"
 	"github.com/thelemail/thaumaste/internal/pkg/postgres"
 	"github.com/thelemail/thaumaste/internal/pkg/serialiser"
 	"github.com/thelemail/thaumaste/internal/pkg/valkey"
@@ -18,6 +19,7 @@ import (
 	"github.com/thelemail/thaumaste/internal/repository/accesstoken"
 	"github.com/thelemail/thaumaste/internal/repository/alias"
 	"github.com/thelemail/thaumaste/internal/repository/authattempt"
+	"github.com/thelemail/thaumaste/internal/repository/connection"
 	"github.com/thelemail/thaumaste/internal/repository/credential"
 	"github.com/thelemail/thaumaste/internal/repository/device"
 	"github.com/thelemail/thaumaste/internal/repository/event"
@@ -34,7 +36,9 @@ import (
 	"github.com/thelemail/thaumaste/internal/service"
 	"github.com/thelemail/thaumaste/internal/service/events"
 	"github.com/thelemail/thaumaste/internal/service/rooms"
+	"github.com/thelemail/thaumaste/internal/service/sync"
 	"github.com/thelemail/thaumaste/internal/service/tenants"
+	"github.com/thelemail/thaumaste/internal/service/timeline"
 	"github.com/thelemail/thaumaste/internal/service/tokens"
 	"github.com/thelemail/thaumaste/internal/service/users"
 )
@@ -44,8 +48,9 @@ func providePostgresConfig(c config.Config) config.Postgres { return c.Postgres 
 func provideSigningConfig(c config.Config) config.Signing   { return c.Signing }
 func provideValkeyConfig(c config.Config) config.Valkey     { return c.Valkey }
 func provideLimitsConfig(c config.Config) config.Limits     { return c.Limits }
+func provideSyncConfig(c config.Config) config.Sync         { return c.Sync }
 
-var ConfigSet = wire.NewSet(provideServerConfig, providePostgresConfig, provideSigningConfig,
+var ConfigSet = wire.NewSet(provideSyncConfig, provideServerConfig, providePostgresConfig, provideSigningConfig,
 	provideValkeyConfig, provideLimitsConfig, provideAuthConfig)
 
 func providePostgres(ctx context.Context, cfg config.Postgres) (*postgres.Client, func(), error) {
@@ -130,12 +135,32 @@ func provideEvents(
 	tx repository.Transactor,
 	stream *postgres.Stream,
 	locks *valkey.Client,
+	notifier *notify.Notifier,
 	gate *serialiser.Serialiser,
 	cfg config.Server,
 	clock func() time.Time,
 ) service.Events {
-	return events.New(rooms, eventRepo, stateRepo, members, relations, txns, tenants, tx, stream, locks, gate,
-		cfg.InstanceName, clock, nil)
+	return events.New(rooms, eventRepo, stateRepo, members, relations, txns, tenants, tx, stream, locks,
+		notifier, gate, cfg.InstanceName, clock, nil)
+}
+
+func provideNotifier(locks *valkey.Client, cfg config.Valkey) *notify.Notifier {
+	return notify.New(locks, cfg.KeyPrefix+":sync")
+}
+
+func provideSync(
+	connections repository.Connection,
+	members repository.RoomMember,
+	eventRepo repository.Event,
+	timelineSvc service.Timeline,
+	tx repository.Transactor,
+	stream *postgres.Stream,
+	notifier *notify.Notifier,
+	gate *serialiser.Serialiser,
+	cfg config.Sync,
+	clock func() time.Time,
+) service.Sync {
+	return sync.New(connections, members, eventRepo, timelineSvc, tx, stream, notifier, gate, cfg, clock)
 }
 
 func provideSendLimits(cfg config.Limits) entity.SendLimits {
@@ -165,8 +190,12 @@ var DomainSet = wire.NewSet(
 	relation.New,
 	roommember.New,
 	transaction.New,
+	provideNotifier,
 	provideEvents,
+	timeline.New,
 	rooms.New,
+	connection.New,
+	provideSync,
 	user.New,
 	credential.New,
 	device.New,
