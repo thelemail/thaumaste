@@ -30,6 +30,11 @@ const (
 	codeLimitExceed  errorCode = "M_LIMIT_EXCEEDED"
 	codeDeactivated  errorCode = "M_USER_DEACTIVATED"
 	codeWeakPassword errorCode = "M_WEAK_PASSWORD"
+	codeBadRoomVer   errorCode = "M_UNSUPPORTED_ROOM_VERSION"
+	codeBadRoomState errorCode = "M_INVALID_ROOM_STATE"
+	codeRoomInUse    errorCode = "M_ROOM_IN_USE"
+	codeBadAlias     errorCode = "M_BAD_ALIAS"
+	codeBadState     errorCode = "M_BAD_STATE"
 )
 
 type errorEnvelope struct {
