@@ -1,8 +1,10 @@
 package matrix
 
-import "net/http"
+import (
+	"net/http"
 
-const defaultRoomVersion = "12"
+	"github.com/thelemail/thaumaste/internal/entity"
+)
 
 type roomVersionsCapability struct {
 	Default   string            `json:"default"`
@@ -26,11 +28,16 @@ type capabilitiesResponse struct {
 }
 
 func (h *Handler) capabilities(w http.ResponseWriter, _ *http.Request) {
+	supported := entity.SupportedRoomVersions()
+	available := make(map[string]string, len(supported))
+	for _, id := range supported {
+		available[string(id)] = "stable"
+	}
 	writeJSON(w, http.StatusOK, capabilitiesResponse{
 		Capabilities: capabilitySet{
 			RoomVersions: roomVersionsCapability{
-				Default:   defaultRoomVersion,
-				Available: map[string]string{defaultRoomVersion: "stable"},
+				Default:   string(entity.DefaultRoomVersion),
+				Available: available,
 			},
 		},
 	})

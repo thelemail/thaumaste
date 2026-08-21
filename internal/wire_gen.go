@@ -11,15 +11,23 @@ import (
 	"github.com/thelemail/thaumaste/internal/config"
 	"github.com/thelemail/thaumaste/internal/pkg/keyseal"
 	"github.com/thelemail/thaumaste/internal/repository/accesstoken"
+	"github.com/thelemail/thaumaste/internal/repository/alias"
 	"github.com/thelemail/thaumaste/internal/repository/authattempt"
 	"github.com/thelemail/thaumaste/internal/repository/credential"
 	"github.com/thelemail/thaumaste/internal/repository/device"
+	"github.com/thelemail/thaumaste/internal/repository/event"
 	"github.com/thelemail/thaumaste/internal/repository/refreshtoken"
+	"github.com/thelemail/thaumaste/internal/repository/room"
+	"github.com/thelemail/thaumaste/internal/repository/roommember"
 	"github.com/thelemail/thaumaste/internal/repository/signingkey"
+	"github.com/thelemail/thaumaste/internal/repository/state"
 	"github.com/thelemail/thaumaste/internal/repository/tenant"
 	"github.com/thelemail/thaumaste/internal/repository/user"
 	"github.com/thelemail/thaumaste/internal/service"
+	"github.com/thelemail/thaumaste/internal/service/rooms"
 )
+
+// Injectors from wire.go:
 
 func InitializeServe(ctx context.Context, cfg config.Config) (*ServeRuntime, func(), error) {
 	server := provideServerConfig(cfg)
@@ -49,7 +57,20 @@ func InitializeServe(ctx context.Context, cfg config.Config) (*ServeRuntime, fun
 	authAttempt := authattempt.New(client)
 	auth := provideAuthConfig(cfg)
 	users := provideUsers(repositoryUser, repositoryCredential, repositoryDevice, refreshToken, uiaSession, authAttempt, tokens, tenants, transactor, auth, v)
-	serveRuntime := provideServeRuntime(server, signing, client, tenants, tokens, users, v)
+	repositoryEvent := event.New(client)
+	repositoryRoom := room.New(client, repositoryEvent)
+	repositoryState := state.New(client)
+	roomMember := roommember.New(client)
+	stream, err := provideEventStream(ctx, client, server)
+	if err != nil {
+		cleanup()
+		return nil, nil, err
+	}
+	serialiser := provideSerialiser()
+	events := provideEvents(repositoryRoom, repositoryEvent, repositoryState, roomMember, tenants, transactor, stream, serialiser, server, v)
+	repositoryAlias := alias.New(client)
+	serviceRooms := rooms.New(events, users, repositoryRoom, repositoryAlias, roomMember, transactor)
+	serveRuntime := provideServeRuntime(server, signing, client, tenants, tokens, users, serviceRooms, v)
 	return serveRuntime, func() {
 		cleanup()
 	}, nil

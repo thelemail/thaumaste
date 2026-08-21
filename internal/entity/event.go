@@ -21,6 +21,13 @@ const (
 	EventTypeRedaction         = "m.room.redaction"
 	EventTypeMessage           = "m.room.message"
 	EventTypeEncryption        = "m.room.encryption"
+	EventTypeName              = "m.room.name"
+	EventTypeTopic             = "m.room.topic"
+	EventTypeAvatar            = "m.room.avatar"
+	EventTypeCanonicalAlias    = "m.room.canonical_alias"
+	EventTypeGuestAccess       = "m.room.guest_access"
+	EventTypeTombstone         = "m.room.tombstone"
+	EventTypeServerACL         = "m.room.server_acl"
 )
 
 const (

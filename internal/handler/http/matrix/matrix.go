@@ -14,6 +14,7 @@ type Handler struct {
 	tenants      service.Tenants
 	tokens       service.Tokens
 	users        service.Users
+	rooms        service.Rooms
 	publicScheme string
 	keyValidity  time.Duration
 	clock        func() time.Time
@@ -23,6 +24,7 @@ func New(
 	tenants service.Tenants,
 	tokens service.Tokens,
 	users service.Users,
+	rooms service.Rooms,
 	srv config.Server,
 	sign config.Signing,
 	clock func() time.Time,
@@ -34,6 +36,7 @@ func New(
 		tenants:      tenants,
 		tokens:       tokens,
 		users:        users,
+		rooms:        rooms,
 		publicScheme: srv.PublicScheme,
 		keyValidity:  sign.KeyValidity,
 		clock:        clock,
@@ -79,6 +82,28 @@ func (h *Handler) Mount(r chi.Router) {
 				r.Post("/_matrix/client/v3/delete_devices", h.deleteDevices)
 
 				r.Put("/_matrix/client/v3/profile/{userID}/{keyName}", h.setProfileField)
+
+				r.Post("/_matrix/client/v3/createRoom", h.createRoom)
+				r.Get("/_matrix/client/v3/joined_rooms", h.joinedRooms)
+
+				r.Get("/_matrix/client/v3/rooms/{roomID}/state", h.roomState)
+				r.Get("/_matrix/client/v3/rooms/{roomID}/state/{eventType}", h.roomStateEvent)
+				r.Get("/_matrix/client/v3/rooms/{roomID}/state/{eventType}/", h.roomStateEvent)
+				r.Get("/_matrix/client/v3/rooms/{roomID}/state/{eventType}/{stateKey}", h.roomStateEvent)
+				r.Put("/_matrix/client/v3/rooms/{roomID}/state/{eventType}", h.setRoomState)
+				r.Put("/_matrix/client/v3/rooms/{roomID}/state/{eventType}/", h.setRoomState)
+				r.Put("/_matrix/client/v3/rooms/{roomID}/state/{eventType}/{stateKey}", h.setRoomState)
+				r.Get("/_matrix/client/v3/rooms/{roomID}/joined_members", h.joinedMembers)
+				r.Get("/_matrix/client/v3/rooms/{roomID}/aliases", h.roomAliases)
+
+				r.Get("/_matrix/client/v3/directory/room/{roomAlias}", h.resolveAlias)
+				r.Put("/_matrix/client/v3/directory/room/{roomAlias}", h.createAlias)
+				r.Delete("/_matrix/client/v3/directory/room/{roomAlias}", h.deleteAlias)
+				r.Get("/_matrix/client/v3/directory/list/room/{roomID}", h.getVisibility)
+				r.Put("/_matrix/client/v3/directory/list/room/{roomID}", h.setVisibility)
+
+				r.Get("/_matrix/client/v3/publicRooms", h.publicRooms)
+				r.Post("/_matrix/client/v3/publicRooms", h.searchPublicRooms)
 			})
 		})
 	})

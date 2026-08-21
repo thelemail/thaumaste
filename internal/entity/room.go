@@ -2,6 +2,8 @@ package entity
 
 import (
 	"errors"
+	"slices"
+	"strings"
 	"time"
 
 	validation "github.com/go-ozzo/ozzo-validation/v4"
@@ -40,12 +42,15 @@ func (d Disposition) Deliverable() bool {
 }
 
 type Room struct {
-	NID       int64
-	TenantID  uuid.UUID
-	RoomID    string
-	Version   RoomVersionID
-	CreatedAt time.Time
+	NID        int64
+	TenantID   uuid.UUID
+	RoomID     string
+	Version    RoomVersionID
+	Visibility string
+	CreatedAt  time.Time
 }
+
+func (r Room) Public() bool { return r.Visibility == VisibilityPublic }
 
 func (Room) Validate() error { return nil }
 
@@ -111,22 +116,6 @@ func (n NewStoredEvent) Validate() error {
 	return nil
 }
 
-type NewRoomEvent struct {
-	Version RoomVersionID
-	Creator string
-	Content map[string]any
-}
-
-func (n NewRoomEvent) Validate() error {
-	if _, err := LookupRoomVersion(n.Version); err != nil {
-		return err
-	}
-	if !isUserID(n.Creator) {
-		return ErrEventMalformed
-	}
-	return nil
-}
-
 type NewEvent struct {
 	RoomID   string
 	Type     string
@@ -141,4 +130,76 @@ func (n NewEvent) Validate() error {
 		validation.Field(&n.Type, validation.Required, validation.Length(1, MaxEventTypeSize)),
 		validation.Field(&n.Sender, validation.Required, validation.Length(1, MaxUserIDBytes)),
 	)
+}
+
+type RoomMembership struct {
+	TenantID   uuid.UUID
+	RoomNID    int64
+	RoomID     string
+	UserID     string
+	Membership string
+	EventNID   int64
+}
+
+func (RoomMembership) Validate() error { return nil }
+
+type NewRoomMembership struct {
+	TenantID   uuid.UUID
+	RoomNID    int64
+	UserID     string
+	Membership string
+	EventNID   int64
+}
+
+func (n NewRoomMembership) Validate() error {
+	if err := validation.ValidateStruct(&n,
+		validation.Field(&n.TenantID, validation.By(notNilUUID)),
+		validation.Field(&n.RoomNID, validation.Required),
+		validation.Field(&n.EventNID, validation.Required),
+		validation.Field(&n.UserID, validation.Required, validation.Length(1, MaxUserIDBytes)),
+	); err != nil {
+		return err
+	}
+	if !slices.Contains(memberships, n.Membership) {
+		return ErrEventMalformed
+	}
+	return nil
+}
+
+var ErrNotInRoom = errors.New("entity: user is not in the room")
+
+type RoomMember struct {
+	UserID      string
+	DisplayName string
+	AvatarURL   string
+}
+
+func (RoomMember) Validate() error { return nil }
+
+type PublicRoom struct {
+	RoomID           string
+	Name             string
+	Topic            string
+	CanonicalAlias   string
+	AvatarURL        string
+	RoomType         string
+	JoinRule         string
+	NumJoinedMembers int64
+	WorldReadable    bool
+	GuestCanJoin     bool
+}
+
+func (PublicRoom) Validate() error { return nil }
+
+func (p PublicRoom) Matches(term string) bool {
+	if term == "" {
+		return true
+	}
+	term = strings.ToLower(term)
+	for _, field := range []string{p.Name, p.Topic, p.CanonicalAlias} {
+		if strings.Contains(strings.ToLower(field), term) {
+			return true
+		}
+	}
+	return false
 }

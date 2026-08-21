@@ -169,6 +169,10 @@ func (p PowerLevels) EventLevel(eventType string, isState bool) PowerLevel {
 
 func (p PowerLevels) Creators() []string { return p.creators }
 
+func (p PowerLevels) CanSend(userID, eventType string, isState bool) bool {
+	return p.UserLevel(userID).AtLeast(p.EventLevel(eventType, isState))
+}
+
 func asInt(raw any) (int64, bool) {
 	switch value := raw.(type) {
 	case json.Number:

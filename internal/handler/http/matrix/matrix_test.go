@@ -17,12 +17,14 @@ import (
 	"github.com/thelemail/thaumaste/internal/pkg/postgres"
 	"github.com/thelemail/thaumaste/internal/pkg/serialiser"
 	"github.com/thelemail/thaumaste/internal/repository/accesstoken"
+	"github.com/thelemail/thaumaste/internal/repository/alias"
 	"github.com/thelemail/thaumaste/internal/repository/authattempt"
 	"github.com/thelemail/thaumaste/internal/repository/credential"
 	"github.com/thelemail/thaumaste/internal/repository/device"
 	"github.com/thelemail/thaumaste/internal/repository/event"
 	"github.com/thelemail/thaumaste/internal/repository/refreshtoken"
 	"github.com/thelemail/thaumaste/internal/repository/room"
+	"github.com/thelemail/thaumaste/internal/repository/roommember"
 	"github.com/thelemail/thaumaste/internal/repository/signingkey"
 	"github.com/thelemail/thaumaste/internal/repository/state"
 	"github.com/thelemail/thaumaste/internal/repository/tenant"
@@ -30,6 +32,7 @@ import (
 	"github.com/thelemail/thaumaste/internal/repository/user"
 	"github.com/thelemail/thaumaste/internal/service"
 	"github.com/thelemail/thaumaste/internal/service/events"
+	"github.com/thelemail/thaumaste/internal/service/rooms"
 	"github.com/thelemail/thaumaste/internal/service/tenants"
 	"github.com/thelemail/thaumaste/internal/service/tokens"
 	"github.com/thelemail/thaumaste/internal/service/users"
@@ -42,6 +45,7 @@ type server struct {
 	tokens  service.Tokens
 	events  service.Events
 	users   service.Users
+	rooms   service.Rooms
 
 	assertionKey ed25519.PrivateKey
 	db           *postgres.Client
@@ -96,7 +100,9 @@ func buildServer(t *testing.T, assertion ed25519.PublicKey) *server {
 	if err != nil {
 		t.Fatalf("NewStream: %v", err)
 	}
-	eventSvc := events.New(room.New(pg, eventRepo), eventRepo, state.New(pg),
+	roomRepo := room.New(pg, eventRepo)
+	memberRepo := roommember.New(pg)
+	eventSvc := events.New(roomRepo, eventRepo, state.New(pg), memberRepo,
 		tenantSvc, pg, stream, serialiser.New(), "test", nil, nil)
 
 	userSvc := users.New(
@@ -109,17 +115,21 @@ func buildServer(t *testing.T, assertion ed25519.PublicKey) *server {
 			AssertionKey: entity.EncodeBase64(assertion), AssertionTTL: 5 * time.Minute,
 		}, nil, nil)
 
+	roomSvc := rooms.New(eventSvc, userSvc, roomRepo, alias.New(pg), memberRepo, pg)
+
 	r := chi.NewRouter()
 	matrix.New(
 		tenantSvc,
 		tokenSvc,
 		userSvc,
+		roomSvc,
 		config.Server{PublicScheme: "https"},
 		config.Signing{KeyValidity: 24 * time.Hour},
 		nil,
 	).Mount(r)
 
-	return &server{router: r, tenants: tenantSvc, tokens: tokenSvc, events: eventSvc, users: userSvc, db: pg}
+	return &server{router: r, tenants: tenantSvc, tokens: tokenSvc, events: eventSvc,
+		users: userSvc, rooms: roomSvc, db: pg}
 }
 
 func (s *server) tenant(t *testing.T, serverName string, hosts ...string) entity.Tenant {
@@ -527,31 +537,27 @@ func TestCapabilitiesReportsRoomVersionTwelveAsDefault(t *testing.T) {
 	}
 }
 
-func (s *server) seedRoom(t *testing.T, of entity.Tenant) entity.Room {
+func (s *server) seedRoom(t *testing.T, of entity.Tenant, creator string) entity.Room {
 	t.Helper()
-	creator := "@creator:" + of.ServerName
 
-	created, _, err := s.events.CreateRoom(t.Context(), of.Scope(), entity.NewRoomEvent{
-		Version: entity.DefaultRoomVersion,
-		Creator: creator,
+	created, err := s.rooms.Create(t.Context(), of.Scope(), entity.NewRoomRequest{
+		Creator:        creator,
+		Version:        entity.DefaultRoomVersion,
+		Visibility:     entity.VisibilityPublic,
+		AliasLocalpart: "seeded",
+		Name:           "seeded",
+		Topic:          "a seeded room",
 	})
 	if err != nil {
-		t.Fatalf("CreateRoom: %v", err)
+		t.Fatalf("Create room: %v", err)
 	}
 
-	empty := ""
-	sends := []entity.NewEvent{
-		{RoomID: created.RoomID, Type: entity.EventTypeMember, StateKey: &creator, Sender: creator,
-			Content: map[string]any{"membership": entity.MembershipJoin}},
-		{RoomID: created.RoomID, Type: entity.EventTypePowerLevels, StateKey: &empty, Sender: creator,
-			Content: map[string]any{"users_default": 0, "state_default": 50}},
-		{RoomID: created.RoomID, Type: entity.EventTypeMessage, Sender: creator,
-			Content: map[string]any{"msgtype": "m.text", "body": "hello"}},
-	}
-	for _, in := range sends {
-		if _, err := s.events.Send(t.Context(), of.Scope(), in); err != nil {
-			t.Fatalf("Send %s: %v", in.Type, err)
-		}
+	_, err = s.events.Send(t.Context(), of.Scope(), entity.NewEvent{
+		RoomID: created.RoomID, Type: entity.EventTypeMessage, Sender: creator,
+		Content: map[string]any{"msgtype": "m.text", "body": "hello"},
+	})
+	if err != nil {
+		t.Fatalf("Send message: %v", err)
 	}
 	return created
 }

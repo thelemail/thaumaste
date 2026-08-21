@@ -9,6 +9,14 @@ import (
 
 var ErrStateMissing = errors.New("entity: required state is missing")
 
+var memberships = []string{
+	MembershipJoin,
+	MembershipInvite,
+	MembershipLeave,
+	MembershipBan,
+	MembershipKnock,
+}
+
 const (
 	MembershipJoin   = "join"
 	MembershipInvite = "invite"

@@ -13,7 +13,9 @@ var TableNames = struct {
 	EventTypes          string
 	Events              string
 	RefreshTokens       string
+	RoomAliases         string
 	RoomExtremities     string
+	RoomMemberships     string
 	Rooms               string
 	StateBlockEntries   string
 	StateBlocks         string
@@ -36,7 +38,9 @@ var TableNames = struct {
 	EventTypes:          "event_types",
 	Events:              "events",
 	RefreshTokens:       "refresh_tokens",
+	RoomAliases:         "room_aliases",
 	RoomExtremities:     "room_extremities",
+	RoomMemberships:     "room_memberships",
 	Rooms:               "rooms",
 	StateBlockEntries:   "state_block_entries",
 	StateBlocks:         "state_blocks",
