@@ -18,6 +18,7 @@ type Events interface {
 	Event(ctx context.Context, eventID string) (entity.StoredEvent, error)
 	Many(ctx context.Context, eventNIDs []int64) ([]entity.StoredEvent, error)
 	Page(ctx context.Context, roomID string, in entity.PageRequest) ([]entity.StoredEvent, error)
+	Relations(ctx context.Context, roomID string, q entity.RelationQuery) ([]entity.RelationRef, error)
 	VisibilityFor(ctx context.Context, roomID, caller string) (entity.HistoryFilter, error)
 	PositionAtStream(ctx context.Context, roomID string, stream int64) (entity.Position, error)
 	TransactionFor(ctx context.Context, sender entity.TransactionSender, eventID string) (string, error)

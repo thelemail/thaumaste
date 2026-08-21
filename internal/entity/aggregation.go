@@ -1,5 +1,10 @@
 package entity
 
+import (
+	"cmp"
+	"slices"
+)
+
 type ThreadSummary struct {
 	Latest       ClientEvent
 	Count        int
@@ -62,4 +67,82 @@ func ChooseReplacement(parent Event, candidates []StoredEvent) (StoredEvent, boo
 		}
 	}
 	return best, found
+}
+
+const (
+	MaxReplaceCandidates = 10
+	MaxReferenceChunk    = 50
+)
+
+type BundlePlan struct {
+	Replacements       []int64
+	ThreadLatest       int64
+	ThreadCount        int
+	ThreadParticipated bool
+	Reference          []string
+}
+
+func (p BundlePlan) Wanted() []int64 {
+	out := append([]int64(nil), p.Replacements...)
+	if p.ThreadLatest != 0 {
+		out = append(out, p.ThreadLatest)
+	}
+	return out
+}
+
+func (p BundlePlan) Empty() bool {
+	return len(p.Replacements) == 0 && p.ThreadLatest == 0 && len(p.Reference) == 0
+}
+
+func PlanBundle(parent StoredEvent, caller string, refs []RelationRef) BundlePlan {
+	var plan BundlePlan
+	var replacements, threads, references []RelationRef
+
+	for _, ref := range refs {
+		switch ref.RelType {
+		case RelReplace:
+			if ref.Sender == parent.Event.Sender() {
+				replacements = append(replacements, ref)
+			}
+		case RelThread:
+			threads = append(threads, ref)
+		case RelReference:
+			references = append(references, ref)
+		}
+	}
+
+	if parent.Disposition != DispositionRedacted {
+		slices.SortFunc(replacements, func(a, b RelationRef) int { return compareRecency(b, a) })
+		for _, ref := range replacements[:min(len(replacements), MaxReplaceCandidates)] {
+			plan.Replacements = append(plan.Replacements, ref.ChildNID)
+		}
+	}
+
+	if len(threads) > 0 {
+		latest := threads[0]
+		plan.ThreadCount = len(threads)
+		plan.ThreadParticipated = parent.Event.Sender() == caller
+		for _, ref := range threads {
+			if latest.Position.Before(ref.Position) {
+				latest = ref
+			}
+			if ref.Sender == caller {
+				plan.ThreadParticipated = true
+			}
+		}
+		plan.ThreadLatest = latest.ChildNID
+	}
+
+	slices.SortFunc(references, func(a, b RelationRef) int { return comparePositions(a.Position, b.Position) })
+	for _, ref := range references[:min(len(references), MaxReferenceChunk)] {
+		plan.Reference = append(plan.Reference, ref.EventID)
+	}
+	return plan
+}
+
+func compareRecency(a, b RelationRef) int {
+	if a.OriginServerTS != b.OriginServerTS {
+		return cmp.Compare(a.OriginServerTS, b.OriginServerTS)
+	}
+	return cmp.Compare(a.EventID, b.EventID)
 }

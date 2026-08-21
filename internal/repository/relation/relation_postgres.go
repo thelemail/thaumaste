@@ -4,8 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
+	"strings"
 
-	"github.com/aarondl/sqlboiler/v4/queries/qm"
 	"github.com/jackc/pgx/v5/pgconn"
 
 	dbpg "github.com/thelemail/thaumaste/internal/db/postgres"
@@ -15,6 +16,15 @@ import (
 )
 
 const uniqueViolation = "23505"
+
+const findRelationsSQL = `
+	SELECT er.child_nid, er.parent_id, er.rel_type, er.sender,
+	       e.event_id, e.origin_server_ts, e.topological_ordering, e.stream_ordering,
+	       e.disposition, t.event_type
+	  FROM event_relations er
+	  JOIN events e ON e.event_nid = er.child_nid
+	  JOIN event_types t ON t.event_type_nid = er.event_type_nid
+	 WHERE er.room_nid = $1`
 
 const insertRelationSQL = `
 	INSERT INTO event_relations
@@ -64,102 +74,71 @@ func (r *repo) Delete(ctx context.Context, childNID int64) error {
 	return nil
 }
 
-type refRow struct {
-	ChildNid            int64  `boil:"child_nid"`
-	EventID             string `boil:"event_id"`
-	ParentID            string `boil:"parent_id"`
-	RelType             string `boil:"rel_type"`
-	EventType           string `boil:"event_type"`
-	Sender              string `boil:"sender"`
-	OriginServerTS      int64  `boil:"origin_server_ts"`
-	TopologicalOrdering int64  `boil:"topological_ordering"`
-	StreamOrdering      int64  `boil:"stream_ordering"`
-	Disposition         string `boil:"disposition"`
-}
-
 func (r *repo) Find(ctx context.Context, roomNID int64, q entity.RelationQuery) ([]entity.RelationRef, error) {
 	if q.ParentIDs != nil && len(q.ParentIDs) == 0 {
 		return nil, nil
 	}
 
-	mods := []qm.QueryMod{
-		qm.Select(
-			"event_relations.child_nid",
-			"event_relations.parent_id",
-			"event_relations.rel_type",
-			"event_relations.sender",
-			"e.event_id",
-			"e.origin_server_ts",
-			"e.topological_ordering",
-			"e.stream_ordering",
-			"e.disposition",
-			"t.event_type",
-		),
-		qm.From("event_relations"),
-		qm.InnerJoin("events e on e.event_nid = event_relations.child_nid"),
-		qm.InnerJoin("event_types t on t.event_type_nid = event_relations.event_type_nid"),
-		qm.Where("event_relations.room_nid = ?", roomNID),
+	args := []any{roomNID}
+	query := findRelationsSQL
+	placeholder := func(value any) string {
+		args = append(args, value)
+		return "$" + strconv.Itoa(len(args))
 	}
+
 	if len(q.ParentIDs) > 0 {
-		mods = append(mods, qm.WhereIn("event_relations.parent_id in ?", asAny(q.ParentIDs)...))
+		slots := make([]string, 0, len(q.ParentIDs))
+		for _, parentID := range q.ParentIDs {
+			slots = append(slots, placeholder(parentID))
+		}
+		query += " AND er.parent_id IN (" + strings.Join(slots, ", ") + ")"
 	}
 	if q.RelType != "" {
-		mods = append(mods, qm.Where("event_relations.rel_type = ?", q.RelType))
+		query += " AND er.rel_type = " + placeholder(q.RelType)
 	}
 	if q.EventType != "" {
-		mods = append(mods, qm.Where("t.event_type = ?", q.EventType))
-	}
-	if q.Backwards {
-		mods = append(mods, qm.OrderBy("e.topological_ordering DESC, e.stream_ordering DESC"))
-		mods = append(mods, bound(q.From, "<")...)
-		mods = append(mods, bound(q.To, ">")...)
-	} else {
-		mods = append(mods, qm.OrderBy("e.topological_ordering, e.stream_ordering"))
-		mods = append(mods, bound(q.From, ">")...)
-		mods = append(mods, bound(q.To, "<")...)
-	}
-	if q.Limit > 0 {
-		mods = append(mods, qm.Limit(q.Limit))
+		query += " AND t.event_type = " + placeholder(q.EventType)
 	}
 
-	var rows []refRow
-	if err := dbpg.NewQuery(mods...).Bind(ctx, r.db.Querier(ctx), &rows); err != nil {
+	after, before := ">", "<"
+	order := " ORDER BY e.topological_ordering, e.stream_ordering"
+	if q.Backwards {
+		after, before = "<", ">"
+		order = " ORDER BY e.topological_ordering DESC, e.stream_ordering DESC"
+	}
+	if q.From != nil {
+		query += " AND (e.topological_ordering, e.stream_ordering) " + after +
+			" (" + placeholder(q.From.Topological) + ", " + placeholder(q.From.Stream) + ")"
+	}
+	if q.To != nil {
+		query += " AND (e.topological_ordering, e.stream_ordering) " + before +
+			" (" + placeholder(q.To.Topological) + ", " + placeholder(q.To.Stream) + ")"
+	}
+	query += order
+	if q.Limit > 0 {
+		query += " LIMIT " + placeholder(q.Limit)
+	}
+
+	rows, err := r.db.Querier(ctx).QueryContext(ctx, query, args...)
+	if err != nil {
 		return nil, fmt.Errorf("repository: find relations: %w", err)
 	}
+	defer func() { _ = rows.Close() }()
 
-	out := make([]entity.RelationRef, 0, len(rows))
-	for _, row := range rows {
-		out = append(out, entity.RelationRef{
-			ChildNID:       row.ChildNid,
-			EventID:        row.EventID,
-			ParentID:       row.ParentID,
-			RelType:        row.RelType,
-			EventType:      row.EventType,
-			Sender:         row.Sender,
-			OriginServerTS: row.OriginServerTS,
-			Position: entity.Position{
-				Topological: row.TopologicalOrdering,
-				Stream:      row.StreamOrdering,
-			},
-			Disposition: entity.Disposition(row.Disposition),
-		})
+	var out []entity.RelationRef
+	for rows.Next() {
+		var ref entity.RelationRef
+		var disposition string
+		if err := rows.Scan(&ref.ChildNID, &ref.ParentID, &ref.RelType, &ref.Sender,
+			&ref.EventID, &ref.OriginServerTS, &ref.Position.Topological, &ref.Position.Stream,
+			&disposition, &ref.EventType); err != nil {
+			return nil, fmt.Errorf("repository: scan relation: %w", err)
+		}
+		ref.Disposition = entity.Disposition(disposition)
+		out = append(out, ref)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("repository: find relations: %w", err)
 	}
 	return out, nil
-}
-
-func bound(at *entity.Position, operator string) []qm.QueryMod {
-	if at == nil {
-		return nil
-	}
-	return []qm.QueryMod{qm.Where(
-		"(e.topological_ordering, e.stream_ordering) "+operator+" (?, ?)",
-		at.Topological, at.Stream)}
-}
-
-func asAny(in []string) []any {
-	out := make([]any, 0, len(in))
-	for _, value := range in {
-		out = append(out, value)
-	}
-	return out
 }

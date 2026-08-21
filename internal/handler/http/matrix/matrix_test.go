@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -55,6 +56,7 @@ type server struct {
 
 	assertionKey ed25519.PrivateKey
 	db           *postgres.Client
+	queries      *atomic.Int64
 }
 
 func newServer(t *testing.T) *server {
@@ -126,7 +128,9 @@ func wireServer(t *testing.T, assertion ed25519.PublicKey, pg *postgres.Client,
 	}
 	roomRepo := room.New(pg, eventRepo)
 	memberRepo := roommember.New(pg)
-	relationRepo := relation.New(pg)
+	queries := &atomic.Int64{}
+	relationRepo := countingRelations{inner: relation.New(pg), calls: queries}
+	eventRepo = countingEvents{Event: eventRepo, calls: queries}
 	eventSvc := events.New(roomRepo, eventRepo, state.New(pg), memberRepo, relationRepo, transaction.New(pg),
 		tenantSvc, pg, stream, nil, serialiser.New(), "test", nil, nil)
 
@@ -155,7 +159,7 @@ func wireServer(t *testing.T, assertion ed25519.PublicKey, pg *postgres.Client,
 	).Mount(r)
 
 	return &server{router: r, tenants: tenantSvc, tokens: tokenSvc, events: eventSvc,
-		users: userSvc, rooms: roomSvc, db: pg}
+		users: userSvc, rooms: roomSvc, db: pg, queries: queries}
 }
 
 func (s *server) tenant(t *testing.T, serverName string, hosts ...string) entity.Tenant {

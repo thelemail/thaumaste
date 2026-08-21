@@ -746,6 +746,14 @@ func (s *srv) SweepTransactions(ctx context.Context, cutoff time.Time) (int64, e
 	return s.txns.DeleteBefore(ctx, cutoff)
 }
 
+func (s *srv) Relations(ctx context.Context, roomID string, q entity.RelationQuery) ([]entity.RelationRef, error) {
+	room, err := s.Room(ctx, roomID)
+	if err != nil {
+		return nil, err
+	}
+	return s.relations.Find(ctx, room.NID, q)
+}
+
 func (s *srv) Many(ctx context.Context, eventNIDs []int64) ([]entity.StoredEvent, error) {
 	return s.events.GetManyByNID(ctx, eventNIDs)
 }

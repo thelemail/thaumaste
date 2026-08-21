@@ -142,6 +142,7 @@ type view struct {
 
 type enrichment struct {
 	redactions map[int64]entity.ClientEvent
+	bundles    map[string]*entity.Aggregation
 }
 
 func (s *srv) render(ctx context.Context, v view, scanned []entity.StoredEvent) ([]entity.ClientEvent, error) {
@@ -179,7 +180,108 @@ func (s *srv) enrich(ctx context.Context, v view, kept []entity.StoredEvent) (en
 	if err != nil {
 		return enrichment{}, err
 	}
-	return enrichment{redactions: redactions}, nil
+	bundles, err := s.bundles(ctx, v, kept, true)
+	if err != nil {
+		return enrichment{}, err
+	}
+	return enrichment{redactions: redactions, bundles: bundles}, nil
+}
+
+func (s *srv) bundles(ctx context.Context, v view, kept []entity.StoredEvent, nested bool) (map[string]*entity.Aggregation, error) {
+	parents := make(map[string]entity.StoredEvent, len(kept))
+	ids := make([]string, 0, len(kept))
+	for _, stored := range kept {
+		if stored.Event.IsState() {
+			continue
+		}
+		parents[stored.Event.ID()] = stored
+		ids = append(ids, stored.Event.ID())
+	}
+	if len(ids) == 0 {
+		return nil, nil
+	}
+
+	refs, err := s.events.Relations(ctx, v.roomID, entity.RelationQuery{ParentIDs: ids})
+	if err != nil {
+		return nil, err
+	}
+
+	grouped := make(map[string][]entity.RelationRef)
+	for _, ref := range refs {
+		if v.history.VisibleAt(ref.Position, ref.Disposition) {
+			grouped[ref.ParentID] = append(grouped[ref.ParentID], ref)
+		}
+	}
+	if len(grouped) == 0 {
+		return nil, nil
+	}
+
+	plans := make(map[string]entity.BundlePlan, len(grouped))
+	var wanted []int64
+	for parentID, refs := range grouped {
+		plan := entity.PlanBundle(parents[parentID], v.caller, refs)
+		if plan.Empty() {
+			continue
+		}
+		plans[parentID] = plan
+		wanted = append(wanted, plan.Wanted()...)
+	}
+	if len(plans) == 0 {
+		return nil, nil
+	}
+
+	fetched, err := s.events.Many(ctx, wanted)
+	if err != nil {
+		return nil, err
+	}
+	byNID := make(map[int64]entity.StoredEvent, len(fetched))
+	for _, stored := range fetched {
+		byNID[stored.NID] = stored
+	}
+
+	inner := map[string]*entity.Aggregation(nil)
+	if nested {
+		latest := make([]entity.StoredEvent, 0, len(plans))
+		for _, plan := range plans {
+			if stored, ok := byNID[plan.ThreadLatest]; ok {
+				latest = append(latest, stored)
+			}
+		}
+		if inner, err = s.bundles(ctx, v, latest, false); err != nil {
+			return nil, err
+		}
+	}
+
+	now := s.clock().UTC().UnixMilli()
+	out := make(map[string]*entity.Aggregation, len(plans))
+	for parentID, plan := range plans {
+		aggregation := &entity.Aggregation{Reference: plan.Reference}
+
+		candidates := make([]entity.StoredEvent, 0, len(plan.Replacements))
+		for _, nid := range plan.Replacements {
+			if stored, ok := byNID[nid]; ok {
+				candidates = append(candidates, stored)
+			}
+		}
+		if best, ok := entity.ChooseReplacement(parents[parentID].Event, candidates); ok {
+			replacement := entity.ClientEvent{Event: best.Event, Age: now - best.Event.OriginServerTS()}
+			aggregation.Replace = &replacement
+		}
+
+		if stored, ok := byNID[plan.ThreadLatest]; ok {
+			aggregation.Thread = &entity.ThreadSummary{
+				Latest: entity.ClientEvent{
+					Event:     stored.Event,
+					Age:       now - stored.Event.OriginServerTS(),
+					Relations: inner[stored.Event.ID()],
+				},
+				Count:        plan.ThreadCount,
+				Participated: plan.ThreadParticipated,
+			}
+		}
+		out[parentID] = aggregation
+	}
+	return out, nil
 }
 
 func (s *srv) redactions(ctx context.Context, v view, kept []entity.StoredEvent) (map[int64]entity.ClientEvent, error) {
@@ -227,6 +329,7 @@ func (s *srv) clientEvent(ctx context.Context, v view, extra enrichment, stored 
 	if because, ok := extra.redactions[stored.RedactedByNID]; ok {
 		client.RedactedBecause = &because
 	}
+	client.Relations = extra.bundles[stored.Event.ID()]
 	return client
 }
 
