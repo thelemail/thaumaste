@@ -958,3 +958,72 @@ func TestKeysOfOneDomainAreNeverVisibleToAnother(t *testing.T) {
 		t.Fatalf("the key was consumed by the cross-domain claim: %v", own.OneTimeKeys)
 	}
 }
+
+func (s *server) seedForeignDevice(t *testing.T, of entity.Tenant, userID, deviceID, keyJSON string) {
+	t.Helper()
+
+	if _, err := s.db.ExecContext(t.Context(),
+		`INSERT INTO users (tenant_id, user_id, localpart) VALUES ($1, $2, $3)`,
+		of.ID.String(), userID, "shared"); err != nil {
+		t.Fatalf("seed user: %v", err)
+	}
+	if _, err := s.db.ExecContext(t.Context(),
+		`INSERT INTO devices (tenant_id, user_id, device_id) VALUES ($1, $2, $3)`,
+		of.ID.String(), userID, deviceID); err != nil {
+		t.Fatalf("seed device: %v", err)
+	}
+	if _, err := s.db.ExecContext(t.Context(),
+		`INSERT INTO device_keys (tenant_id, user_id, device_id, key_json) VALUES ($1, $2, $3, $4)`,
+		of.ID.String(), userID, deviceID, []byte(keyJSON)); err != nil {
+		t.Fatalf("seed device keys: %v", err)
+	}
+	if _, err := s.db.ExecContext(t.Context(),
+		`INSERT INTO device_one_time_keys (tenant_id, user_id, device_id, algorithm, key_id, key_json)
+		 VALUES ($1, $2, $3, $4, $5, $6)`,
+		of.ID.String(), userID, deviceID, entity.AlgorithmSignedCurve25519, deviceID,
+		[]byte(`{"key":"`+deviceID+`"}`)); err != nil {
+		t.Fatalf("seed one-time key: %v", err)
+	}
+}
+
+func TestTheKeyStoreScopesEveryReadToOneDomain(t *testing.T) {
+	s := newServer(t)
+	alpha := s.tenant(t, "alpha.test")
+	beta := s.tenant(t, "beta.test")
+
+	const shared = "@shared:example.test"
+	s.seedForeignDevice(t, alpha, shared, "ALPHA", `{"device_id":"ALPHA"}`)
+	s.seedForeignDevice(t, beta, shared, "BETA", `{"device_id":"BETA"}`)
+
+	found, err := s.keys.Query(t.Context(), alpha.Scope(), shared,
+		entity.KeyQuery{Devices: map[string][]string{shared: {}}})
+	if err != nil {
+		t.Fatalf("Query: %v", err)
+	}
+	if len(found[shared]) != 1 {
+		t.Fatalf("querying under alpha.test returned %d devices, want only its own", len(found[shared]))
+	}
+	if _, ok := found[shared]["ALPHA"]; !ok {
+		t.Fatalf("querying under alpha.test returned %v", found[shared])
+	}
+
+	claimed, err := s.keys.Claim(t.Context(), alpha.Scope(),
+		entity.KeyClaim{Devices: map[string]map[string]string{
+			shared: {"BETA": entity.AlgorithmSignedCurve25519},
+		}})
+	if err != nil {
+		t.Fatalf("Claim: %v", err)
+	}
+	if len(claimed) != 0 {
+		t.Fatalf("a caller of alpha.test claimed %v from beta.test", claimed)
+	}
+
+	var count int
+	if err := s.db.QueryRowContext(t.Context(),
+		`SELECT count(*) FROM device_one_time_keys WHERE device_id = 'BETA'`).Scan(&count); err != nil {
+		t.Fatalf("count beta keys: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("beta.test's one-time key was consumed by another domain")
+	}
+}
