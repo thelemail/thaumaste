@@ -14,22 +14,29 @@ import (
 	"github.com/thelemail/thaumaste/internal/pkg/serialiser"
 	"github.com/thelemail/thaumaste/internal/repository"
 	"github.com/thelemail/thaumaste/internal/repository/accesstoken"
+	"github.com/thelemail/thaumaste/internal/repository/authattempt"
+	"github.com/thelemail/thaumaste/internal/repository/credential"
+	"github.com/thelemail/thaumaste/internal/repository/device"
 	"github.com/thelemail/thaumaste/internal/repository/event"
+	"github.com/thelemail/thaumaste/internal/repository/refreshtoken"
 	"github.com/thelemail/thaumaste/internal/repository/room"
 	"github.com/thelemail/thaumaste/internal/repository/signingkey"
 	"github.com/thelemail/thaumaste/internal/repository/state"
 	"github.com/thelemail/thaumaste/internal/repository/tenant"
+	"github.com/thelemail/thaumaste/internal/repository/uiasession"
+	"github.com/thelemail/thaumaste/internal/repository/user"
 	"github.com/thelemail/thaumaste/internal/service"
 	"github.com/thelemail/thaumaste/internal/service/events"
 	"github.com/thelemail/thaumaste/internal/service/tenants"
 	"github.com/thelemail/thaumaste/internal/service/tokens"
+	"github.com/thelemail/thaumaste/internal/service/users"
 )
 
 func provideServerConfig(c config.Config) config.Server     { return c.Server }
 func providePostgresConfig(c config.Config) config.Postgres { return c.Postgres }
 func provideSigningConfig(c config.Config) config.Signing   { return c.Signing }
 
-var ConfigSet = wire.NewSet(provideServerConfig, providePostgresConfig, provideSigningConfig)
+var ConfigSet = wire.NewSet(provideServerConfig, providePostgresConfig, provideSigningConfig, provideAuthConfig)
 
 func providePostgres(ctx context.Context, cfg config.Postgres) (*postgres.Client, func(), error) {
 	pg, err := postgres.New(ctx, cfg)
@@ -57,6 +64,29 @@ func provideTenants(
 
 func provideTokens(tokenRepo repository.AccessToken, clock func() time.Time) service.Tokens {
 	return tokens.New(tokenRepo, clock, nil)
+}
+
+func provideAuthConfig(c config.Config) config.Auth { return c.Auth }
+
+func provideUsers(
+	usersRepo repository.User,
+	credentials repository.Credential,
+	devices repository.Device,
+	refresh repository.RefreshToken,
+	sessions repository.UIASession,
+	attempts repository.AuthAttempt,
+	tokens service.Tokens,
+	tenants service.Tenants,
+	tx repository.Transactor,
+	cfg config.Auth,
+	clock func() time.Time,
+) service.Users {
+	return users.New(usersRepo, credentials, devices, refresh, sessions, attempts,
+		tokens, tenants, tx, cfg, clock, nil)
+}
+
+func provideUIASessions(db *postgres.Client, clock func() time.Time) repository.UIASession {
+	return uiasession.New(db, clock)
 }
 
 func provideEventStream(ctx context.Context, db *postgres.Client, cfg config.Server) (*postgres.Stream, error) {
@@ -97,4 +127,11 @@ var DomainSet = wire.NewSet(
 	event.New,
 	state.New,
 	provideEvents,
+	user.New,
+	credential.New,
+	device.New,
+	refreshtoken.New,
+	provideUIASessions,
+	authattempt.New,
+	provideUsers,
 )

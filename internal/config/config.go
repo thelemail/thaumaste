@@ -17,12 +17,11 @@ type Config struct {
 	Health   Health
 	Postgres Postgres
 	Signing  Signing
+	Auth     Auth
 	Logger   Logger
 }
 
 type Server struct {
-	// InstanceName is recorded on every event this process writes, so a second writer can be
-	// added later without a migration.
 	InstanceName    string        `env:"THAUMASTE_SERVER_INSTANCE_NAME"     envDefault:"default"`
 	Addr            string        `env:"THAUMASTE_SERVER_ADDR"             envDefault:":8008"`
 	ReadTimeout     time.Duration `env:"THAUMASTE_SERVER_READ_TIMEOUT"     envDefault:"15s"`
@@ -88,6 +87,23 @@ type Signing struct {
 	MasterKey     string        `env:"THAUMASTE_SIGNING_MASTER_KEY,required,unset"`
 	NextMasterKey string        `env:"THAUMASTE_SIGNING_NEXT_MASTER_KEY,unset"`
 	KeyValidity   time.Duration `env:"THAUMASTE_SIGNING_KEY_VALIDITY"           envDefault:"24h"`
+}
+
+type Auth struct {
+	AccessTokenTTL  time.Duration `env:"THAUMASTE_AUTH_ACCESS_TOKEN_TTL"  envDefault:"1h"`
+	RefreshTokenTTL time.Duration `env:"THAUMASTE_AUTH_REFRESH_TOKEN_TTL" envDefault:"720h"`
+	SessionTTL      time.Duration `env:"THAUMASTE_AUTH_SESSION_TTL"       envDefault:"15m"`
+
+	Argon2Time    uint32 `env:"THAUMASTE_AUTH_ARGON2_TIME"    envDefault:"3"`
+	Argon2MemoryK uint32 `env:"THAUMASTE_AUTH_ARGON2_MEMORY"  envDefault:"65536"`
+	Argon2Threads uint8  `env:"THAUMASTE_AUTH_ARGON2_THREADS" envDefault:"4"`
+
+	MaxFailures   int           `env:"THAUMASTE_AUTH_MAX_FAILURES"   envDefault:"10"`
+	FailureWindow time.Duration `env:"THAUMASTE_AUTH_FAILURE_WINDOW" envDefault:"15m"`
+	LockFor       time.Duration `env:"THAUMASTE_AUTH_LOCK_FOR"       envDefault:"15m"`
+
+	AssertionKey string        `env:"THAUMASTE_AUTH_ASSERTION_KEY"`
+	AssertionTTL time.Duration `env:"THAUMASTE_AUTH_ASSERTION_TTL" envDefault:"5m"`
 }
 
 type Logger struct {

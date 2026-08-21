@@ -94,9 +94,6 @@ func (s *srv) List(ctx context.Context) ([]entity.Tenant, error) {
 	return s.tenants.List(ctx)
 }
 
-// ByHost tries the host as it arrived before trying it without a port. A server name may itself
-// carry a port, so the port cannot simply be stripped, but a domain served on a non-default port
-// should not have to register every port it might be reached on.
 func (s *srv) ByHost(ctx context.Context, host string) (entity.Tenant, error) {
 	host = entity.NormaliseHost(host)
 
@@ -178,6 +175,17 @@ func (s *srv) setState(ctx context.Context, id uuid.UUID, state entity.TenantSta
 	return t, nil
 }
 
+func (s *srv) SetRegistration(ctx context.Context, id uuid.UUID, mode entity.RegistrationMode) (entity.Tenant, error) {
+	t, err := s.tenants.SetRegistration(ctx, id, mode)
+	if err != nil {
+		if errors.Is(err, repository.ErrTenantNotFound) {
+			return entity.Tenant{}, entity.ErrTenantNotFound
+		}
+		return entity.Tenant{}, err
+	}
+	return t, nil
+}
+
 func (s *srv) Delete(ctx context.Context, id uuid.UUID) error {
 	if err := s.tenants.Delete(ctx, id); err != nil {
 		if errors.Is(err, repository.ErrTenantNotFound) {
@@ -232,10 +240,6 @@ func (s *srv) SignAs(ctx context.Context, scope entity.TenantScope, document []b
 	return entity.SignJSON(document, scope.ServerName(), entity.KeyID(key.KeyID), ed25519.PrivateKey(private))
 }
 
-// ResealKeys re-encrypts every stored private key under a new master key. Without it the master key
-// could never be changed: swapping it leaves every sealed key unopenable, so no domain could sign
-// anything and the key endpoints would stop answering. Each key is opened and checked before any
-// row is written, and the whole sweep is one transaction, so a wrong old key changes nothing.
 func (s *srv) ResealKeys(ctx context.Context, next keyseal.Sealer) (int, error) {
 	stored, err := s.keys.AllSealed(ctx)
 	if err != nil {
@@ -313,8 +317,6 @@ func (s *srv) mintKey(ctx context.Context, scope entity.TenantScope) (entity.Sig
 	return s.keys.Insert(ctx, in)
 }
 
-// hostsFor always claims the server name itself. A tenant that only answers on a delegated host
-// still has to hold its own name, or another tenant could take it and serve that name's keys.
 func hostsFor(serverName string, extra []string) []string {
 	out := []string{serverName}
 	for _, host := range extra {

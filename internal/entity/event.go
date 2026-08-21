@@ -34,8 +34,6 @@ const (
 	MaxPrevEvents = 20
 	MaxAuthEvents = 10
 
-	// MaxDepth is canonical JSON's largest integer. The spec says an event at the limit keeps the
-	// limit rather than overflowing, so depth saturates instead of erroring.
 	MaxDepth = int64(1)<<53 - 1
 )
 
@@ -48,9 +46,6 @@ var (
 	ErrTooManyAuthEvents = errors.New("entity: too many auth_events")
 )
 
-// eventIDEncoding is url-safe, while signingEncoding, used for hashes.sha256 and for signatures,
-// is the standard alphabet. Both are unpadded and both cover the same digest, so swapping them
-// produces identifiers that look correct and match nothing.
 var eventIDEncoding = base64.RawURLEncoding
 
 type Event struct {
@@ -183,8 +178,6 @@ func (e Event) checkLimits(version RoomVersion) error {
 	return nil
 }
 
-// ContentHash covers the event including content that redaction would strip, which is what lets a
-// redacted event still prove what it originally said.
 func ContentHash(fields map[string]any) ([32]byte, error) {
 	stripped := cloneMap(fields)
 	delete(stripped, "unsigned")
@@ -198,8 +191,6 @@ func ContentHash(fields map[string]any) ([32]byte, error) {
 	return sha256.Sum256(canonical), nil
 }
 
-// ReferenceHash is taken over the redacted event with signatures and unsigned removed. Note that
-// `age_ts` is not stripped: it was dropped from this list in Matrix 1.7 and is not a wire field.
 func ReferenceHash(fields map[string]any, version RoomVersion) ([32]byte, error) {
 	redacted := Redact(fields, version)
 	delete(redacted, "signatures")

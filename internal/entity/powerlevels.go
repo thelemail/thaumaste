@@ -21,10 +21,6 @@ const (
 	defaultUsersDefault  = 0
 )
 
-// PowerLevel carries whether the holder is a room creator rather than giving creators a very large
-// number. From v12 a creator outranks every non-creator and ties with every other creator, which no
-// integer expresses: MaxInt64 would make two creators comparable only by luck and would let a
-// power_levels event reach the same value.
 type PowerLevel struct {
 	value   int64
 	creator bool
@@ -193,9 +189,6 @@ func asInt(raw any) (int64, bool) {
 }
 
 func isUserID(id string) bool {
-	if len(id) < 2 || id[0] != '@' || len(id) > MaxUserIDBytes {
-		return false
-	}
-	_, err := SenderDomain(id)
+	_, _, err := ParseUserID(id)
 	return err == nil
 }

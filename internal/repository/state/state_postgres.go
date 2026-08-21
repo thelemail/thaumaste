@@ -23,10 +23,6 @@ func New(db *postgres.Client) repository.State {
 	return &repo{db: db}
 }
 
-// Save writes the state at a point in the DAG, addressed by its content within its room. Re-saving
-// state the room already holds is a lookup rather than a write, which is what makes successive
-// snapshots of a quiet room cost nothing. Addressing is per room rather than global because every
-// room starts from the empty state and would otherwise collide with every other room's first one.
 func (r *repo) Save(ctx context.Context, roomNID int64, state entity.StateMap) (int64, error) {
 	exec := r.db.Querier(ctx)
 	hash := state.SnapshotHash()

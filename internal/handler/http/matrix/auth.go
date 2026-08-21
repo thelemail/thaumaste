@@ -9,6 +9,8 @@ import (
 	"github.com/thelemail/thaumaste/internal/entity"
 )
 
+const clientAPIPrefix = "/_matrix/client/"
+
 type callerKey struct{}
 
 func withCaller(ctx context.Context, t entity.AccessToken) context.Context {
@@ -47,9 +49,6 @@ func (h *Handler) authenticate(next http.Handler) http.Handler {
 			return
 		}
 
-		// The host says one tenant and the token says another. Answering as though the token were
-		// simply unknown is deliberate: a distinguishable error would let a caller map which hosts
-		// carry which tenants by probing with a token they already hold.
 		if caller.TenantID != tenant.ID {
 			writeUnknownToken(w, "Invalid access token")
 			return
@@ -67,4 +66,17 @@ func bearerToken(r *http.Request) (string, bool) {
 	}
 	token := r.URL.Query().Get("access_token")
 	return token, token != ""
+}
+
+func (h *Handler) unauthenticatedNotFound(w http.ResponseWriter, r *http.Request) {
+	presented, ok := bearerToken(r)
+	if !ok || !strings.HasPrefix(r.URL.Path, clientAPIPrefix) {
+		writeError(w, http.StatusNotFound, codeUnrecognized, "Unrecognized request")
+		return
+	}
+	if _, err := h.tokens.Resolve(r.Context(), presented); err != nil {
+		writeUnknownToken(w, "Invalid access token")
+		return
+	}
+	writeError(w, http.StatusNotFound, codeUnrecognized, "Unrecognized request")
 }

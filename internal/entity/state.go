@@ -46,8 +46,6 @@ func (s StateMap) Clone() StateMap {
 	return out
 }
 
-// Apply is the whole of state resolution while every event has one parent: the state before an
-// event is its parent's state after.
 func (s StateMap) Apply(e Event) StateMap {
 	stateKey, ok := e.StateKey()
 	if !ok {
@@ -134,8 +132,6 @@ func (s StateMap) Keys() []StateKey {
 	return out
 }
 
-// SnapshotHash addresses a state map by its content, so state a room already holds is a lookup
-// rather than another row.
 func (s StateMap) SnapshotHash() [32]byte {
 	h := sha256.New()
 	var length [8]byte

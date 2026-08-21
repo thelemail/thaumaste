@@ -27,10 +27,6 @@ var (
 	database = databasePrefix
 )
 
-// Go runs the test binaries of different packages at the same time, so a single shared database
-// would have one package truncating tables another was midway through using. Each package gets its
-// own, named after its directory, which means a package added later is isolated without anyone
-// having to arrange it.
 func databaseFor(pkg string) string {
 	if pkg == "" {
 		return databasePrefix
@@ -70,10 +66,6 @@ func env(key, fallback string) string {
 	return fallback
 }
 
-// Connect returns a client against a dedicated test database with migrations applied,
-// truncating the named tables first. It skips the test when Postgres is unreachable,
-// unless THAUMASTE_TEST_REQUIRE_POSTGRES is set, which is how CI refuses to let these
-// tests quietly disappear.
 func Connect(t *testing.T, truncate ...string) *postgres.Client {
 	t.Helper()
 

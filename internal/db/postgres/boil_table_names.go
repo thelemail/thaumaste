@@ -5,11 +5,14 @@ package dbpostgres
 
 var TableNames = struct {
 	AccessTokens        string
+	AuthAttempts        string
+	Devices             string
 	EventAuthEdges      string
 	EventPrevEdges      string
 	EventStateKeys      string
 	EventTypes          string
 	Events              string
+	RefreshTokens       string
 	RoomExtremities     string
 	Rooms               string
 	StateBlockEntries   string
@@ -20,13 +23,19 @@ var TableNames = struct {
 	TenantHosts         string
 	TenantSigningKeys   string
 	Tenants             string
+	UiaSessions         string
+	UserCredentials     string
+	Users               string
 }{
 	AccessTokens:        "access_tokens",
+	AuthAttempts:        "auth_attempts",
+	Devices:             "devices",
 	EventAuthEdges:      "event_auth_edges",
 	EventPrevEdges:      "event_prev_edges",
 	EventStateKeys:      "event_state_keys",
 	EventTypes:          "event_types",
 	Events:              "events",
+	RefreshTokens:       "refresh_tokens",
 	RoomExtremities:     "room_extremities",
 	Rooms:               "rooms",
 	StateBlockEntries:   "state_block_entries",
@@ -37,4 +46,7 @@ var TableNames = struct {
 	TenantHosts:         "tenant_hosts",
 	TenantSigningKeys:   "tenant_signing_keys",
 	Tenants:             "tenants",
+	UiaSessions:         "uia_sessions",
+	UserCredentials:     "user_credentials",
+	Users:               "users",
 }

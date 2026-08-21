@@ -21,6 +21,7 @@ type AccessToken struct {
 	ID        uuid.UUID
 	TenantID  uuid.UUID
 	UserID    string
+	DeviceID  string
 	CreatedAt time.Time
 	ExpiresAt *time.Time
 	RevokedAt *time.Time
@@ -39,10 +40,12 @@ func (t AccessToken) Usable(now time.Time) error {
 }
 
 type NewAccessToken struct {
-	TenantID  uuid.UUID
-	UserID    string
-	TokenHash []byte
-	ExpiresAt *time.Time
+	TenantID       uuid.UUID
+	UserID         string
+	DeviceID       string
+	TokenHash      []byte
+	ExpiresAt      *time.Time
+	RefreshTokenID *uuid.UUID
 }
 
 func (n NewAccessToken) Validate() error {

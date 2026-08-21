@@ -26,9 +26,6 @@ var redactionKeepsContent = map[string][]string{
 	},
 }
 
-// Redact strips an event to the fields that survive a redaction. The keep-lists are identical in
-// v11 and v12, so the room version is taken to keep the seam honest rather than because it branches
-// yet; a version that changes them will change it here and nowhere else.
 func Redact(event map[string]any, version RoomVersion) map[string]any {
 	_ = version
 

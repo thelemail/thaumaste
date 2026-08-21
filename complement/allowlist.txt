@@ -1,5 +1,14 @@
 # Complement tests that must pass. CI fails if any of these regress.
 # A task proves itself by adding its tests here.
 
-# reads /_matrix/client/versions with an unauthenticated client
 TestVersionStructure
+TestRegistration
+TestLogin
+TestLogout
+TestChangePassword
+TestDeactivateAccount
+TestProfileDisplayName
+TestProfileAvatarURL
+TestServerCapabilities
+TestFilter
+TestRequestEncodingFails

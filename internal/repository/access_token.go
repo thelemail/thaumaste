@@ -18,4 +18,5 @@ type AccessToken interface {
 	ListForUser(ctx context.Context, scope entity.TenantScope, userID string) ([]entity.AccessToken, error)
 	Revoke(ctx context.Context, id uuid.UUID, at time.Time) error
 	RevokeForUser(ctx context.Context, scope entity.TenantScope, userID string, at time.Time) (int64, error)
+	RevokeForDevice(ctx context.Context, scope entity.TenantScope, userID, deviceID string, at time.Time) (int64, error)
 }

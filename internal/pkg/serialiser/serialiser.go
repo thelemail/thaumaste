@@ -5,10 +5,6 @@ import (
 	"sync"
 )
 
-// Serialiser runs work for the same key one call at a time. It exists so that writes to a
-// single room cannot race each other while computing forward extremities and current state.
-// It has nothing to do with stream ordering: work for different keys still commits in any
-// order, so positions must be ordered by the stream allocator, not by this.
 type Serialiser struct {
 	mu    sync.Mutex
 	gates map[string]*gate

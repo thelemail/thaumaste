@@ -15,9 +15,6 @@ var (
 	ErrEventExists       = errors.New("entity: event already exists")
 )
 
-// Disposition is what happened to an event on the way in. The spec has four distinct outcomes and
-// collapsing them into a boolean loses the difference between "we hold a redacted copy" and "this
-// failed authorisation", which federation needs to tell apart.
 type Disposition string
 
 const (
