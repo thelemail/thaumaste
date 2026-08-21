@@ -19,6 +19,7 @@ type Tenants interface {
 	Suspend(ctx context.Context, id uuid.UUID) (entity.Tenant, error)
 	Resume(ctx context.Context, id uuid.UUID) (entity.Tenant, error)
 	Delete(ctx context.Context, id uuid.UUID) error
+	SetRegistration(ctx context.Context, id uuid.UUID, mode entity.RegistrationMode) (entity.Tenant, error)
 	Keys(ctx context.Context, scope entity.TenantScope) ([]entity.SigningKey, error)
 	RotateKey(ctx context.Context, scope entity.TenantScope) (entity.SigningKey, error)
 	SignAs(ctx context.Context, scope entity.TenantScope, document []byte) ([]byte, error)

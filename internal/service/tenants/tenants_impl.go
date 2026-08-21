@@ -178,6 +178,17 @@ func (s *srv) setState(ctx context.Context, id uuid.UUID, state entity.TenantSta
 	return t, nil
 }
 
+func (s *srv) SetRegistration(ctx context.Context, id uuid.UUID, mode entity.RegistrationMode) (entity.Tenant, error) {
+	t, err := s.tenants.SetRegistration(ctx, id, mode)
+	if err != nil {
+		if errors.Is(err, repository.ErrTenantNotFound) {
+			return entity.Tenant{}, entity.ErrTenantNotFound
+		}
+		return entity.Tenant{}, err
+	}
+	return t, nil
+}
+
 func (s *srv) Delete(ctx context.Context, id uuid.UUID) error {
 	if err := s.tenants.Delete(ctx, id); err != nil {
 		if errors.Is(err, repository.ErrTenantNotFound) {

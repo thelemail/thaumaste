@@ -9,6 +9,8 @@ import (
 	"github.com/thelemail/thaumaste/internal/entity"
 )
 
+const clientAPIPrefix = "/_matrix/client/"
+
 type callerKey struct{}
 
 func withCaller(ctx context.Context, t entity.AccessToken) context.Context {
@@ -67,4 +69,21 @@ func bearerToken(r *http.Request) (string, bool) {
 	}
 	token := r.URL.Query().Get("access_token")
 	return token, token != ""
+}
+
+// unauthenticatedNotFound answers an unmatched path. A caller presenting a credential we reject is
+// told the credential is bad rather than that the endpoint is unknown: the token is invalid
+// whichever endpoint it was aimed at, and saying so does not disclose which paths this server
+// serves. A caller with a good token, or none at all, gets the ordinary unrecognised answer.
+func (h *Handler) unauthenticatedNotFound(w http.ResponseWriter, r *http.Request) {
+	presented, ok := bearerToken(r)
+	if !ok || !strings.HasPrefix(r.URL.Path, clientAPIPrefix) {
+		writeError(w, http.StatusNotFound, codeUnrecognized, "Unrecognized request")
+		return
+	}
+	if _, err := h.tokens.Resolve(r.Context(), presented); err != nil {
+		writeUnknownToken(w, "Invalid access token")
+		return
+	}
+	writeError(w, http.StatusNotFound, codeUnrecognized, "Unrecognized request")
 }

@@ -55,6 +55,7 @@ func provideServeRuntime(
 	db *postgres.Client,
 	tenants service.Tenants,
 	tokens service.Tokens,
+	users service.Users,
 	clock func() time.Time,
 ) *ServeRuntime {
 	router := chi.NewRouter()
@@ -63,7 +64,7 @@ func provideServeRuntime(
 	router.Use(middleware.RecoverPanic)
 	router.Use(middleware.AccessLog)
 
-	matrix.New(tenants, tokens, cfg, sign, clock).Mount(router)
+	matrix.New(tenants, tokens, users, cfg, sign, clock).Mount(router)
 
 	return &ServeRuntime{
 		srv: &http.Server{

@@ -17,15 +17,22 @@ import (
 	"github.com/thelemail/thaumaste/internal/pkg/postgres"
 	"github.com/thelemail/thaumaste/internal/pkg/serialiser"
 	"github.com/thelemail/thaumaste/internal/repository/accesstoken"
+	"github.com/thelemail/thaumaste/internal/repository/authattempt"
+	"github.com/thelemail/thaumaste/internal/repository/credential"
+	"github.com/thelemail/thaumaste/internal/repository/device"
 	"github.com/thelemail/thaumaste/internal/repository/event"
+	"github.com/thelemail/thaumaste/internal/repository/refreshtoken"
 	"github.com/thelemail/thaumaste/internal/repository/room"
 	"github.com/thelemail/thaumaste/internal/repository/signingkey"
 	"github.com/thelemail/thaumaste/internal/repository/state"
 	"github.com/thelemail/thaumaste/internal/repository/tenant"
+	"github.com/thelemail/thaumaste/internal/repository/uiasession"
+	"github.com/thelemail/thaumaste/internal/repository/user"
 	"github.com/thelemail/thaumaste/internal/service"
 	"github.com/thelemail/thaumaste/internal/service/events"
 	"github.com/thelemail/thaumaste/internal/service/tenants"
 	"github.com/thelemail/thaumaste/internal/service/tokens"
+	"github.com/thelemail/thaumaste/internal/service/users"
 	"github.com/thelemail/thaumaste/internal/testutil/pgtest"
 )
 
@@ -34,6 +41,7 @@ type server struct {
 	tenants service.Tenants
 	tokens  service.Tokens
 	events  service.Events
+	users   service.Users
 	db      *postgres.Client
 }
 
@@ -60,16 +68,26 @@ func newServer(t *testing.T) *server {
 	eventSvc := events.New(room.New(pg, eventRepo), eventRepo, state.New(pg),
 		tenantSvc, pg, stream, serialiser.New(), "test", nil, nil)
 
+	userSvc := users.New(
+		user.New(pg), credential.New(pg), device.New(pg), refreshtoken.New(pg),
+		uiasession.New(pg, nil), authattempt.New(pg),
+		tokenSvc, tenantSvc, pg, config.Auth{
+			AccessTokenTTL: time.Hour, RefreshTokenTTL: time.Hour, SessionTTL: 15 * time.Minute,
+			Argon2Time: 1, Argon2MemoryK: 8 * 1024, Argon2Threads: 1,
+			MaxFailures: 3, FailureWindow: time.Minute, LockFor: time.Minute,
+		}, nil, nil)
+
 	r := chi.NewRouter()
 	matrix.New(
 		tenantSvc,
 		tokenSvc,
+		userSvc,
 		config.Server{PublicScheme: "https"},
 		config.Signing{KeyValidity: 24 * time.Hour},
 		nil,
 	).Mount(r)
 
-	return &server{router: r, tenants: tenantSvc, tokens: tokenSvc, events: eventSvc, db: pg}
+	return &server{router: r, tenants: tenantSvc, tokens: tokenSvc, events: eventSvc, users: userSvc, db: pg}
 }
 
 func (s *server) tenant(t *testing.T, serverName string, hosts ...string) entity.Tenant {

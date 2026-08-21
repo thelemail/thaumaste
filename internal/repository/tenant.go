@@ -22,6 +22,7 @@ type Tenant interface {
 	GetByHost(ctx context.Context, host string) (entity.Tenant, error)
 	List(ctx context.Context) ([]entity.Tenant, error)
 	SetState(ctx context.Context, id uuid.UUID, state entity.TenantState) (entity.Tenant, error)
+	SetRegistration(ctx context.Context, id uuid.UUID, mode entity.RegistrationMode) (entity.Tenant, error)
 	Delete(ctx context.Context, id uuid.UUID) error
 	AddHost(ctx context.Context, scope entity.TenantScope, host string) error
 	ListHosts(ctx context.Context, scope entity.TenantScope) ([]string, error)

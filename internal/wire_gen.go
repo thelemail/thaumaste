@@ -11,8 +11,13 @@ import (
 	"github.com/thelemail/thaumaste/internal/config"
 	"github.com/thelemail/thaumaste/internal/pkg/keyseal"
 	"github.com/thelemail/thaumaste/internal/repository/accesstoken"
+	"github.com/thelemail/thaumaste/internal/repository/authattempt"
+	"github.com/thelemail/thaumaste/internal/repository/credential"
+	"github.com/thelemail/thaumaste/internal/repository/device"
+	"github.com/thelemail/thaumaste/internal/repository/refreshtoken"
 	"github.com/thelemail/thaumaste/internal/repository/signingkey"
 	"github.com/thelemail/thaumaste/internal/repository/tenant"
+	"github.com/thelemail/thaumaste/internal/repository/user"
 	"github.com/thelemail/thaumaste/internal/service"
 )
 
@@ -38,7 +43,15 @@ func InitializeServe(ctx context.Context, cfg config.Config) (*ServeRuntime, fun
 	tenants := provideTenants(repositoryTenant, signingKey, sealer, transactor, v)
 	accessToken := accesstoken.New(client)
 	tokens := provideTokens(accessToken, v)
-	serveRuntime := provideServeRuntime(server, signing, client, tenants, tokens, v)
+	repositoryUser := user.New(client)
+	repositoryCredential := credential.New(client)
+	repositoryDevice := device.New(client)
+	refreshToken := refreshtoken.New(client)
+	uiaSession := provideUIASessions(client, v)
+	authAttempt := authattempt.New(client)
+	auth := provideAuthConfig(cfg)
+	users := provideUsers(repositoryUser, repositoryCredential, repositoryDevice, refreshToken, uiaSession, authAttempt, tokens, tenants, transactor, auth, v)
+	serveRuntime := provideServeRuntime(server, signing, client, tenants, tokens, users, v)
 	return serveRuntime, func() {
 		cleanup()
 	}, nil

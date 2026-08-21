@@ -103,6 +103,23 @@ func (r *repo) SetState(ctx context.Context, id uuid.UUID, state entity.TenantSt
 	return toTenant(row)
 }
 
+func (r *repo) SetRegistration(ctx context.Context, id uuid.UUID, mode entity.RegistrationMode) (entity.Tenant, error) {
+	exec := r.db.Querier(ctx)
+	row, err := dbpg.Tenants(dbpg.TenantWhere.ID.EQ(id.String())).One(ctx, exec)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return entity.Tenant{}, repository.ErrTenantNotFound
+		}
+		return entity.Tenant{}, fmt.Errorf("repository: get tenant: %w", err)
+	}
+	row.RegistrationMode = string(mode)
+	_, err = row.Update(ctx, exec, boil.Whitelist(dbpg.TenantColumns.RegistrationMode, dbpg.TenantColumns.UpdatedAt))
+	if err != nil {
+		return entity.Tenant{}, fmt.Errorf("repository: set registration mode: %w", err)
+	}
+	return toTenant(row)
+}
+
 func (r *repo) Delete(ctx context.Context, id uuid.UUID) error {
 	n, err := dbpg.Tenants(dbpg.TenantWhere.ID.EQ(id.String())).DeleteAll(ctx, r.db.Querier(ctx))
 	if err != nil {

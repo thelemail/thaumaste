@@ -61,6 +61,7 @@ type Users interface {
 	SubmitAuth(ctx context.Context, scope entity.TenantScope, kind entity.UIAKind, sessionID uuid.UUID, stage, identifier, password string) (entity.UIASession, error)
 
 	GuardAttempt(ctx context.Context, scope entity.TenantScope, subject string, kind entity.AttemptKind) error
+	RetryAfter(ctx context.Context, scope entity.TenantScope, subject string, kind entity.AttemptKind) time.Duration
 	RecordFailure(ctx context.Context, scope entity.TenantScope, subject string, kind entity.AttemptKind) error
 	ClearFailures(ctx context.Context, scope entity.TenantScope, subject string, kind entity.AttemptKind) error
 

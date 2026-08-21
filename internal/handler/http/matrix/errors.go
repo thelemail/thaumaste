@@ -3,9 +3,12 @@ package matrix
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"log/slog"
+	"math"
 	"net/http"
 	"strconv"
+	"time"
 )
 
 type errorCode string
@@ -17,6 +20,15 @@ const (
 	codeForbidden    errorCode = "M_FORBIDDEN"
 	codeMissingToken errorCode = "M_MISSING_TOKEN"
 	codeUnknownToken errorCode = "M_UNKNOWN_TOKEN"
+	codeUserInUse    errorCode = "M_USER_IN_USE"
+	codeInvalidUser  errorCode = "M_INVALID_USERNAME"
+	codeBadJSON      errorCode = "M_BAD_JSON"
+	codeNotJSON      errorCode = "M_NOT_JSON"
+	codeMissingParam errorCode = "M_MISSING_PARAM"
+	codeInvalidParam errorCode = "M_INVALID_PARAM"
+	codeLimitExceed  errorCode = "M_LIMIT_EXCEEDED"
+	codeDeactivated  errorCode = "M_USER_DEACTIVATED"
+	codeWeakPassword errorCode = "M_WEAK_PASSWORD"
 )
 
 type errorEnvelope struct {
@@ -52,9 +64,48 @@ func writeInternal(ctx context.Context, w http.ResponseWriter, msg string, err e
 	writeError(w, http.StatusInternalServerError, codeUnknown, msg)
 }
 
+// writeRateLimited carries both forms the spec names: the header, which is current, and
+// retry_after_ms, which is deprecated but still what most clients read.
+func writeRateLimited(w http.ResponseWriter, retryAfter time.Duration) {
+	if retryAfter < time.Second {
+		retryAfter = time.Second
+	}
+	seconds := int64(math.Ceil(retryAfter.Seconds()))
+	w.Header().Set("Retry-After", strconv.FormatInt(seconds, 10))
+	writeJSON(w, http.StatusTooManyRequests, rateLimitEnvelope{
+		errorEnvelope: errorEnvelope{ErrCode: codeLimitExceed, Error: "Too many requests"},
+		RetryAfterMS:  retryAfter.Milliseconds(),
+	})
+}
+
+type rateLimitEnvelope struct {
+	errorEnvelope
+	RetryAfterMS int64 `json:"retry_after_ms"`
+}
+
 func writeUnknownToken(w http.ResponseWriter, msg string) {
 	writeJSON(w, http.StatusUnauthorized, unknownTokenEnvelope{
 		errorEnvelope: errorEnvelope{ErrCode: codeUnknownToken, Error: msg},
 		SoftLogout:    false,
 	})
+}
+
+const maxRequestBytes = 1 << 20
+
+// readJSON refuses a body that is not an object before anything else looks at it. Complement
+// checks that a malformed body answers M_NOT_JSON rather than a validation error about a field.
+func readJSON(w http.ResponseWriter, r *http.Request, out any) bool {
+	raw, err := io.ReadAll(io.LimitReader(r.Body, maxRequestBytes))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, codeNotJSON, "Could not read the request body")
+		return false
+	}
+	if len(raw) == 0 {
+		raw = []byte("{}")
+	}
+	if err := json.Unmarshal(raw, out); err != nil {
+		writeError(w, http.StatusBadRequest, codeNotJSON, "Request body is not valid JSON")
+		return false
+	}
+	return true
 }

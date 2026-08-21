@@ -26,6 +26,7 @@ func newTenantCmd() *cobra.Command {
 		newTenantResumeCmd(),
 		newTenantDeleteCmd(),
 		newTenantRotateKeyCmd(),
+		newTenantRegistrationCmd(),
 	)
 	return tenant
 }
@@ -179,6 +180,29 @@ func newTenantRotateKeyCmd() *cobra.Command {
 					return err
 				}
 				_, _ = fmt.Fprintf(c.OutOrStdout(), "key      %s\n", k.KeyID)
+				return nil
+			})
+		},
+	}
+}
+
+func newTenantRegistrationCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "registration <server_name> <closed|invite|open|external>",
+		Short: "Set who may create an account on a domain",
+		Args:  cobra.ExactArgs(2),
+		RunE: func(c *cobra.Command, args []string) error {
+			mode := entity.RegistrationMode(args[1])
+			if !mode.Valid() {
+				return fmt.Errorf("unknown registration mode: %s", args[1])
+			}
+			return withTenant(c, args[0], func(ctx context.Context, tenants service.Tenants, t entity.Tenant) error {
+				updated, err := tenants.SetRegistration(ctx, t.ID, mode)
+				if err != nil {
+					return err
+				}
+				printTenant(c.OutOrStdout(), updated)
+				_, _ = fmt.Fprintf(c.OutOrStdout(), "register %s\n", updated.RegistrationMode)
 				return nil
 			})
 		},
