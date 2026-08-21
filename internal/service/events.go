@@ -16,6 +16,9 @@ type Events interface {
 	StateBefore(ctx context.Context, eventID string) (entity.StateMap, error)
 	StateAfter(ctx context.Context, eventNID int64) (entity.StateMap, error)
 	Event(ctx context.Context, eventID string) (entity.StoredEvent, error)
+	Page(ctx context.Context, roomID string, in entity.PageRequest) ([]entity.StoredEvent, error)
+	VisibilityFor(ctx context.Context, roomID, caller string) (entity.HistoryFilter, error)
+	PositionAtStream(ctx context.Context, roomID string, stream int64) (entity.Position, error)
 	TransactionFor(ctx context.Context, sender entity.TransactionSender, eventID string) (string, error)
 	SweepTransactions(ctx context.Context, cutoff time.Time) (int64, error)
 }

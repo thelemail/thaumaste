@@ -345,8 +345,8 @@ func TestAMembersFilterRefusesWhatItCannotAnswer(t *testing.T) {
 	if err := (entity.MembersFilter{}).Validate(); err != nil {
 		t.Fatalf("an empty filter was refused: %v", err)
 	}
-	if err := (entity.MembersFilter{At: "s1"}).Validate(); !errors.Is(err, entity.ErrPointInTime) {
-		t.Fatalf("a point in time query = %v, want ErrPointInTime", err)
+	if err := (entity.MembersFilter{At: "s1"}).Validate(); err != nil {
+		t.Fatalf("a point in time query was refused: %v", err)
 	}
 	if err := (entity.MembersFilter{Membership: "lurking"}).Validate(); !errors.Is(err, entity.ErrUnknownMembership) {
 		t.Fatalf("an unknown membership = %v", err)

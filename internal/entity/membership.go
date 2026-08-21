@@ -83,9 +83,6 @@ type MembersFilter struct {
 }
 
 func (f MembersFilter) Validate() error {
-	if f.At != "" {
-		return ErrPointInTime
-	}
 	for _, value := range []string{f.Membership, f.NotMembership} {
 		if value != "" && !slices.Contains(memberships, value) {
 			return ErrUnknownMembership

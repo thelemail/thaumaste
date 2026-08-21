@@ -125,6 +125,18 @@ func (f HistoryFilter) Visible(e StoredEvent) bool {
 	}
 }
 
+func (f HistoryFilter) EverEntitled() bool {
+	if len(f.memberships) > 0 {
+		return true
+	}
+	for _, change := range f.visibility {
+		if change.value == HistoryVisibilityWorldReadable {
+			return true
+		}
+	}
+	return false
+}
+
 func (f HistoryFilter) MembershipAt(at Position) string {
 	value := ""
 	for _, change := range f.memberships {

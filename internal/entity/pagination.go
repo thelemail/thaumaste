@@ -15,11 +15,11 @@ const (
 	MaxPageLimit     = 1000
 )
 
-type EventRange struct {
-	RoomNID   int64
+type PageRequest struct {
 	From      *Position
 	To        *Position
 	Backwards bool
+	Inclusive bool
 	Limit     int
 }
 
@@ -28,7 +28,7 @@ type MessagesRequest struct {
 	Direction string
 	From      string
 	To        string
-	Limit     int
+	Limit     *int
 	Filter    string
 }
 
@@ -41,7 +41,7 @@ type Messages struct {
 type ContextRequest struct {
 	RoomID  string
 	EventID string
-	Limit   int
+	Limit   *int
 	Filter  string
 }
 
@@ -71,18 +71,21 @@ func (r ContextRequest) Validate() error {
 	if r.EventID == "" || len(r.EventID) > MaxEventIDBytes {
 		return ErrEventNotFound
 	}
-	if r.Limit < 0 {
+	if r.Limit != nil && *r.Limit < 0 {
 		return fmt.Errorf("%w: limit must not be negative", ErrBadFilter)
 	}
 	return nil
 }
 
-func PageLimit(requested, fromFilter int) int {
-	limit := requested
-	if limit <= 0 {
-		limit = fromFilter
+func PageLimit(requested *int, fromFilter int) int {
+	limit := fromFilter
+	if requested != nil {
+		limit = *requested
 	}
-	if limit <= 0 {
+	if limit < 0 {
+		limit = 0
+	}
+	if requested == nil && limit == 0 {
 		limit = DefaultPageLimit
 	}
 	if limit > MaxPageLimit {

@@ -617,3 +617,42 @@ func (s *srv) TransactionFor(ctx context.Context, sender entity.TransactionSende
 func (s *srv) SweepTransactions(ctx context.Context, cutoff time.Time) (int64, error) {
 	return s.txns.DeleteBefore(ctx, cutoff)
 }
+
+func (s *srv) Page(ctx context.Context, roomID string, in entity.PageRequest) ([]entity.StoredEvent, error) {
+	room, err := s.Room(ctx, roomID)
+	if err != nil {
+		return nil, err
+	}
+	return s.events.Page(ctx, room.NID, in)
+}
+
+func (s *srv) VisibilityFor(ctx context.Context, roomID, caller string) (entity.HistoryFilter, error) {
+	room, err := s.Room(ctx, roomID)
+	if err != nil {
+		return entity.HistoryFilter{}, err
+	}
+	visibility, err := s.events.ListStateOfType(ctx, room.NID, entity.EventTypeHistoryVisibility, "")
+	if err != nil {
+		return entity.HistoryFilter{}, err
+	}
+	memberships, err := s.events.ListStateOfType(ctx, room.NID, entity.EventTypeMember, caller)
+	if err != nil {
+		return entity.HistoryFilter{}, err
+	}
+	return entity.NewHistoryFilter(caller, visibility, memberships), nil
+}
+
+func (s *srv) PositionAtStream(ctx context.Context, roomID string, stream int64) (entity.Position, error) {
+	room, err := s.Room(ctx, roomID)
+	if err != nil {
+		return entity.Position{}, err
+	}
+	stored, err := s.events.AtStream(ctx, room.NID, stream)
+	if err != nil {
+		if errors.Is(err, repository.ErrEventNotFound) {
+			return entity.Position{}, entity.ErrEventNotFound
+		}
+		return entity.Position{}, err
+	}
+	return entity.PositionOf(stored), nil
+}

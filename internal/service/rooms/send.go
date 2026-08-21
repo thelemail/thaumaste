@@ -2,7 +2,6 @@ package rooms
 
 import (
 	"context"
-	"errors"
 
 	"github.com/thelemail/thaumaste/internal/entity"
 )
@@ -25,11 +24,9 @@ func (s *srv) SendMessage(ctx context.Context, scope entity.TenantScope, in enti
 }
 
 func (s *srv) Event(ctx context.Context, scope entity.TenantScope, caller, deviceID, roomID, eventID string) (entity.ClientEvent, error) {
-	if _, err := s.readableState(ctx, scope, caller, roomID); err != nil {
-		if errors.Is(err, entity.ErrRoomNotFound) || errors.Is(err, entity.ErrNotInRoom) {
-			return entity.ClientEvent{}, entity.ErrEventNotFound
-		}
-		return entity.ClientEvent{}, err
+	history, err := s.readableRoom(ctx, scope, caller, roomID)
+	if err != nil {
+		return entity.ClientEvent{}, errNotFound(err)
 	}
 
 	stored, err := s.events.Event(ctx, eventID)
@@ -39,20 +36,8 @@ func (s *srv) Event(ctx context.Context, scope entity.TenantScope, caller, devic
 	if stored.Event.RoomID() != roomID {
 		return entity.ClientEvent{}, entity.ErrEventNotFound
 	}
-
-	client := entity.ClientEvent{
-		Event: stored.Event,
-		Age:   s.clock().UTC().UnixMilli() - stored.Event.OriginServerTS(),
+	if !history.Visible(stored) {
+		return entity.ClientEvent{}, entity.ErrEventNotFound
 	}
-	if deviceID != "" && stored.Event.Sender() == caller {
-		client.TransactionID, err = s.events.TransactionFor(ctx, entity.TransactionSender{
-			TenantID: scope.ID(),
-			UserID:   caller,
-			DeviceID: deviceID,
-		}, eventID)
-		if err != nil {
-			return entity.ClientEvent{}, err
-		}
-	}
-	return client, nil
+	return s.clientEvent(ctx, scope, caller, deviceID, history, stored), nil
 }
