@@ -28,6 +28,7 @@ type delivery struct {
 	initial  bool
 	expanded bool
 	since    int64
+	liveFrom int64
 	history  entity.HistoryFilter
 	timeline []entity.StoredEvent
 	limited  bool
@@ -83,11 +84,11 @@ func (s *srv) due(sess *session, chosen map[int64]*candidate) []*delivery {
 		case !known:
 			sending = append(sending, &delivery{candidate: entry, initial: true})
 		case entry.room.LastStream > status.SentTo:
-			sending = append(sending, &delivery{candidate: entry, since: status.SentTo})
+			sending = append(sending, &delivery{candidate: entry, since: status.SentTo, liveFrom: status.SentTo})
 		case entry.limit > status.TimelineLimit:
-			sending = append(sending, &delivery{candidate: entry, expanded: true})
+			sending = append(sending, &delivery{candidate: entry, expanded: true, liveFrom: status.SentTo})
 		case !bytes.Equal(entry.required.Canonical(), status.RequiredState):
-			sending = append(sending, &delivery{candidate: entry, expanded: true})
+			sending = append(sending, &delivery{candidate: entry, expanded: true, liveFrom: status.SentTo})
 		}
 	}
 	slices.SortFunc(sending, func(a, b *delivery) int { return int(a.room.RoomNID - b.room.RoomNID) })
@@ -240,7 +241,7 @@ func (s *srv) assemble(ctx context.Context, sess *session, entry *delivery) (ent
 	}
 	room.Timeline = timeline
 	if !entry.initial {
-		room.NumLive = len(timeline)
+		room.NumLive = entry.live(timeline)
 	}
 	if len(entry.timeline) > 0 {
 		room.PrevBatch = entity.Anchor(entity.PositionOf(entry.timeline[0])).String()
@@ -256,6 +257,22 @@ func (s *srv) assemble(ctx context.Context, sess *session, entry *delivery) (ent
 		return entity.RoomResult{}, false, err
 	}
 	return room, true, nil
+}
+
+func (d *delivery) live(rendered []entity.ClientEvent) int {
+	fresh := make(map[string]struct{}, len(d.timeline))
+	for _, stored := range d.timeline {
+		if stored.StreamOrdering > d.liveFrom {
+			fresh[stored.Event.ID()] = struct{}{}
+		}
+	}
+	live := 0
+	for _, event := range rendered {
+		if _, ok := fresh[event.Event.ID()]; ok {
+			live++
+		}
+	}
+	return live
 }
 
 func stripped(state []entity.StoredEvent) []entity.Event {

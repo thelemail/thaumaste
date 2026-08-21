@@ -1246,3 +1246,35 @@ func TestALongPollSurvivesTheServerWriteTimeoutOverARealSocket(t *testing.T) {
 		t.Fatalf("the poll returned %v", got)
 	}
 }
+
+func TestNumLiveCountsOnlyWhatArrivedSinceTheLastResponse(t *testing.T) {
+	s := newServer(t)
+	tenant, alice, _ := s.resident(t, "alpha.test", "alice")
+	room := s.createRoom(t, tenant.ServerName, alice, map[string]any{"preset": entity.PresetPublicChat})
+	for i := range 6 {
+		s.mustSend(t, tenant.ServerName, alice, room, "m"+string(rune('a'+i)), text(string(rune('a'+i))))
+	}
+
+	first := s.syncOnce(t, tenant.ServerName, alice, "", window(2, 0, 9))
+	if got := first.Rooms[room].NumLive; got != 0 {
+		t.Fatalf("an initial sync reported num_live %d", got)
+	}
+
+	s.mustSend(t, tenant.ServerName, alice, room, "new", text("new"))
+	second := s.syncOnce(t, tenant.ServerName, alice, first.Pos, window(2, 0, 9))
+	if got := second.Rooms[room].NumLive; got != 1 {
+		t.Fatalf("num_live = %d after one new message, want 1", got)
+	}
+
+	widened := s.syncOnce(t, tenant.ServerName, alice, second.Pos, window(6, 0, 9))
+	room6 := widened.Rooms[room]
+	if !room6.ExpandedTimeline {
+		t.Fatal("raising the limit did not set expanded_timeline")
+	}
+	if len(room6.Timeline) < 5 {
+		t.Fatalf("an expanded timeline carried %d events", len(room6.Timeline))
+	}
+	if room6.NumLive != 0 {
+		t.Fatalf("num_live = %d on a timeline made of history, want 0", room6.NumLive)
+	}
+}
