@@ -17,6 +17,7 @@ import (
 	"github.com/thelemail/thaumaste/internal/repository/credential"
 	"github.com/thelemail/thaumaste/internal/repository/device"
 	"github.com/thelemail/thaumaste/internal/repository/event"
+	"github.com/thelemail/thaumaste/internal/repository/key"
 	"github.com/thelemail/thaumaste/internal/repository/refreshtoken"
 	"github.com/thelemail/thaumaste/internal/repository/relation"
 	"github.com/thelemail/thaumaste/internal/repository/room"
@@ -89,7 +90,10 @@ func InitializeServe(ctx context.Context, cfg config.Config) (*ServeRuntime, fun
 	repositoryConnection := connection.New(client)
 	sync := provideSyncConfig(cfg)
 	serviceSync := provideSync(repositoryConnection, roomMember, repositoryEvent, serviceTimeline, transactor, stream, notifier, serialiser, sync, v)
-	serveRuntime := provideServeRuntime(server, signing, limits, client, tenants, tokens, users, serviceRooms, events, serviceSync, notifier, sync, v)
+	repositoryKey := key.New(client)
+	keys := provideKeysConfig(cfg)
+	serviceKeys := provideKeys(repositoryKey, roomMember, transactor, keys)
+	serveRuntime := provideServeRuntime(server, signing, limits, client, tenants, tokens, users, serviceRooms, events, serviceSync, serviceKeys, notifier, sync, v)
 	return serveRuntime, func() {
 		cleanup2()
 		cleanup()

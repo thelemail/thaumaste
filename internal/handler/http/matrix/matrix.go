@@ -16,6 +16,7 @@ type Handler struct {
 	users        service.Users
 	rooms        service.Rooms
 	syncSvc      service.Sync
+	keys         service.Keys
 	publicScheme string
 	keyValidity  time.Duration
 	clock        func() time.Time
@@ -27,6 +28,7 @@ func New(
 	users service.Users,
 	rooms service.Rooms,
 	syncSvc service.Sync,
+	keys service.Keys,
 	srv config.Server,
 	sign config.Signing,
 	clock func() time.Time,
@@ -40,6 +42,7 @@ func New(
 		users:        users,
 		rooms:        rooms,
 		syncSvc:      syncSvc,
+		keys:         keys,
 		publicScheme: srv.PublicScheme,
 		keyValidity:  sign.KeyValidity,
 		clock:        clock,
@@ -100,6 +103,10 @@ func (h *Handler) Mount(r chi.Router) {
 				r.Put("/_matrix/client/v3/rooms/{roomID}/redact/{eventID}/{txnID}", h.redactEvent)
 				r.Get("/_matrix/client/v3/rooms/{roomID}/event/{eventID}", h.roomEvent)
 				r.Post("/_matrix/client/unstable/org.matrix.simplified_msc3575/sync", h.sync)
+
+				r.Post("/_matrix/client/v3/keys/upload", h.uploadKeys)
+				r.Post("/_matrix/client/v3/keys/query", h.queryKeys)
+				r.Post("/_matrix/client/v3/keys/claim", h.claimKeys)
 
 				r.Get("/_matrix/client/v1/rooms/{roomID}/relations/{eventID}", h.roomRelations)
 				r.Get("/_matrix/client/v1/rooms/{roomID}/relations/{eventID}/{relType}", h.roomRelations)
