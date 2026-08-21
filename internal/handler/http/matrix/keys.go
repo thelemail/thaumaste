@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 
-	"github.com/thelemail/thaumaste/internal/pkg/signing"
+	"github.com/thelemail/thaumaste/internal/entity"
 )
 
 type verifyKey struct {
@@ -43,7 +43,7 @@ func (h *Handler) serverKeys(w http.ResponseWriter, r *http.Request) {
 		ValidUntilTS:  h.clock().UTC().Add(h.keyValidity).UnixMilli(),
 	}
 	for _, k := range keys {
-		encoded := signing.EncodeKey(k.PublicKey)
+		encoded := entity.EncodeBase64(k.PublicKey)
 		if k.Active() {
 			body.VerifyKeys[k.KeyID] = verifyKey{Key: encoded}
 			continue

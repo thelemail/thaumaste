@@ -1,4 +1,4 @@
-package canonicaljson
+package entity
 
 import (
 	"bytes"
@@ -17,29 +17,29 @@ const (
 )
 
 var (
-	ErrFloat           = errors.New("canonicaljson: float values are not permitted")
-	ErrIntegerRange    = errors.New("canonicaljson: integer outside the safe range")
-	ErrInvalidUTF8     = errors.New("canonicaljson: string is not valid utf-8")
-	ErrUnsupportedType = errors.New("canonicaljson: unsupported type")
+	ErrCanonicalFloat        = errors.New("entity: float values are not permitted")
+	ErrCanonicalIntegerRange = errors.New("entity: integer outside the safe range")
+	ErrCanonicalUTF8         = errors.New("entity: string is not valid utf-8")
+	ErrCanonicalType         = errors.New("entity: unsupported type")
 )
 
-func Marshal(v any) ([]byte, error) {
+func CanonicalJSON(v any) ([]byte, error) {
 	raw, err := json.Marshal(v)
 	if err != nil {
-		return nil, fmt.Errorf("canonicaljson: marshal: %w", err)
+		return nil, fmt.Errorf("entity: marshal: %w", err)
 	}
-	return Encode(raw)
+	return CanonicalJSONFrom(raw)
 }
 
-func Encode(raw []byte) ([]byte, error) {
+func CanonicalJSONFrom(raw []byte) ([]byte, error) {
 	var v any
 	dec := json.NewDecoder(bytes.NewReader(raw))
 	dec.UseNumber()
 	if err := dec.Decode(&v); err != nil {
-		return nil, fmt.Errorf("canonicaljson: decode: %w", err)
+		return nil, fmt.Errorf("entity: decode: %w", err)
 	}
 	if dec.More() {
-		return nil, fmt.Errorf("canonicaljson: trailing data after the top-level value")
+		return nil, fmt.Errorf("entity: trailing data after the top-level value")
 	}
 
 	var buf bytes.Buffer
@@ -80,7 +80,7 @@ func write(buf *bytes.Buffer, v any) error {
 	case map[string]any:
 		return writeObject(buf, t)
 	default:
-		return fmt.Errorf("%w: %T", ErrUnsupportedType, v)
+		return fmt.Errorf("%w: %T", ErrCanonicalType, v)
 	}
 }
 
@@ -111,7 +111,7 @@ func writeObject(buf *bytes.Buffer, m map[string]any) error {
 func writeNumber(buf *bytes.Buffer, n json.Number) error {
 	if i, err := n.Int64(); err == nil {
 		if i < minSafeInteger || i > maxSafeInteger {
-			return fmt.Errorf("%w: %s", ErrIntegerRange, n)
+			return fmt.Errorf("%w: %s", ErrCanonicalIntegerRange, n)
 		}
 		buf.WriteString(strconv.FormatInt(i, 10))
 		return nil
@@ -119,13 +119,13 @@ func writeNumber(buf *bytes.Buffer, n json.Number) error {
 
 	f, err := n.Float64()
 	if err != nil {
-		return fmt.Errorf("canonicaljson: number %s: %w", n, err)
+		return fmt.Errorf("entity: number %s: %w", n, err)
 	}
 	if math.IsInf(f, 0) || math.IsNaN(f) || f != math.Trunc(f) {
-		return fmt.Errorf("%w: %s", ErrFloat, n)
+		return fmt.Errorf("%w: %s", ErrCanonicalFloat, n)
 	}
 	if f < float64(minSafeInteger) || f > float64(maxSafeInteger) {
-		return fmt.Errorf("%w: %s", ErrIntegerRange, n)
+		return fmt.Errorf("%w: %s", ErrCanonicalIntegerRange, n)
 	}
 	buf.WriteString(strconv.FormatInt(int64(f), 10))
 	return nil
@@ -133,7 +133,7 @@ func writeNumber(buf *bytes.Buffer, n json.Number) error {
 
 func writeString(buf *bytes.Buffer, s string) error {
 	if !utf8.ValidString(s) {
-		return fmt.Errorf("%w: %q", ErrInvalidUTF8, s)
+		return fmt.Errorf("%w: %q", ErrCanonicalUTF8, s)
 	}
 
 	buf.WriteByte('"')

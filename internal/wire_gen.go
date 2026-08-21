@@ -8,6 +8,7 @@ package internal
 
 import (
 	"context"
+
 	"github.com/thelemail/thaumaste/internal/config"
 	"github.com/thelemail/thaumaste/internal/pkg/keyseal"
 	"github.com/thelemail/thaumaste/internal/repository/accesstoken"

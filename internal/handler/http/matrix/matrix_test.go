@@ -15,7 +15,6 @@ import (
 	"github.com/thelemail/thaumaste/internal/handler/http/matrix"
 	"github.com/thelemail/thaumaste/internal/pkg/keyseal"
 	"github.com/thelemail/thaumaste/internal/pkg/postgres"
-	"github.com/thelemail/thaumaste/internal/pkg/signing"
 	"github.com/thelemail/thaumaste/internal/repository/accesstoken"
 	"github.com/thelemail/thaumaste/internal/repository/signingkey"
 	"github.com/thelemail/thaumaste/internal/repository/tenant"
@@ -173,20 +172,20 @@ func TestEachDomainSignsItsOwnKeysAndNotTheOthers(t *testing.T) {
 	beta := decode[keysBody](t, s.get(t, "beta.test", "/_matrix/key/v2/server", ""))
 
 	for id, key := range alpha.VerifyKeys {
-		public, err := signing.DecodeKey(key.Key)
+		public, err := entity.DecodeBase64(key.Key)
 		if err != nil {
 			t.Fatalf("decode key: %v", err)
 		}
-		if err := signing.Verify(raw, "alpha.test", signing.KeyID(id), ed25519.PublicKey(public)); err != nil {
+		if err := entity.VerifyJSON(raw, "alpha.test", entity.KeyID(id), ed25519.PublicKey(public)); err != nil {
 			t.Fatalf("alpha does not verify under its own key: %v", err)
 		}
 	}
 	for id, key := range beta.VerifyKeys {
-		public, err := signing.DecodeKey(key.Key)
+		public, err := entity.DecodeBase64(key.Key)
 		if err != nil {
 			t.Fatalf("decode key: %v", err)
 		}
-		if err := signing.Verify(raw, "beta.test", signing.KeyID(id), ed25519.PublicKey(public)); err == nil {
+		if err := entity.VerifyJSON(raw, "beta.test", entity.KeyID(id), ed25519.PublicKey(public)); err == nil {
 			t.Fatal("alpha's keys verified under beta's key")
 		}
 	}

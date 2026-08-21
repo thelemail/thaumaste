@@ -17,7 +17,6 @@ import (
 
 	"github.com/thelemail/thaumaste/internal/entity"
 	"github.com/thelemail/thaumaste/internal/pkg/keyseal"
-	"github.com/thelemail/thaumaste/internal/pkg/signing"
 	"github.com/thelemail/thaumaste/internal/repository"
 	"github.com/thelemail/thaumaste/internal/service"
 )
@@ -230,7 +229,7 @@ func (s *srv) SignAs(ctx context.Context, scope entity.TenantScope, document []b
 	if len(private) != ed25519.PrivateKeySize {
 		return nil, fmt.Errorf("tenants: signing key for %s is %d bytes", scope.ServerName(), len(private))
 	}
-	return signing.Sign(document, scope.ServerName(), signing.KeyID(key.KeyID), ed25519.PrivateKey(private))
+	return entity.SignJSON(document, scope.ServerName(), entity.KeyID(key.KeyID), ed25519.PrivateKey(private))
 }
 
 // ResealKeys re-encrypts every stored private key under a new master key. Without it the master key
@@ -293,7 +292,7 @@ func (s *srv) mintKey(ctx context.Context, scope entity.TenantScope) (entity.Sig
 	if err != nil {
 		return entity.SigningKey{}, err
 	}
-	keyID, err := signing.NewKeyID(version)
+	keyID, err := entity.NewKeyID(version)
 	if err != nil {
 		return entity.SigningKey{}, err
 	}
