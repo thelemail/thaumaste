@@ -7,7 +7,7 @@ import (
 )
 
 type Events interface {
-	CreateRoom(ctx context.Context, scope entity.TenantScope, in entity.NewRoomEvent) (entity.Room, entity.StoredEvent, error)
+	CreateRoom(ctx context.Context, scope entity.TenantScope, in entity.NewRoomRequest) (entity.Room, []entity.StoredEvent, error)
 	Send(ctx context.Context, scope entity.TenantScope, in entity.NewEvent) (entity.StoredEvent, error)
 	Room(ctx context.Context, roomID string) (entity.Room, error)
 	Timeline(ctx context.Context, roomID string) ([]entity.StoredEvent, error)

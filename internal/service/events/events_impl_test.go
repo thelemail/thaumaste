@@ -12,6 +12,7 @@ import (
 	"github.com/thelemail/thaumaste/internal/pkg/serialiser"
 	"github.com/thelemail/thaumaste/internal/repository/event"
 	"github.com/thelemail/thaumaste/internal/repository/room"
+	"github.com/thelemail/thaumaste/internal/repository/roommember"
 	"github.com/thelemail/thaumaste/internal/repository/signingkey"
 	"github.com/thelemail/thaumaste/internal/repository/state"
 	"github.com/thelemail/thaumaste/internal/repository/tenant"
@@ -44,7 +45,7 @@ func newHarness(t *testing.T) *harness {
 	if err != nil {
 		t.Fatalf("NewStream: %v", err)
 	}
-	eventSvc := events.New(room.New(pg, eventRepo), eventRepo, state.New(pg),
+	eventSvc := events.New(room.New(pg, eventRepo), eventRepo, state.New(pg), roommember.New(pg),
 		tenantSvc, pg, stream, serialiser.New(), "test", nil, nil)
 
 	return &harness{events: eventSvc, tenants: tenantSvc, db: pg}
@@ -59,17 +60,20 @@ func (h *harness) tenant(t *testing.T, serverName string) entity.Tenant {
 	return created
 }
 
-func (h *harness) room(t *testing.T, of entity.Tenant, version entity.RoomVersionID) (entity.Room, string) {
+func (h *harness) room(t *testing.T, of entity.Tenant, version entity.RoomVersionID) (entity.Room, string, []entity.StoredEvent) {
 	t.Helper()
 	creator := "@creator:" + of.ServerName
-	created, _, err := h.events.CreateRoom(t.Context(), of.Scope(), entity.NewRoomEvent{
-		Version: version,
-		Creator: creator,
+	created, chain, err := h.events.CreateRoom(t.Context(), of.Scope(), entity.NewRoomRequest{
+		Creator:    creator,
+		ServerName: of.ServerName,
+		Version:    version,
+		Visibility: entity.VisibilityPrivate,
+		Preset:     entity.PresetPrivateChat,
 	})
 	if err != nil {
 		t.Fatalf("CreateRoom: %v", err)
 	}
-	return created, creator
+	return created, creator, chain
 }
 
 func (h *harness) send(t *testing.T, of entity.Tenant, in entity.NewEvent) entity.StoredEvent {
@@ -79,14 +83,6 @@ func (h *harness) send(t *testing.T, of entity.Tenant, in entity.NewEvent) entit
 		t.Fatalf("Send %s: %v", in.Type, err)
 	}
 	return stored
-}
-
-func (h *harness) join(t *testing.T, of entity.Tenant, roomID, user string) entity.StoredEvent {
-	t.Helper()
-	return h.send(t, of, entity.NewEvent{
-		RoomID: roomID, Type: entity.EventTypeMember, StateKey: &user, Sender: user,
-		Content: map[string]any{"membership": entity.MembershipJoin},
-	})
 }
 
 func eachVersion(t *testing.T, fn func(t *testing.T, version entity.RoomVersionID)) {
@@ -100,9 +96,7 @@ func TestARoomChainRoundTripsThroughStorage(t *testing.T) {
 	eachVersion(t, func(t *testing.T, version entity.RoomVersionID) {
 		h := newHarness(t)
 		alpha := h.tenant(t, "alpha.test")
-		created, creator := h.room(t, alpha, version)
-
-		h.join(t, alpha, created.RoomID, creator)
+		created, creator, chain := h.room(t, alpha, version)
 		empty := ""
 		h.send(t, alpha, entity.NewEvent{
 			RoomID: created.RoomID, Type: entity.EventTypePowerLevels, StateKey: &empty, Sender: creator,
@@ -117,8 +111,8 @@ func TestARoomChainRoundTripsThroughStorage(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Timeline: %v", err)
 		}
-		if len(timeline) != 4 {
-			t.Fatalf("timeline = %d events, want 4", len(timeline))
+		if len(timeline) != len(chain)+2 {
+			t.Fatalf("timeline = %d events, want %d", len(timeline), len(chain)+2)
 		}
 
 		keys, err := h.tenants.Keys(t.Context(), alpha.Scope())
@@ -186,9 +180,8 @@ func TestTheStateBeforeAnEventIsWhatTheFoldSays(t *testing.T) {
 	eachVersion(t, func(t *testing.T, version entity.RoomVersionID) {
 		h := newHarness(t)
 		alpha := h.tenant(t, "alpha.test")
-		created, creator := h.room(t, alpha, version)
-
-		join := h.join(t, alpha, created.RoomID, creator)
+		created, creator, chain := h.room(t, alpha, version)
+		join := chain[1]
 
 		beforeJoin, err := h.events.StateBefore(t.Context(), join.Event.ID())
 		if err != nil {
@@ -232,8 +225,7 @@ func TestTheDagEdgesAreStoredNotJustDeclared(t *testing.T) {
 	eachVersion(t, func(t *testing.T, version entity.RoomVersionID) {
 		h := newHarness(t)
 		alpha := h.tenant(t, "alpha.test")
-		created, creator := h.room(t, alpha, version)
-		h.join(t, alpha, created.RoomID, creator)
+		created, creator, _ := h.room(t, alpha, version)
 
 		message := h.send(t, alpha, entity.NewEvent{
 			RoomID: created.RoomID, Type: entity.EventTypeMessage, Sender: creator,
@@ -268,8 +260,8 @@ func TestTheFirstJoinNamesCreateOnlyWhereTheVersionRequiresIt(t *testing.T) {
 	eachVersion(t, func(t *testing.T, version entity.RoomVersionID) {
 		h := newHarness(t)
 		alpha := h.tenant(t, "alpha.test")
-		created, creator := h.room(t, alpha, version)
-		join := h.join(t, alpha, created.RoomID, creator)
+		created, _, chain := h.room(t, alpha, version)
+		join := chain[1]
 
 		timeline, err := h.events.Timeline(t.Context(), created.RoomID)
 		if err != nil {
@@ -296,13 +288,7 @@ func TestARoomIDNamesItsCreateEventUnderVersionTwelve(t *testing.T) {
 	h := newHarness(t)
 	alpha := h.tenant(t, "alpha.test")
 
-	created, _, err := h.events.CreateRoom(t.Context(), alpha.Scope(), entity.NewRoomEvent{
-		Version: entity.RoomVersion12,
-		Creator: "@creator:alpha.test",
-	})
-	if err != nil {
-		t.Fatalf("CreateRoom: %v", err)
-	}
+	created, _, _ := h.room(t, alpha, entity.RoomVersion12)
 
 	timeline, err := h.events.Timeline(t.Context(), created.RoomID)
 	if err != nil {
@@ -321,13 +307,7 @@ func TestARoomIDCarriesADomainUnderVersionEleven(t *testing.T) {
 	h := newHarness(t)
 	alpha := h.tenant(t, "alpha.test")
 
-	created, _, err := h.events.CreateRoom(t.Context(), alpha.Scope(), entity.NewRoomEvent{
-		Version: entity.RoomVersion11,
-		Creator: "@creator:alpha.test",
-	})
-	if err != nil {
-		t.Fatalf("CreateRoom: %v", err)
-	}
+	created, _, _ := h.room(t, alpha, entity.RoomVersion11)
 	if !hasSuffix(created.RoomID, ":alpha.test") {
 		t.Fatalf("room id = %s, want a domain suffix", created.RoomID)
 	}
@@ -349,8 +329,7 @@ func TestAnUnauthorisedEventIsRefusedAndNotStored(t *testing.T) {
 	eachVersion(t, func(t *testing.T, version entity.RoomVersionID) {
 		h := newHarness(t)
 		alpha := h.tenant(t, "alpha.test")
-		created, creator := h.room(t, alpha, version)
-		h.join(t, alpha, created.RoomID, creator)
+		created, _, _ := h.room(t, alpha, version)
 
 		before, err := h.events.Timeline(t.Context(), created.RoomID)
 		if err != nil {
@@ -378,8 +357,7 @@ func TestAnUnauthorisedEventIsRefusedAndNotStored(t *testing.T) {
 func TestTheRoomKeepsExactlyOneForwardExtremity(t *testing.T) {
 	h := newHarness(t)
 	alpha := h.tenant(t, "alpha.test")
-	created, creator := h.room(t, alpha, entity.DefaultRoomVersion)
-	h.join(t, alpha, created.RoomID, creator)
+	created, creator, _ := h.room(t, alpha, entity.DefaultRoomVersion)
 
 	for i := range 5 {
 		h.send(t, alpha, entity.NewEvent{
@@ -410,8 +388,7 @@ func TestTheRoomKeepsExactlyOneForwardExtremity(t *testing.T) {
 func TestConcurrentSendsToOneRoomStayLinear(t *testing.T) {
 	h := newHarness(t)
 	alpha := h.tenant(t, "alpha.test")
-	created, creator := h.room(t, alpha, entity.DefaultRoomVersion)
-	h.join(t, alpha, created.RoomID, creator)
+	created, creator, chain := h.room(t, alpha, entity.DefaultRoomVersion)
 
 	const writers = 6
 	done := make(chan error, writers)
@@ -434,8 +411,8 @@ func TestConcurrentSendsToOneRoomStayLinear(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Timeline: %v", err)
 	}
-	if len(timeline) != writers+2 {
-		t.Fatalf("timeline = %d events, want %d", len(timeline), writers+2)
+	if len(timeline) != writers+len(chain) {
+		t.Fatalf("timeline = %d events, want %d", len(timeline), writers+len(chain))
 	}
 
 	seen := map[string]bool{}
@@ -454,8 +431,7 @@ func TestConcurrentSendsToOneRoomStayLinear(t *testing.T) {
 func TestStateIsSharedRatherThanRewrittenForAQuietRoom(t *testing.T) {
 	h := newHarness(t)
 	alpha := h.tenant(t, "alpha.test")
-	created, creator := h.room(t, alpha, entity.DefaultRoomVersion)
-	h.join(t, alpha, created.RoomID, creator)
+	created, creator, chain := h.room(t, alpha, entity.DefaultRoomVersion)
 
 	var snapshots []int64
 	for range 4 {
@@ -478,8 +454,8 @@ func TestStateIsSharedRatherThanRewrittenForAQuietRoom(t *testing.T) {
 	if err != nil {
 		t.Fatalf("count snapshots: %v", err)
 	}
-	if rows > 3 {
-		t.Fatalf("snapshots = %d for a room with three state events", rows)
+	if rows > len(chain)+1 {
+		t.Fatalf("snapshots = %d for a room with %d creation events", rows, len(chain))
 	}
 }
 
@@ -488,15 +464,12 @@ func TestTwoDomainsCanEachHoldTheirOwnRoom(t *testing.T) {
 	alpha := h.tenant(t, "alpha.test")
 	beta := h.tenant(t, "beta.test")
 
-	alphaRoom, alphaCreator := h.room(t, alpha, entity.DefaultRoomVersion)
-	betaRoom, betaCreator := h.room(t, beta, entity.DefaultRoomVersion)
+	alphaRoom, _, _ := h.room(t, alpha, entity.DefaultRoomVersion)
+	betaRoom, _, _ := h.room(t, beta, entity.DefaultRoomVersion)
 
 	if alphaRoom.RoomID == betaRoom.RoomID {
 		t.Fatal("two domains produced the same room id")
 	}
-	h.join(t, alpha, alphaRoom.RoomID, alphaCreator)
-	h.join(t, beta, betaRoom.RoomID, betaCreator)
-
 	alphaKeys, err := h.tenants.Keys(t.Context(), alpha.Scope())
 	if err != nil {
 		t.Fatalf("Keys: %v", err)
@@ -532,8 +505,7 @@ func TestSendingToAnUnknownRoomIsRefused(t *testing.T) {
 func TestAForeignSenderIsRecordedAsNotLocal(t *testing.T) {
 	h := newHarness(t)
 	alpha := h.tenant(t, "alpha.test")
-	created, creator := h.room(t, alpha, entity.DefaultRoomVersion)
-	h.join(t, alpha, created.RoomID, creator)
+	created, creator, _ := h.room(t, alpha, entity.DefaultRoomVersion)
 
 	empty := ""
 	h.send(t, alpha, entity.NewEvent{
@@ -563,7 +535,7 @@ func TestAForeignSenderIsRecordedAsNotLocal(t *testing.T) {
 func TestTheClockIsTheOriginServerTimestamp(t *testing.T) {
 	h := newHarness(t)
 	alpha := h.tenant(t, "alpha.test")
-	created, _ := h.room(t, alpha, entity.DefaultRoomVersion)
+	created, _, _ := h.room(t, alpha, entity.DefaultRoomVersion)
 
 	timeline, err := h.events.Timeline(t.Context(), created.RoomID)
 	if err != nil {

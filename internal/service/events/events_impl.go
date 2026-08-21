@@ -25,6 +25,7 @@ type srv struct {
 	rooms      repository.Room
 	events     repository.Event
 	state      repository.State
+	members    repository.RoomMember
 	tenants    service.Tenants
 	tx         repository.Transactor
 	stream     *postgres.Stream
@@ -38,6 +39,7 @@ func New(
 	rooms repository.Room,
 	events repository.Event,
 	state repository.State,
+	members repository.RoomMember,
 	tenants service.Tenants,
 	tx repository.Transactor,
 	stream *postgres.Stream,
@@ -53,29 +55,23 @@ func New(
 		rnd = rand.Reader
 	}
 	return &srv{
-		rooms: rooms, events: events, state: state, tenants: tenants, tx: tx,
+		rooms: rooms, events: events, state: state, members: members, tenants: tenants, tx: tx,
 		stream: stream, serialiser: gate, instance: instance, clock: clock, rnd: rnd,
 	}
 }
 
-func (s *srv) CreateRoom(ctx context.Context, scope entity.TenantScope, in entity.NewRoomEvent) (entity.Room, entity.StoredEvent, error) {
+func (s *srv) CreateRoom(ctx context.Context, scope entity.TenantScope, in entity.NewRoomRequest) (entity.Room, []entity.StoredEvent, error) {
 	if err := in.Validate(); err != nil {
-		return entity.Room{}, entity.StoredEvent{}, err
+		return entity.Room{}, nil, err
 	}
 	version, err := entity.LookupRoomVersion(in.Version)
 	if err != nil {
-		return entity.Room{}, entity.StoredEvent{}, err
+		return entity.Room{}, nil, err
 	}
-
-	content := map[string]any{}
-	for k, v := range in.Content {
-		content[k] = v
-	}
-	content["room_version"] = string(version.ID)
 
 	opaque, err := s.opaque()
 	if err != nil {
-		return entity.Room{}, entity.StoredEvent{}, err
+		return entity.Room{}, nil, err
 	}
 
 	builder := entity.EventBuilder{
@@ -83,7 +79,7 @@ func (s *srv) CreateRoom(ctx context.Context, scope entity.TenantScope, in entit
 		Type:           entity.EventTypeCreate,
 		StateKey:       new(string),
 		Sender:         in.Creator,
-		Content:        content,
+		Content:        in.CreateContent(version),
 		OriginServerTS: s.clock().UTC().UnixMilli(),
 	}
 	if version.CreateCarriesRoomID {
@@ -92,45 +88,125 @@ func (s *srv) CreateRoom(ctx context.Context, scope entity.TenantScope, in entit
 
 	create, err := builder.Build(s.signer(ctx, scope))
 	if err != nil {
-		return entity.Room{}, entity.StoredEvent{}, err
+		return entity.Room{}, nil, err
 	}
 	roomID, err := entity.RoomIDFor(create, version, scope.ServerName(), opaque)
 	if err != nil {
-		return entity.Room{}, entity.StoredEvent{}, err
+		return entity.Room{}, nil, err
 	}
 	if err := entity.Authorise(create, entity.StateMap{}, version); err != nil {
-		return entity.Room{}, entity.StoredEvent{}, err
+		return entity.Room{}, nil, err
 	}
 
 	var (
-		room   entity.Room
-		stored entity.StoredEvent
+		room    entity.Room
+		written []entity.StoredEvent
 	)
-	err = s.tx.WithTx(ctx, func(ctx context.Context) error {
-		room, err = s.rooms.Create(ctx, entity.NewRoom{
-			TenantID: scope.ID(),
-			RoomID:   roomID,
-			Version:  version.ID,
-		})
-		if err != nil {
-			if errors.Is(err, repository.ErrRoomAlreadyExists) {
-				return entity.ErrRoomAlreadyExists
+	err = s.serialiser.Do(ctx, roomID, func(ctx context.Context) error {
+		written = nil
+		return s.tx.WithTx(ctx, func(ctx context.Context) error {
+			room, err = s.rooms.Create(ctx, entity.NewRoom{
+				TenantID: scope.ID(),
+				RoomID:   roomID,
+				Version:  version.ID,
+			})
+			if err != nil {
+				if errors.Is(err, repository.ErrRoomAlreadyExists) {
+					return entity.ErrRoomAlreadyExists
+				}
+				return err
 			}
-			return err
-		}
-		stored, err = s.persist(ctx, scope, room, create, entity.StateMap{})
-		if err != nil {
-			return err
-		}
-		if err := s.rooms.SetCreateEvent(ctx, room.NID, stored.NID); err != nil {
-			return err
-		}
-		return s.rooms.ReplaceExtremities(ctx, room.NID, []int64{stored.NID})
+			stored, err := s.persist(ctx, scope, room, create, entity.StateMap{})
+			if err != nil {
+				return err
+			}
+			if err := s.rooms.SetCreateEvent(ctx, room.NID, stored.NID); err != nil {
+				return err
+			}
+			if err := s.rooms.ReplaceExtremities(ctx, room.NID, []int64{stored.NID}); err != nil {
+				return err
+			}
+			written = append(written, stored)
+
+			for _, next := range creationChain(in, roomID, version) {
+				stored, err := s.send(ctx, scope, next)
+				if err != nil {
+					return err
+				}
+				written = append(written, stored)
+			}
+			return nil
+		})
 	})
 	if err != nil {
-		return entity.Room{}, entity.StoredEvent{}, err
+		return entity.Room{}, nil, err
 	}
-	return room, stored, nil
+	return room, written, nil
+}
+
+func creationChain(in entity.NewRoomRequest, roomID string, version entity.RoomVersion) []entity.NewEvent {
+	empty := ""
+	state := func(eventType string, content map[string]any) entity.NewEvent {
+		return entity.NewEvent{
+			RoomID: roomID, Type: eventType, StateKey: &empty,
+			Sender: in.Creator, Content: content,
+		}
+	}
+	member := func(target, membership string, content map[string]any) entity.NewEvent {
+		key := target
+		out := map[string]any{"membership": membership}
+		for k, v := range content {
+			out[k] = v
+		}
+		return entity.NewEvent{
+			RoomID: roomID, Type: entity.EventTypeMember, StateKey: &key,
+			Sender: in.Creator, Content: out,
+		}
+	}
+
+	chain := []entity.NewEvent{
+		member(in.Creator, entity.MembershipJoin, map[string]any{
+			"displayname": in.CreatorDisplayName,
+			"avatar_url":  in.CreatorAvatarURL,
+		}),
+		state(entity.EventTypePowerLevels, in.PowerLevelContent(version)),
+	}
+
+	if alias, ok := in.Alias(); ok {
+		chain = append(chain, state(entity.EventTypeCanonicalAlias, map[string]any{"alias": alias}))
+	}
+
+	chain = append(chain,
+		state(entity.EventTypeJoinRules, map[string]any{"join_rule": in.JoinRule()}),
+		state(entity.EventTypeHistoryVisibility, map[string]any{"history_visibility": in.HistoryVisibility()}),
+		state(entity.EventTypeGuestAccess, map[string]any{"guest_access": entity.GuestAccessForbidden}),
+		state(entity.EventTypeEncryption, in.Encryption()),
+	)
+
+	for _, item := range in.InitialState {
+		if item.Type == entity.EventTypeEncryption && item.StateKey == "" {
+			continue
+		}
+		key := item.StateKey
+		chain = append(chain, entity.NewEvent{
+			RoomID: roomID, Type: item.Type, StateKey: &key,
+			Sender: in.Creator, Content: item.Content,
+		})
+	}
+
+	if in.Name != "" {
+		chain = append(chain, state(entity.EventTypeName, map[string]any{"name": in.Name}))
+	}
+	if in.Topic != "" {
+		chain = append(chain, state(entity.EventTypeTopic, entity.TopicContent(in.Topic)))
+	}
+	for _, invitee := range in.Invite {
+		if invitee == in.Creator {
+			continue
+		}
+		chain = append(chain, member(invitee, entity.MembershipInvite, nil))
+	}
+	return chain
 }
 
 func (s *srv) Send(ctx context.Context, scope entity.TenantScope, in entity.NewEvent) (entity.StoredEvent, error) {
@@ -153,6 +229,12 @@ func (s *srv) Send(ctx context.Context, scope entity.TenantScope, in entity.NewE
 }
 
 func (s *srv) send(ctx context.Context, scope entity.TenantScope, in entity.NewEvent) (entity.StoredEvent, error) {
+	if in.StateKey != nil {
+		if err := entity.ValidateStateContent(in.Type, in.Content); err != nil {
+			return entity.StoredEvent{}, err
+		}
+	}
+
 	room, version, err := s.roomAndVersion(ctx, in.RoomID)
 	if err != nil {
 		return entity.StoredEvent{}, err
@@ -251,7 +333,33 @@ func (s *srv) persist(ctx context.Context, scope entity.TenantScope, room entity
 		return entity.StoredEvent{}, err
 	}
 	stored.StateSnapshotNID = snapshotNID
+
+	if err := s.projectMembership(ctx, room, stored); err != nil {
+		return entity.StoredEvent{}, err
+	}
 	return stored, nil
+}
+
+func (s *srv) projectMembership(ctx context.Context, room entity.Room, stored entity.StoredEvent) error {
+	if stored.Event.Type() != entity.EventTypeMember {
+		return nil
+	}
+	target, ok := stored.Event.StateKey()
+	if !ok {
+		return nil
+	}
+	membership, _ := stored.Event.Content()["membership"].(string)
+	in := entity.NewRoomMembership{
+		TenantID:   room.TenantID,
+		RoomNID:    room.NID,
+		UserID:     target,
+		Membership: membership,
+		EventNID:   stored.NID,
+	}
+	if err := in.Validate(); err != nil {
+		return err
+	}
+	return s.members.Upsert(ctx, in)
 }
 
 func (s *srv) Room(ctx context.Context, roomID string) (entity.Room, error) {
