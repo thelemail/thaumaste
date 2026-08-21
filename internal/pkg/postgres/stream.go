@@ -16,13 +16,13 @@ const (
 	writerStaleAfter       = 5 * time.Minute
 )
 
+var ErrNonPositiveCount = errors.New("postgres: stream position count must be positive")
+
 const publishedPositionSQL = `
 	SELECT COALESCE(
 		(SELECT min(abs(stream_id)) FROM stream_positions
-		  WHERE stream_name = $1 AND updated_at > now() - $2::interval),
-		(SELECT COALESCE(max(abs(stream_id)), 0) FROM stream_positions WHERE stream_name = $1))`
-
-var ErrNonPositiveCount = errors.New("postgres: stream position count must be positive")
+		  WHERE stream_name = $1 AND instance_name <> $2 AND updated_at > now() - $3::interval), 0),
+	       (SELECT last_value FROM %s)`
 
 type StreamConfig struct {
 	Name     string
@@ -73,15 +73,23 @@ func (s *Stream) Current() int64 {
 }
 
 func (s *Stream) Published(ctx context.Context) (int64, error) {
-	if err := s.vouch(ctx); err != nil {
-		return 0, err
-	}
-
-	var published int64
-	err := s.db.Querier(ctx).QueryRowContext(ctx, publishedPositionSQL,
-		s.cfg.Name, writerStaleAfter.String()).Scan(&published)
+	var others, issued int64
+	query := fmt.Sprintf(publishedPositionSQL, s.cfg.Sequence)
+	err := s.db.Querier(ctx).QueryRowContext(ctx, query,
+		s.cfg.Name, s.cfg.Instance, writerStaleAfter.String()).Scan(&others, &issued)
 	if err != nil {
 		return 0, fmt.Errorf("postgres: read published stream position: %w", err)
+	}
+
+	s.mu.Lock()
+	published := s.upTo
+	if len(s.inFlight) == 0 && len(s.fetching) == 0 {
+		published = max(published, issued)
+	}
+	s.mu.Unlock()
+
+	if others > 0 && others < published {
+		published = others
 	}
 	return s.sign() * published, nil
 }
@@ -211,33 +219,6 @@ func (s *Stream) persist(upTo int64) {
 		slog.ErrorContext(ctx, "could not record stream position",
 			"stream", s.cfg.Name, "position", s.sign()*upTo, "error", err)
 	}
-}
-
-func (s *Stream) vouch(ctx context.Context) error {
-	s.mu.Lock()
-	idle := len(s.inFlight) == 0 && len(s.fetching) == 0
-	s.mu.Unlock()
-	if !idle {
-		return nil
-	}
-
-	var issued int64
-	err := s.db.Querier(ctx).QueryRowContext(ctx,
-		`SELECT last_value FROM `+s.cfg.Sequence).Scan(&issued)
-	if err != nil {
-		return fmt.Errorf("postgres: read issued stream positions: %w", err)
-	}
-
-	s.mu.Lock()
-	if issued > s.upTo && len(s.inFlight) == 0 && len(s.fetching) == 0 {
-		s.upTo = issued
-		s.maxSeen = max(s.maxSeen, issued)
-	}
-	upTo := s.upTo
-	s.mu.Unlock()
-
-	s.persist(upTo)
-	return nil
 }
 
 func (s *Stream) sign() int64 {

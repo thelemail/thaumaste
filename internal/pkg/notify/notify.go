@@ -109,3 +109,15 @@ func (n *Notifier) Watching() int {
 	defer n.mu.Unlock()
 	return len(n.waiters)
 }
+
+func (n *Notifier) Waiters() int {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	seen := make(map[*waiter]struct{})
+	for _, group := range n.waiters {
+		for w := range group {
+			seen[w] = struct{}{}
+		}
+	}
+	return len(seen)
+}

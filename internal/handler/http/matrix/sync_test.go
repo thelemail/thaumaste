@@ -3,9 +3,11 @@ package matrix_test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -872,5 +874,375 @@ func TestAWakeUpCrossesTwoInstances(t *testing.T) {
 		}
 	case <-time.After(4 * time.Second):
 		t.Fatal("a write on one instance did not wake a poll on the other")
+	}
+}
+
+func TestTwoConnectionIdsOnOneDeviceAreIndependent(t *testing.T) {
+	s := newServer(t)
+	tenant, _, _ := s.resident(t, "alpha.test", "alice")
+	alice := s.loginAlice(t, "PHONE")
+	room := s.createRoom(t, tenant.ServerName, alice.AccessToken, map[string]any{"name": "one"})
+
+	main := s.syncOnce(t, tenant.ServerName, alice.AccessToken, "", window(10, 0, 9))
+	side := s.syncOnce(t, tenant.ServerName, alice.AccessToken, "", map[string]any{
+		"conn_id": "side",
+		"lists": map[string]any{"all": map[string]any{
+			"range": []int{0, 9}, "timeline_limit": 10,
+			"required_state": map[string]any{"include": []map[string]any{}},
+		}},
+	})
+	if main.Pos == side.Pos {
+		t.Fatal("two connection ids shared one position")
+	}
+	s.mustSend(t, tenant.ServerName, alice.AccessToken, room, "1", text("for both"))
+
+	onMain := s.syncOnce(t, tenant.ServerName, alice.AccessToken, main.Pos, window(10, 0, 9))
+	if got := timelineBodies(t, onMain.Rooms[room].Timeline); !slicesContains(got, "for both") {
+		t.Fatalf("the main connection missed the message: %v", got)
+	}
+	onSide := s.syncOnce(t, tenant.ServerName, alice.AccessToken, side.Pos, map[string]any{
+		"conn_id": "side",
+		"lists": map[string]any{"all": map[string]any{
+			"range": []int{0, 9}, "timeline_limit": 10,
+			"required_state": map[string]any{"include": []map[string]any{}},
+		}},
+	})
+	if got := timelineBodies(t, onSide.Rooms[room].Timeline); !slicesContains(got, "for both") {
+		t.Fatalf("the side connection missed the message: %v", got)
+	}
+}
+
+func TestAnAbandonedConnectionExpiresAndTheClientStartsOver(t *testing.T) {
+	s := newServer(t)
+	tenant, _, _ := s.resident(t, "alpha.test", "alice")
+	alice := s.loginAlice(t, "PHONE")
+	s.createRoom(t, tenant.ServerName, alice.AccessToken, map[string]any{"name": "one"})
+
+	body := s.syncOnce(t, tenant.ServerName, alice.AccessToken, "", window(10, 0, 9))
+	swept, err := s.sync.SweepConnections(t.Context(), time.Now().Add(time.Hour))
+	if err != nil {
+		t.Fatalf("SweepConnections: %v", err)
+	}
+	if swept == 0 {
+		t.Fatal("the sweep found no abandoned connection to remove")
+	}
+
+	rec := s.syncRaw(t, tenant.ServerName, alice.AccessToken, body.Pos, window(10, 0, 9))
+	if rec.Code != http.StatusBadRequest || errcode(t, rec) != "M_UNKNOWN_POS" {
+		t.Fatalf("an expired connection answered %d: %s", rec.Code, rec.Body)
+	}
+	fresh := s.syncOnce(t, tenant.ServerName, alice.AccessToken, "", window(10, 0, 9))
+	if len(fresh.Rooms) != 1 {
+		t.Fatalf("bootstrapping after expiry returned %d rooms", len(fresh.Rooms))
+	}
+}
+
+func TestLoggingOutADeviceDestroysItsConnection(t *testing.T) {
+	s := newServer(t)
+	tenant, _, _ := s.resident(t, "alpha.test", "alice")
+	alice := s.loginAlice(t, "PHONE")
+	s.createRoom(t, tenant.ServerName, alice.AccessToken, map[string]any{"name": "one"})
+	body := s.syncOnce(t, tenant.ServerName, alice.AccessToken, "", window(10, 0, 9))
+
+	rec := s.do(t, http.MethodPost, tenant.ServerName, "/_matrix/client/v3/logout", alice.AccessToken, map[string]any{})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("logout = %d: %s", rec.Code, rec.Body)
+	}
+
+	again := s.loginAlice(t, "PHONE")
+	failed := s.syncRaw(t, tenant.ServerName, again.AccessToken, body.Pos, window(10, 0, 9))
+	if failed.Code != http.StatusBadRequest || errcode(t, failed) != "M_UNKNOWN_POS" {
+		t.Fatalf("a position survived the device logout: %d %s", failed.Code, failed.Body)
+	}
+}
+
+func TestBumpStampMovesOnlyForBumpingEventTypes(t *testing.T) {
+	s := newServer(t)
+	tenant, alice, _ := s.resident(t, "alpha.test", "alice")
+	room := s.createRoom(t, tenant.ServerName, alice, map[string]any{"preset": entity.PresetPublicChat})
+
+	first := s.syncOnce(t, tenant.ServerName, alice, "", window(10, 0, 9))
+	created := first.Rooms[room].BumpStamp
+	if created == 0 {
+		t.Fatal("a created room carried no bump_stamp")
+	}
+
+	s.do(t, http.MethodPut, tenant.ServerName,
+		"/_matrix/client/v3/rooms/"+url.PathEscape(room)+"/state/m.room.topic",
+		alice, map[string]any{"topic": "quiet change"})
+	afterTopic := s.syncOnce(t, tenant.ServerName, alice, first.Pos, window(10, 0, 9))
+	if got := afterTopic.Rooms[room].BumpStamp; got != created {
+		t.Fatalf("a topic change moved bump_stamp from %d to %d", created, got)
+	}
+
+	s.mustSend(t, tenant.ServerName, alice, room, "1", text("real activity"))
+	afterMessage := s.syncOnce(t, tenant.ServerName, alice, afterTopic.Pos, window(10, 0, 9))
+	if got := afterMessage.Rooms[room].BumpStamp; got <= created {
+		t.Fatalf("a message left bump_stamp at %d, want more than %d", got, created)
+	}
+}
+
+func TestFiltersThisServerCanAnswer(t *testing.T) {
+	s := newServer(t)
+	tenant, alice, _ := s.resident(t, "alpha.test", "alice")
+	bob := s.register(t, tenant.ServerName, "bob", goodPassword)
+
+	joined := s.createRoom(t, tenant.ServerName, alice, map[string]any{"preset": entity.PresetPublicChat})
+	invited := s.createRoom(t, tenant.ServerName, alice, map[string]any{"preset": entity.PresetPrivateChat})
+	s.mustAct(t, tenant.ServerName, "/_matrix/client/v3/rooms/"+url.PathEscape(invited)+"/invite", alice,
+		map[string]any{"user_id": bob.UserID})
+	s.joinAs(t, tenant, joined, bob.UserID)
+
+	filtered := func(filter map[string]any) map[string]syncRoomBody {
+		body := s.syncOnce(t, tenant.ServerName, bob.AccessToken, "", map[string]any{
+			"conn_id": "f",
+			"lists": map[string]any{"all": map[string]any{
+				"range": []int{0, 9}, "timeline_limit": 1, "filters": filter,
+				"required_state": map[string]any{"include": []map[string]any{}},
+			}},
+		})
+		return body.Rooms
+	}
+
+	onlyInvites := filtered(map[string]any{"is_invited": true})
+	if _, ok := onlyInvites[invited]; !ok {
+		t.Fatal("is_invited did not return the invited room")
+	}
+	if _, ok := onlyInvites[joined]; ok {
+		t.Fatal("is_invited returned a joined room")
+	}
+
+	encrypted := filtered(map[string]any{"is_encrypted": true})
+	if len(encrypted) == 0 {
+		t.Fatal("is_encrypted returned nothing in a server that mandates encryption")
+	}
+	if len(filtered(map[string]any{"is_encrypted": false})) != 0 {
+		t.Fatal("is_encrypted false matched a room in a server that mandates encryption")
+	}
+	if len(filtered(map[string]any{"not_room_types": []any{nil}})) != 0 {
+		t.Fatal("not_room_types [null] failed to exclude ordinary rooms")
+	}
+	if len(filtered(map[string]any{"room_types": []any{nil}})) == 0 {
+		t.Fatal("room_types [null] failed to match ordinary rooms")
+	}
+}
+
+func TestTooManyListsIsRefused(t *testing.T) {
+	s := newServer(t)
+	tenant, alice, _ := s.resident(t, "alpha.test", "alice")
+
+	lists := make(map[string]any, entity.MaxSyncLists+1)
+	for i := range entity.MaxSyncLists + 1 {
+		lists[fmt.Sprintf("list-%d", i)] = map[string]any{
+			"range": []int{0, 1}, "timeline_limit": 1,
+			"required_state": map[string]any{"include": []map[string]any{}},
+		}
+	}
+	rec := s.syncRaw(t, tenant.ServerName, alice, "", map[string]any{"lists": lists})
+	if rec.Code != http.StatusBadRequest || errcode(t, rec) != "M_INVALID_PARAM" {
+		t.Fatalf("%d lists were accepted: %d %s", len(lists), rec.Code, rec.Body)
+	}
+}
+
+func TestExtensionsAreAcceptedAndAnsweredEmpty(t *testing.T) {
+	s := newServer(t)
+	tenant, alice, _ := s.resident(t, "alpha.test", "alice")
+	s.createRoom(t, tenant.ServerName, alice, map[string]any{"preset": entity.PresetPublicChat})
+
+	request := window(1, 0, 9)
+	request["extensions"] = map[string]any{
+		"to_device": map[string]any{"enabled": true},
+		"e2ee":      map[string]any{"enabled": true},
+	}
+	body := s.syncOnce(t, tenant.ServerName, alice, "", request)
+	if body.Extensions == nil {
+		t.Fatal("extensions was omitted from the response")
+	}
+	if len(body.Extensions) != 0 {
+		t.Fatalf("extensions = %v, want an empty object until THE-19", body.Extensions)
+	}
+}
+
+func TestAnIdleConnectionCostsABoundedAmount(t *testing.T) {
+	const connections = 150
+
+	s := newServer(t)
+	tenant, alice, _ := s.resident(t, "alpha.test", "alice")
+	for range 5 {
+		s.createRoom(t, tenant.ServerName, alice, map[string]any{"preset": entity.PresetPublicChat})
+	}
+
+	sessions := make([]sessionBody, 0, connections)
+	positions := make([]string, 0, connections)
+	for i := range connections {
+		session := s.loginAlice(t, fmt.Sprintf("DEVICE%03d", i))
+		sessions = append(sessions, session)
+		positions = append(positions, s.syncOnce(t, tenant.ServerName, session.AccessToken, "", window(5, 0, 9)).Pos)
+	}
+
+	runtime.GC()
+	var before runtime.MemStats
+	runtime.ReadMemStats(&before)
+	baseline := runtime.NumGoroutine()
+
+	request := window(5, 0, 9)
+	request["timeout"] = 4000
+
+	done := make(chan int, connections)
+	for i := range connections {
+		go func() {
+			done <- s.syncRaw(t, tenant.ServerName, sessions[i].AccessToken, positions[i], request).Code
+		}()
+	}
+
+	parked := false
+	for range 200 {
+		time.Sleep(20 * time.Millisecond)
+		if s.notifier.Waiters() >= connections {
+			parked = true
+			break
+		}
+	}
+	if !parked {
+		t.Fatalf("only %d of %d connections parked", s.notifier.Waiters(), connections)
+	}
+
+	runtime.GC()
+	var during runtime.MemStats
+	runtime.ReadMemStats(&during)
+	goroutines := runtime.NumGoroutine() - baseline
+	held := s.db.Stats().InUse
+	bytes := int64(during.HeapAlloc) - int64(before.HeapAlloc)
+
+	t.Logf("%d parked connections: %d goroutines, %d database connections, %d heap bytes each",
+		connections, goroutines, held, bytes/connections)
+
+	if held != 0 {
+		t.Fatalf("%d parked connections held %d database connections", connections, held)
+	}
+	if perConnection := goroutines / connections; perConnection > 2 {
+		t.Fatalf("each parked connection costs %d goroutines", perConnection)
+	}
+	if bytes > 0 && bytes/connections > 64*1024 {
+		t.Fatalf("each parked connection holds %d heap bytes", bytes/connections)
+	}
+
+	for range connections {
+		if code := <-done; code != http.StatusOK {
+			t.Fatalf("a parked connection ended with %d", code)
+		}
+	}
+	if s.notifier.Watching() != 0 {
+		t.Fatalf("%d wake-up registrations survived their connections", s.notifier.Watching())
+	}
+}
+
+func TestSyncNeverNamesARoomOfAnotherDomain(t *testing.T) {
+	s := newServer(t)
+	alpha, alice, _ := s.resident(t, "alpha.test", "alice")
+	beta, bob, bobID := s.resident(t, "beta.test", "bob")
+
+	alphaRoom := s.createRoom(t, alpha.ServerName, alice, map[string]any{
+		"preset": entity.PresetPublicChat, "name": "alpha only",
+	})
+	s.mustSend(t, alpha.ServerName, alice, alphaRoom, "1", text("alpha only"))
+	betaRoom := s.createRoom(t, beta.ServerName, bob, map[string]any{
+		"preset": entity.PresetPublicChat, "name": "beta only",
+	})
+	s.mustSend(t, beta.ServerName, bob, betaRoom, "1", text("beta only"))
+
+	body := s.syncOnce(t, beta.ServerName, bob, "", map[string]any{
+		"lists": map[string]any{"all": map[string]any{
+			"range": []int{0, 99}, "timeline_limit": 50,
+			"required_state": map[string]any{"include": []map[string]any{{}}, "lazy_members": true},
+		}},
+		"room_subscriptions": map[string]any{
+			alphaRoom: map[string]any{
+				"timeline_limit": 50,
+				"required_state": map[string]any{"include": []map[string]any{{}}},
+			},
+		},
+	})
+
+	if _, ok := body.Rooms[alphaRoom]; ok {
+		t.Fatal("a subscription reached a room of another domain")
+	}
+	if body.Lists["all"].Count != 1 {
+		t.Fatalf("count = %d, want only the caller's own domain", body.Lists["all"].Count)
+	}
+	raw, err := json.Marshal(body)
+	if err != nil {
+		t.Fatalf("marshal sync response: %v", err)
+	}
+	for _, forbidden := range []string{alphaRoom, "alpha only", "@alice:alpha.test", "alpha.test"} {
+		if strings.Contains(string(raw), forbidden) {
+			t.Fatalf("a sync response for %s named %q", beta.ServerName, forbidden)
+		}
+	}
+	room := body.Rooms[betaRoom]
+	for _, hero := range room.Heroes {
+		if !strings.HasSuffix(hero.UserID, ":"+beta.ServerName) {
+			t.Fatalf("a hero of a beta room is %s", hero.UserID)
+		}
+	}
+	if room.Membership != entity.MembershipJoin || bobID == "" {
+		t.Fatalf("the caller's own room came back as %q", room.Membership)
+	}
+}
+
+func TestALongPollSurvivesTheServerWriteTimeoutOverARealSocket(t *testing.T) {
+	s := newServer(t)
+	tenant, alice, _ := s.resident(t, "alpha.test", "alice")
+	room := s.createRoom(t, tenant.ServerName, alice, map[string]any{"preset": entity.PresetPublicChat})
+
+	origin := &http.Server{
+		Handler:      s.router,
+		ReadTimeout:  15 * time.Second,
+		WriteTimeout: 300 * time.Millisecond,
+	}
+	listener := httptest.NewUnstartedServer(s.router)
+	listener.Config = origin
+	listener.Start()
+	defer listener.Close()
+
+	first := s.syncOnce(t, tenant.ServerName, alice, "", window(10, 0, 9))
+
+	request := window(10, 0, 9)
+	request["timeout"] = 1500
+	request["pos"] = first.Pos
+	request["conn_id"] = "test"
+	payload, err := json.Marshal(request)
+	if err != nil {
+		t.Fatalf("marshal sync request: %v", err)
+	}
+
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, listener.URL+syncPath, strings.NewReader(string(payload)))
+	if err != nil {
+		t.Fatalf("build request: %v", err)
+	}
+	req.Host = tenant.ServerName
+	req.Header.Set("Authorization", "Bearer "+alice)
+	req.Header.Set("Content-Type", "application/json")
+
+	go func() {
+		time.Sleep(700 * time.Millisecond)
+		s.mustSend(t, tenant.ServerName, alice, room, "1", text("past the write timeout"))
+	}()
+
+	response, err := listener.Client().Do(req)
+	if err != nil {
+		t.Fatalf("a long poll outliving the write timeout failed: %v", err)
+	}
+	defer func() { _ = response.Body.Close() }()
+	if response.StatusCode != http.StatusOK {
+		t.Fatalf("sync over a real socket = %d", response.StatusCode)
+	}
+
+	var body syncBody
+	if err := json.NewDecoder(response.Body).Decode(&body); err != nil {
+		t.Fatalf("decode sync response: %v", err)
+	}
+	if got := timelineBodies(t, body.Rooms[room].Timeline); !slicesContains(got, "past the write timeout") {
+		t.Fatalf("the poll returned %v", got)
 	}
 }
