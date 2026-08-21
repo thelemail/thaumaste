@@ -12,6 +12,7 @@ import (
 	"github.com/thelemail/thaumaste/internal/pkg/keyseal"
 	"github.com/thelemail/thaumaste/internal/pkg/postgres"
 	"github.com/thelemail/thaumaste/internal/pkg/serialiser"
+	"github.com/thelemail/thaumaste/internal/pkg/valkey"
 	"github.com/thelemail/thaumaste/internal/repository"
 	"github.com/thelemail/thaumaste/internal/repository/accesstoken"
 	"github.com/thelemail/thaumaste/internal/repository/alias"
@@ -38,8 +39,11 @@ import (
 func provideServerConfig(c config.Config) config.Server     { return c.Server }
 func providePostgresConfig(c config.Config) config.Postgres { return c.Postgres }
 func provideSigningConfig(c config.Config) config.Signing   { return c.Signing }
+func provideValkeyConfig(c config.Config) config.Valkey     { return c.Valkey }
+func provideLimitsConfig(c config.Config) config.Limits     { return c.Limits }
 
-var ConfigSet = wire.NewSet(provideServerConfig, providePostgresConfig, provideSigningConfig, provideAuthConfig)
+var ConfigSet = wire.NewSet(provideServerConfig, providePostgresConfig, provideSigningConfig,
+	provideValkeyConfig, provideLimitsConfig, provideAuthConfig)
 
 func providePostgres(ctx context.Context, cfg config.Postgres) (*postgres.Client, func(), error) {
 	pg, err := postgres.New(ctx, cfg)
@@ -52,6 +56,16 @@ func providePostgres(ctx context.Context, cfg config.Postgres) (*postgres.Client
 func provideTransactor(pg *postgres.Client) repository.Transactor { return pg }
 
 var PostgresSet = wire.NewSet(providePostgres, provideTransactor)
+
+func provideValkey(ctx context.Context, cfg config.Valkey, limits config.Limits) (*valkey.Client, func(), error) {
+	client, err := valkey.New(ctx, cfg, limits)
+	if err != nil {
+		return nil, nil, err
+	}
+	return client, client.Close, nil
+}
+
+var ValkeySet = wire.NewSet(provideValkey)
 
 func provideClock() func() time.Time { return time.Now }
 

@@ -16,8 +16,10 @@ type Config struct {
 	Server   Server
 	Health   Health
 	Postgres Postgres
+	Valkey   Valkey
 	Signing  Signing
 	Auth     Auth
+	Limits   Limits
 	Logger   Logger
 }
 
@@ -81,6 +83,25 @@ func (p Postgres) dsn(timeouts map[string]time.Duration) string {
 		RawQuery: q.Encode(),
 	}
 	return u.String()
+}
+
+type Valkey struct {
+	Addrs        []string      `env:"THAUMASTE_VALKEY_ADDRS"         envDefault:"127.0.0.1:6382"`
+	Username     string        `env:"THAUMASTE_VALKEY_USERNAME"`
+	Password     string        `env:"THAUMASTE_VALKEY_PASSWORD,unset"`
+	SelectDB     int           `env:"THAUMASTE_VALKEY_DB"            envDefault:"0"`
+	KeyPrefix    string        `env:"THAUMASTE_VALKEY_KEY_PREFIX"    envDefault:"thaumaste"`
+	DialTimeout  time.Duration `env:"THAUMASTE_VALKEY_DIAL_TIMEOUT"  envDefault:"2s"`
+	LockValidity time.Duration `env:"THAUMASTE_VALKEY_LOCK_VALIDITY" envDefault:"10s"`
+}
+
+type Limits struct {
+	SendPerUser   int           `env:"THAUMASTE_LIMITS_SEND_PER_USER"   envDefault:"10"`
+	SendPerRoom   int           `env:"THAUMASTE_LIMITS_SEND_PER_ROOM"   envDefault:"60"`
+	SendPerTenant int           `env:"THAUMASTE_LIMITS_SEND_PER_TENANT" envDefault:"600"`
+	SendWindow    time.Duration `env:"THAUMASTE_LIMITS_SEND_WINDOW"     envDefault:"5s"`
+	TxnRetention  time.Duration `env:"THAUMASTE_LIMITS_TXN_RETENTION"   envDefault:"24h"`
+	TxnSweepEvery time.Duration `env:"THAUMASTE_LIMITS_TXN_SWEEP_EVERY" envDefault:"1h"`
 }
 
 type Signing struct {

@@ -14,8 +14,8 @@ MIGRATIONS_DIR := db/migrations/postgres
 help:
 	@printf "%s\n" \
 	  "env        create .env from .env.example" \
-	  "infra      start postgres" \
-	  "infra-down stop postgres, keep the volume" \
+	  "infra      start postgres and valkey" \
+	  "infra-down stop the stack, keep the volume" \
 	  "psql       psql shell against local postgres" \
 	  "migrate-create name=<snake_name>   new migration file" \
 	  "migrate-up / migrate-down / migrate-status" \
@@ -37,7 +37,7 @@ env:
 	fi
 
 infra:
-	docker compose up -d postgres
+	docker compose up -d postgres valkey
 
 infra-down:
 	docker compose down

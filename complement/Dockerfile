@@ -19,7 +19,7 @@ FROM alpine:3.21 AS runtime
 
 ENV PGDATA=/var/lib/thaumaste/pgdata
 
-RUN apk add --no-cache postgresql17 su-exec ca-certificates \
+RUN apk add --no-cache postgresql17 valkey su-exec ca-certificates \
  && mkdir -p "$PGDATA" /run/postgresql \
  && chown -R postgres:postgres "$PGDATA" /run/postgresql
 
@@ -34,6 +34,7 @@ ENV THAUMASTE_POSTGRES_HOST=127.0.0.1 \
     THAUMASTE_POSTGRES_USER=thaumaste \
     THAUMASTE_POSTGRES_PASSWORD=thaumaste \
     THAUMASTE_POSTGRES_DB=thaumaste \
+    THAUMASTE_VALKEY_ADDRS=127.0.0.1:6379 \
     THAUMASTE_SERVER_ADDR=:8008 \
     THAUMASTE_SERVER_PUBLIC_SCHEME=http \
     THAUMASTE_SIGNING_MASTER_KEY=Y29tcGxlbWVudC10ZXN0LW1hc3Rlci1rZXktMzJieXQ= \
