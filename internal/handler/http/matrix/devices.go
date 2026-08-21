@@ -104,8 +104,6 @@ func (h *Handler) deleteDevices(w http.ResponseWriter, r *http.Request) {
 	h.deleteDevicesNamed(w, r, nil)
 }
 
-// deleteDevicesNamed is behind interactive auth because an access token alone must not be enough
-// to remove a device: an attacker holding one could otherwise lock the real owner out repeatedly.
 func (h *Handler) deleteDevicesNamed(w http.ResponseWriter, r *http.Request, fromPath []string) {
 	tenant, caller, ok := h.callerAndTenant(w, r)
 	if !ok {

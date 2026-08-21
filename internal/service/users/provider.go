@@ -30,9 +30,7 @@ type providerInput struct {
 }
 
 type providerResult struct {
-	UserID string
-	// Provision asks the caller to create the user if it does not exist. Only an external
-	// assertion sets it: the local store can never vouch for someone it has no row for.
+	UserID      string
 	Provision   bool
 	DisplayName string
 }
@@ -73,8 +71,6 @@ func burnHash(password string, params entity.Argon2Params) {
 	entity.HashPassword(password, decoySalt, params)
 }
 
-// assertion is what an external identity provider signs. It names one subject, for one server, and
-// expires, so a leaked assertion is useful for minutes rather than forever.
 type assertion struct {
 	Subject     string `json:"sub"`
 	ServerName  string `json:"server_name"`
@@ -130,8 +126,6 @@ func (p *assertionProvider) authenticate(_ context.Context, _ entity.TenantScope
 	return providerResult{UserID: userID, Provision: true, DisplayName: claims.DisplayName}, nil
 }
 
-// SignAssertion produces what an external provider would send. It lives here so the format has one
-// definition rather than two that drift, and so tests exercise the same encoder a caller would.
 func SignAssertion(key ed25519.PrivateKey, subject, serverName, displayName string, issued time.Time, ttl time.Duration) (string, error) {
 	body, err := json.Marshal(assertion{
 		Subject:     subject,

@@ -19,9 +19,6 @@ func (s *srv) BeginAuth(ctx context.Context, scope entity.TenantScope, kind enti
 	return s.sessions.Create(ctx, in)
 }
 
-// SubmitAuth advances one stage of an interactive flow. A stage already recorded is not re-run:
-// the spec forbids retrying a completed stage, and re-running the password check would let a
-// caller brute force behind a session that has already succeeded once.
 func (s *srv) SubmitAuth(ctx context.Context, scope entity.TenantScope, kind entity.UIAKind, sessionID uuid.UUID, stage, identifier, password string) (entity.UIASession, error) {
 	session, err := s.sessions.Get(ctx, scope, sessionID)
 	if err != nil {
@@ -58,8 +55,6 @@ func (s *srv) SubmitAuth(ctx context.Context, scope entity.TenantScope, kind ent
 	return s.sessions.Complete(ctx, scope, sessionID, stage)
 }
 
-// verifyPassword checks a credential without issuing anything. A stage of an interactive flow
-// proves who the caller is; it must not hand out a second session as a side effect.
 func (s *srv) verifyPassword(ctx context.Context, scope entity.TenantScope, identifier, password string) (string, error) {
 	for _, p := range s.providers {
 		if p.loginType() != entity.LoginTypePassword {

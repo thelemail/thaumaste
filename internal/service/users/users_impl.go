@@ -105,8 +105,6 @@ func (s *srv) LoginFlows(context.Context) []string {
 	return out
 }
 
-// CheckUsername answers the availability question on its own, because the spec requires this
-// verdict before any interactive challenge is issued and a client is entitled to ask for it alone.
 func (s *srv) CheckUsername(ctx context.Context, scope entity.TenantScope, username string) error {
 	localpart := entity.NormaliseLocalpart(username)
 	if _, err := entity.MintUserID(localpart, scope.ServerName()); err != nil {
@@ -237,8 +235,6 @@ func (s *srv) Login(ctx context.Context, scope entity.TenantScope, in service.Lo
 	return session, nil
 }
 
-// provision creates the account an external assertion vouched for. The tenant decides whether that
-// is allowed, which is what separates an externally-backed deployment from a closed one.
 func (s *srv) provision(ctx context.Context, scope entity.TenantScope, result providerResult) (entity.User, error) {
 	tenant, err := s.tenants.ByServerName(ctx, scope.ServerName())
 	if err != nil {
@@ -270,8 +266,6 @@ func (s *srv) rehashIfStale(ctx context.Context, scope entity.TenantScope, userI
 	}
 }
 
-// issue names a device and mints a token bound to it. Every session in this server goes through
-// here, which is what makes "a token belongs to exactly one device" true by construction.
 func (s *srv) issue(ctx context.Context, scope entity.TenantScope, userID, deviceID, displayName string, withRefresh bool) (service.Session, error) {
 	if deviceID == "" {
 		generated, err := entity.GenerateDeviceID(s.rnd)
@@ -348,9 +342,6 @@ func (s *srv) Refresh(ctx context.Context, scope entity.TenantScope, presented s
 
 	var session service.Session
 	err = s.tx.WithTx(ctx, func(ctx context.Context) error {
-		// The old token is spent here, not on the next request. The spec keeps it usable until the
-		// tokens it produced are themselves used, and MarkUsed is what the new access token's first
-		// use will have already recorded.
 		if err := s.refresh.MarkUsed(ctx, stored.ID, s.clock().UTC()); err != nil {
 			return err
 		}
@@ -466,8 +457,6 @@ func (s *srv) RenameDevice(ctx context.Context, scope entity.TenantScope, userID
 	return nil
 }
 
-// DeleteDevices takes the session down with the device. Leaving a token alive for a device the user
-// believes they removed is the whole failure this endpoint exists to prevent.
 func (s *srv) DeleteDevices(ctx context.Context, scope entity.TenantScope, userID string, deviceIDs []string) error {
 	return s.tx.WithTx(ctx, func(ctx context.Context) error {
 		for _, deviceID := range slices.Compact(slices.Clone(deviceIDs)) {

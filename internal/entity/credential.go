@@ -73,8 +73,6 @@ func ParseArgon2Params(encoded string) (Argon2Params, error) {
 	return p, nil
 }
 
-// AtLeast reports whether these parameters are as costly as the target in every dimension, which is
-// what decides whether a stored hash should be replaced after a successful login.
 func (p Argon2Params) AtLeast(target Argon2Params) bool {
 	return p.Time >= target.Time && p.Memory >= target.Memory && p.Threads >= target.Threads
 }
@@ -134,8 +132,6 @@ func (c Credential) NeedsRehash(target Argon2Params) bool {
 	return !params.AtLeast(target)
 }
 
-// HashPassword is the raw derivation, exposed so a caller can spend the same work on a user that
-// does not exist as it would on one that does.
 func HashPassword(password string, salt []byte, params Argon2Params) []byte {
 	return argon2.IDKey([]byte(password), salt, params.Time, params.Memory, params.Threads, credentialKeyBytes)
 }

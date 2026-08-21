@@ -25,8 +25,6 @@ const (
 	IdentifierTypeUser = "m.id.user"
 )
 
-// UIAKind names what a session is authorising. A session opened to register an account must not be
-// replayed against a password change, so the kind is part of the lookup rather than advisory.
 type UIAKind string
 
 const (
@@ -45,9 +43,6 @@ func (k UIAKind) Valid() bool {
 	}
 }
 
-// Stages returns the flow this server offers for a kind. Registration offers only the dummy stage,
-// which the spec names as the way to have effectively open registration while still issuing the
-// challenge every client expects.
 func (k UIAKind) Stages() []string {
 	if k == UIAKindRegister {
 		return []string{LoginTypeDummy}
@@ -78,8 +73,6 @@ func (s UIASession) Done() bool {
 	return true
 }
 
-// Next names the stage the caller still owes. A stage already in Completed is never asked for
-// again, because the spec forbids retrying a completed stage.
 func (s UIASession) Next() (string, bool) {
 	for _, stage := range s.Kind.Stages() {
 		if !slices.Contains(s.Completed, stage) {

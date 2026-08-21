@@ -53,8 +53,6 @@ func (h *Handler) login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// The deprecated top-level `user` still arrives from older clients, and the identifier object
-	// supersedes it when both are present.
 	subject := in.User
 	if in.Identifier.User != "" {
 		if in.Identifier.Type != "" && in.Identifier.Type != entity.IdentifierTypeUser {

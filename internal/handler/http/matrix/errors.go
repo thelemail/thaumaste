@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"strconv"
 	"time"
+	"unicode/utf8"
 )
 
 type errorCode string
@@ -102,6 +103,12 @@ func readJSON(w http.ResponseWriter, r *http.Request, out any) bool {
 	}
 	if len(raw) == 0 {
 		raw = []byte("{}")
+	}
+	// Go's decoder silently replaces invalid UTF-8 rather than refusing it. The spec treats such a
+	// body as not being JSON at all, and a client should hear that rather than a field complaint.
+	if !utf8.Valid(raw) {
+		writeError(w, http.StatusBadRequest, codeNotJSON, "Request body is not valid UTF-8")
+		return false
 	}
 	if err := json.Unmarshal(raw, out); err != nil {
 		writeError(w, http.StatusBadRequest, codeNotJSON, "Request body is not valid JSON")

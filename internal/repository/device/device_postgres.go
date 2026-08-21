@@ -25,9 +25,6 @@ func New(db *postgres.Client) repository.Device {
 	return &repo{db: db}
 }
 
-// Upsert is how a client reusing a device id keeps its device rather than colliding with it. The
-// display name is only overwritten when one was supplied, so logging in again does not silently
-// erase a name the user set.
 func (r *repo) Upsert(ctx context.Context, in entity.NewDevice) (entity.Device, error) {
 	exec := r.db.Querier(ctx)
 	key := []string{

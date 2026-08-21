@@ -59,9 +59,6 @@ func (n NewUser) Validate() error {
 	return nil
 }
 
-// NormaliseLocalpart lowercases the requested name the way the appendix requires. Upper case is
-// forbidden in a localpart precisely so @USER and @user cannot be two people, and the spec directs
-// servers to downcase rather than reject.
 func NormaliseLocalpart(username string) string {
 	return strings.ToLower(strings.TrimSpace(username))
 }
@@ -123,9 +120,6 @@ func ParseUserID(userID string) (localpart, serverName string, err error) {
 	return localpart, serverName, nil
 }
 
-// ResolveUserID turns whatever a client sent into a full identifier on this server. Clients log in
-// with a bare localpart, a full identifier, or an identifier whose localpart is upper case, and all
-// three name the same account.
 func ResolveUserID(identifier, serverName string) (string, error) {
 	identifier = strings.TrimSpace(identifier)
 	if identifier == "" {

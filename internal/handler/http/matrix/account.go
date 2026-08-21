@@ -43,8 +43,6 @@ func (h *Handler) register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// The username is judged before the challenge is issued. The spec requires this order, and a
-	// client that re-posts without auth must still be told the name is taken rather than re-asked.
 	if in.Username != "" {
 		if err := h.users.CheckUsername(r.Context(), tenant.Scope(), in.Username); err != nil {
 			writeRegisterError(w, err)

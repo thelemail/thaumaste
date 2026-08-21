@@ -56,8 +56,6 @@ func (n NewDevice) Validate() error {
 	return nil
 }
 
-// GenerateDeviceID produces the identifier a client gets when it does not choose one. The alphabet
-// matches what other servers emit, which matters only because device ids are shown to users.
 func GenerateDeviceID(rnd io.Reader) (string, error) {
 	if rnd == nil {
 		rnd = rand.Reader
