@@ -35,6 +35,7 @@ const (
 	codeRoomInUse    errorCode = "M_ROOM_IN_USE"
 	codeBadAlias     errorCode = "M_BAD_ALIAS"
 	codeBadState     errorCode = "M_BAD_STATE"
+	codeCannotGrant  errorCode = "M_UNABLE_TO_GRANT_JOIN"
 )
 
 type errorEnvelope struct {

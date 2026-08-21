@@ -1,6 +1,7 @@
 package matrix_test
 
 import (
+	"fmt"
 	"net/http"
 	"strings"
 	"testing"
@@ -560,23 +561,52 @@ func TestPublicRoomSearchMatchesNameAndTopic(t *testing.T) {
 	}
 }
 
-func TestARoomOfAnotherDomainIsNotVisible(t *testing.T) {
+func TestARoomOfAnotherDomainIsIndistinguishableFromNoRoomAtAll(t *testing.T) {
 	s := newServer(t)
 	_, alphaToken, _ := s.resident(t, "alpha.test", "alice")
 	_, betaToken, _ := s.resident(t, "beta.test", "alice")
 
 	betaRoom := s.createRoom(t, "beta.test", betaToken, map[string]any{})
+	invented := "!" + strings.Repeat("A", 43)
 
 	for _, path := range []string{
-		"/_matrix/client/v3/rooms/" + betaRoom + "/state",
-		"/_matrix/client/v3/rooms/" + betaRoom + "/joined_members",
-		"/_matrix/client/v3/rooms/" + betaRoom + "/aliases",
-		"/_matrix/client/v3/directory/list/room/" + betaRoom,
+		"/_matrix/client/v3/rooms/%s/state",
+		"/_matrix/client/v3/rooms/%s/state/m.room.name/",
+		"/_matrix/client/v3/rooms/%s/joined_members",
+		"/_matrix/client/v3/rooms/%s/members",
+		"/_matrix/client/v3/rooms/%s/aliases",
 	} {
-		rec := s.get(t, "alpha.test", path, alphaToken)
-		if rec.Code != http.StatusNotFound {
-			t.Fatalf("%s from another domain = %d, want 404: %s", path, rec.Code, rec.Body)
+		foreign := s.get(t, "alpha.test", fmt.Sprintf(path, betaRoom), alphaToken)
+		nothing := s.get(t, "alpha.test", fmt.Sprintf(path, invented), alphaToken)
+
+		if foreign.Code != http.StatusForbidden {
+			t.Fatalf("%s on another domain's room = %d, want 403: %s", path, foreign.Code, foreign.Body)
 		}
+		if foreign.Code != nothing.Code || foreign.Body.String() != nothing.Body.String() {
+			t.Fatalf("%s tells a real room from an invented one: %d %s vs %d %s",
+				path, foreign.Code, foreign.Body, nothing.Code, nothing.Body)
+		}
+	}
+
+	for _, path := range []string{
+		"/_matrix/client/v3/rooms/%s/join",
+		"/_matrix/client/v3/rooms/%s/leave",
+		"/_matrix/client/v3/rooms/%s/forget",
+	} {
+		foreign := s.do(t, http.MethodPost, "alpha.test", fmt.Sprintf(path, betaRoom), alphaToken, map[string]any{})
+		nothing := s.do(t, http.MethodPost, "alpha.test", fmt.Sprintf(path, invented), alphaToken, map[string]any{})
+
+		if foreign.Code != http.StatusForbidden {
+			t.Fatalf("%s on another domain's room = %d, want 403: %s", path, foreign.Code, foreign.Body)
+		}
+		if foreign.Code != nothing.Code || foreign.Body.String() != nothing.Body.String() {
+			t.Fatalf("%s tells a real room from an invented one: %d %s vs %d %s",
+				path, foreign.Code, foreign.Body, nothing.Code, nothing.Body)
+		}
+	}
+
+	if rec := s.get(t, "alpha.test", "/_matrix/client/v3/directory/list/room/"+betaRoom, alphaToken); rec.Code != http.StatusNotFound {
+		t.Fatalf("the directory listing of another domain's room = %d, want 404: %s", rec.Code, rec.Body)
 	}
 }
 

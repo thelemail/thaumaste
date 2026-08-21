@@ -196,3 +196,19 @@ func isUserID(id string) bool {
 	_, _, err := ParseUserID(id)
 	return err == nil
 }
+
+func (p PowerLevels) CanInvite(userID string) bool {
+	return p.UserLevel(userID).AtLeast(Power(p.Invite))
+}
+
+func (p PowerLevels) CanKick(userID string) bool {
+	return p.UserLevel(userID).AtLeast(Power(p.Kick))
+}
+
+func (p PowerLevels) CanBan(userID string) bool {
+	return p.UserLevel(userID).AtLeast(Power(p.Ban))
+}
+
+func (p PowerLevels) Outranks(userID, target string) bool {
+	return p.UserLevel(userID).GreaterThan(p.UserLevel(target))
+}

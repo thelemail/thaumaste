@@ -193,10 +193,23 @@ func (h *Handler) roomAliases(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"aliases": aliases})
 }
 
+func writeForbidden(w http.ResponseWriter) {
+	writeError(w, http.StatusForbidden, codeForbidden, "You are not allowed to do that")
+}
+
 func writeRoomError(r *http.Request, w http.ResponseWriter, err error, msg string) {
 	switch {
-	case errors.Is(err, entity.ErrRoomNotFound), errors.Is(err, entity.ErrEventNotFound):
-		writeError(w, http.StatusNotFound, codeNotFound, "Unknown room or state event")
+	case errors.Is(err, entity.ErrRoomNotFound), errors.Is(err, entity.ErrNotInRoom),
+		errors.Is(err, entity.ErrAuthFailed), errors.Is(err, entity.ErrForeignUser):
+		writeForbidden(w)
+	case errors.Is(err, entity.ErrEventNotFound):
+		writeError(w, http.StatusNotFound, codeNotFound, "Unknown state event")
+	case errors.Is(err, entity.ErrCannotGrantJoin):
+		writeError(w, http.StatusForbidden, codeCannotGrant, "No local user can authorise this join")
+	case errors.Is(err, entity.ErrNotBanned), errors.Is(err, entity.ErrNotForgettable):
+		writeError(w, http.StatusBadRequest, codeBadState, "The room is not in a state that allows that")
+	case errors.Is(err, entity.ErrUnknownMembership), errors.Is(err, entity.ErrPointInTime):
+		writeError(w, http.StatusBadRequest, codeInvalidParam, "Unsupported membership query")
 	case errors.Is(err, entity.ErrAliasNotFound):
 		writeError(w, http.StatusNotFound, codeNotFound, "Unknown room alias")
 	case errors.Is(err, entity.ErrAliasInUse):
@@ -207,8 +220,6 @@ func writeRoomError(r *http.Request, w http.ResponseWriter, err error, msg strin
 		writeError(w, http.StatusBadRequest, codeInvalidParam, "Invalid room alias")
 	case errors.Is(err, entity.ErrEncryptionRequired):
 		writeError(w, http.StatusForbidden, codeForbidden, "Rooms on this server are always encrypted")
-	case errors.Is(err, entity.ErrNotInRoom), errors.Is(err, entity.ErrAuthFailed):
-		writeError(w, http.StatusForbidden, codeForbidden, "You are not allowed to do that")
 	case errors.Is(err, entity.ErrUnsupportedRoomVersion):
 		writeError(w, http.StatusBadRequest, codeBadRoomVer, "Unsupported room version")
 	case errors.Is(err, entity.ErrInvalidVisibility), errors.Is(err, entity.ErrInvalidPreset):

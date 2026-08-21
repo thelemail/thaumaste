@@ -139,6 +139,7 @@ type RoomMembership struct {
 	UserID     string
 	Membership string
 	EventNID   int64
+	Forgotten  bool
 }
 
 func (RoomMembership) Validate() error { return nil }
@@ -149,6 +150,7 @@ type NewRoomMembership struct {
 	UserID     string
 	Membership string
 	EventNID   int64
+	Forgotten  bool
 }
 
 func (n NewRoomMembership) Validate() error {

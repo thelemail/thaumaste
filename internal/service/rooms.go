@@ -16,8 +16,25 @@ type PublicRooms struct {
 	TotalRooms int
 }
 
+type JoinInput struct {
+	DisplayName *string
+	AvatarURL   *string
+	Reason      string
+}
+
 type Rooms interface {
 	Create(ctx context.Context, scope entity.TenantScope, in entity.NewRoomRequest) (entity.Room, error)
+
+	Join(ctx context.Context, scope entity.TenantScope, caller, roomIDOrAlias string, in JoinInput) (string, error)
+	Knock(ctx context.Context, scope entity.TenantScope, caller, roomIDOrAlias, reason string) (string, error)
+	Leave(ctx context.Context, scope entity.TenantScope, caller, roomID, reason string) error
+	Invite(ctx context.Context, scope entity.TenantScope, caller, roomID, target, reason string) error
+	Kick(ctx context.Context, scope entity.TenantScope, caller, roomID, target, reason string) error
+	Ban(ctx context.Context, scope entity.TenantScope, caller, roomID, target, reason string) error
+	Unban(ctx context.Context, scope entity.TenantScope, caller, roomID, target, reason string) error
+	Forget(ctx context.Context, scope entity.TenantScope, caller, roomID string) error
+
+	Members(ctx context.Context, scope entity.TenantScope, caller, roomID string, filter entity.MembersFilter) ([]entity.Event, error)
 
 	State(ctx context.Context, scope entity.TenantScope, caller, roomID string) ([]entity.Event, error)
 	StateEvent(ctx context.Context, scope entity.TenantScope, caller, roomID, eventType, stateKey string) (entity.Event, error)

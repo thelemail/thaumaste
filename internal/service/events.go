@@ -13,4 +13,5 @@ type Events interface {
 	Timeline(ctx context.Context, roomID string) ([]entity.StoredEvent, error)
 	CurrentState(ctx context.Context, roomID string) (entity.StateMap, error)
 	StateBefore(ctx context.Context, eventID string) (entity.StateMap, error)
+	StateAfter(ctx context.Context, eventNID int64) (entity.StateMap, error)
 }
