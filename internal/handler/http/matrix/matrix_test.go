@@ -22,12 +22,14 @@ import (
 	"github.com/thelemail/thaumaste/internal/pkg/serialiser"
 	"github.com/thelemail/thaumaste/internal/pkg/valkey"
 	"github.com/thelemail/thaumaste/internal/repository/accesstoken"
+	accountdatarepo "github.com/thelemail/thaumaste/internal/repository/accountdata"
 	"github.com/thelemail/thaumaste/internal/repository/alias"
 	"github.com/thelemail/thaumaste/internal/repository/authattempt"
 	"github.com/thelemail/thaumaste/internal/repository/connection"
 	"github.com/thelemail/thaumaste/internal/repository/credential"
 	"github.com/thelemail/thaumaste/internal/repository/device"
 	"github.com/thelemail/thaumaste/internal/repository/event"
+	filterrepo "github.com/thelemail/thaumaste/internal/repository/filter"
 	"github.com/thelemail/thaumaste/internal/repository/key"
 	"github.com/thelemail/thaumaste/internal/repository/refreshtoken"
 	"github.com/thelemail/thaumaste/internal/repository/relation"
@@ -40,7 +42,10 @@ import (
 	"github.com/thelemail/thaumaste/internal/repository/uiasession"
 	"github.com/thelemail/thaumaste/internal/repository/user"
 	"github.com/thelemail/thaumaste/internal/service"
+	"github.com/thelemail/thaumaste/internal/service/accountdata"
+	"github.com/thelemail/thaumaste/internal/service/directory"
 	"github.com/thelemail/thaumaste/internal/service/events"
+	"github.com/thelemail/thaumaste/internal/service/filters"
 	"github.com/thelemail/thaumaste/internal/service/keys"
 	"github.com/thelemail/thaumaste/internal/service/rooms"
 	"github.com/thelemail/thaumaste/internal/service/sync"
@@ -53,15 +58,18 @@ import (
 )
 
 type server struct {
-	router   chi.Router
-	tenants  service.Tenants
-	tokens   service.Tokens
-	events   service.Events
-	users    service.Users
-	rooms    service.Rooms
-	sync     service.Sync
-	keys     service.Keys
-	notifier *notify.Notifier
+	router      chi.Router
+	tenants     service.Tenants
+	tokens      service.Tokens
+	events      service.Events
+	users       service.Users
+	rooms       service.Rooms
+	sync        service.Sync
+	keys        service.Keys
+	accountData service.AccountData
+	filters     service.Filters
+	directory   service.Directory
+	notifier    *notify.Notifier
 
 	assertionKey ed25519.PrivateKey
 	db           *postgres.Client
@@ -172,6 +180,15 @@ func wireServer(t *testing.T, instance string, assertion ed25519.PublicKey, pg *
 	keySvc := keys.New(key.New(pg), memberRepo, pg, config.Keys{
 		MaxOneTimeKeys: 8, MaxQueryUsers: 200, MaxClaimDevices: 200,
 	})
+	dataStream, err := postgres.NewStream(t.Context(), pg, postgres.StreamConfig{
+		Name: "account_data", Instance: instance, Sequence: "account_data_stream_seq",
+	})
+	if err != nil {
+		t.Fatalf("NewStream: %v", err)
+	}
+	accountDataSvc := accountdata.New(accountdatarepo.New(pg), roomRepo, pg, dataStream)
+	filterSvc := filters.New(filterrepo.New(pg))
+	directorySvc := directory.New(user.New(pg), roomRepo, eventRepo, config.Directory{MaxResults: 50})
 
 	r := chi.NewRouter()
 	matrix.New(
@@ -181,13 +198,17 @@ func wireServer(t *testing.T, instance string, assertion ed25519.PublicKey, pg *
 		roomSvc,
 		syncSvc,
 		keySvc,
+		accountDataSvc,
+		filterSvc,
+		directorySvc,
 		config.Server{PublicScheme: "https"},
 		config.Signing{KeyValidity: 24 * time.Hour},
 		nil,
 	).Mount(r)
 
 	return &server{router: r, tenants: tenantSvc, tokens: tokenSvc, events: eventSvc,
-		users: userSvc, rooms: roomSvc, sync: syncSvc, keys: keySvc, notifier: notifier, db: pg, queries: queries}
+		users: userSvc, rooms: roomSvc, sync: syncSvc, keys: keySvc,
+		accountData: accountDataSvc, filters: filterSvc, directory: directorySvc, notifier: notifier, db: pg, queries: queries}
 }
 
 func (s *server) tenant(t *testing.T, serverName string, hosts ...string) entity.Tenant {
@@ -643,7 +664,32 @@ func (s *server) seedRoom(t *testing.T, of entity.Tenant, resident sessionBody) 
 	}
 
 	s.seedKeys(t, of, resident)
+	s.seedAccountData(t, of, resident, created.RoomID)
 	return created
+}
+
+func (s *server) seedAccountData(t *testing.T, of entity.Tenant, resident sessionBody, roomID string) {
+	t.Helper()
+
+	base := "/_matrix/client/v3/user/" + url.PathEscape(resident.UserID)
+	global := s.do(t, http.MethodPut, of.ServerName, base+"/account_data/seeded.type",
+		resident.AccessToken, map[string]any{"value": "seeded"})
+	if global.Code != http.StatusOK {
+		t.Fatalf("seed global account data = %d: %s", global.Code, global.Body)
+	}
+
+	room := s.do(t, http.MethodPut, of.ServerName,
+		base+"/rooms/"+url.PathEscape(roomID)+"/account_data/seeded.type",
+		resident.AccessToken, map[string]any{"value": "seeded"})
+	if room.Code != http.StatusOK {
+		t.Fatalf("seed room account data = %d: %s", room.Code, room.Body)
+	}
+
+	filter := s.do(t, http.MethodPost, of.ServerName, base+"/filter", resident.AccessToken,
+		map[string]any{"room": map[string]any{"timeline": map[string]any{"limit": 10}}})
+	if filter.Code != http.StatusOK {
+		t.Fatalf("seed filter = %d: %s", filter.Code, filter.Body)
+	}
 }
 
 func (s *server) seedKeys(t *testing.T, of entity.Tenant, resident sessionBody) {

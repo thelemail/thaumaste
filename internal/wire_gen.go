@@ -11,12 +11,14 @@ import (
 	"github.com/thelemail/thaumaste/internal/config"
 	"github.com/thelemail/thaumaste/internal/pkg/keyseal"
 	"github.com/thelemail/thaumaste/internal/repository/accesstoken"
+	"github.com/thelemail/thaumaste/internal/repository/accountdata"
 	"github.com/thelemail/thaumaste/internal/repository/alias"
 	"github.com/thelemail/thaumaste/internal/repository/authattempt"
 	"github.com/thelemail/thaumaste/internal/repository/connection"
 	"github.com/thelemail/thaumaste/internal/repository/credential"
 	"github.com/thelemail/thaumaste/internal/repository/device"
 	"github.com/thelemail/thaumaste/internal/repository/event"
+	"github.com/thelemail/thaumaste/internal/repository/filter"
 	"github.com/thelemail/thaumaste/internal/repository/key"
 	"github.com/thelemail/thaumaste/internal/repository/refreshtoken"
 	"github.com/thelemail/thaumaste/internal/repository/relation"
@@ -28,6 +30,7 @@ import (
 	"github.com/thelemail/thaumaste/internal/repository/transaction"
 	"github.com/thelemail/thaumaste/internal/repository/user"
 	"github.com/thelemail/thaumaste/internal/service"
+	"github.com/thelemail/thaumaste/internal/service/filters"
 	"github.com/thelemail/thaumaste/internal/service/rooms"
 	"github.com/thelemail/thaumaste/internal/service/timeline"
 )
@@ -93,7 +96,19 @@ func InitializeServe(ctx context.Context, cfg config.Config) (*ServeRuntime, fun
 	repositoryKey := key.New(client)
 	keys := provideKeysConfig(cfg)
 	serviceKeys := provideKeys(repositoryKey, roomMember, transactor, keys)
-	serveRuntime := provideServeRuntime(server, signing, limits, client, tenants, tokens, users, serviceRooms, events, serviceSync, serviceKeys, notifier, sync, v)
+	accountData := accountdata.New(client)
+	accountDataStream, err := provideAccountDataStream(ctx, client, server)
+	if err != nil {
+		cleanup2()
+		cleanup()
+		return nil, nil, err
+	}
+	serviceAccountData := provideAccountData(accountData, repositoryRoom, transactor, accountDataStream)
+	repositoryFilter := filter.New(client)
+	serviceFilters := filters.New(repositoryFilter)
+	directory := provideDirectoryConfig(cfg)
+	serviceDirectory := provideDirectory(repositoryUser, repositoryRoom, repositoryEvent, directory)
+	serveRuntime := provideServeRuntime(server, signing, limits, client, tenants, tokens, users, serviceRooms, events, serviceSync, serviceKeys, serviceAccountData, serviceFilters, serviceDirectory, notifier, sync, v)
 	return serveRuntime, func() {
 		cleanup2()
 		cleanup()

@@ -17,12 +17,14 @@ import (
 	"github.com/thelemail/thaumaste/internal/pkg/valkey"
 	"github.com/thelemail/thaumaste/internal/repository"
 	"github.com/thelemail/thaumaste/internal/repository/accesstoken"
+	accountdatarepo "github.com/thelemail/thaumaste/internal/repository/accountdata"
 	"github.com/thelemail/thaumaste/internal/repository/alias"
 	"github.com/thelemail/thaumaste/internal/repository/authattempt"
 	"github.com/thelemail/thaumaste/internal/repository/connection"
 	"github.com/thelemail/thaumaste/internal/repository/credential"
 	"github.com/thelemail/thaumaste/internal/repository/device"
 	"github.com/thelemail/thaumaste/internal/repository/event"
+	filterrepo "github.com/thelemail/thaumaste/internal/repository/filter"
 	"github.com/thelemail/thaumaste/internal/repository/key"
 	"github.com/thelemail/thaumaste/internal/repository/refreshtoken"
 	"github.com/thelemail/thaumaste/internal/repository/relation"
@@ -35,7 +37,10 @@ import (
 	"github.com/thelemail/thaumaste/internal/repository/uiasession"
 	"github.com/thelemail/thaumaste/internal/repository/user"
 	"github.com/thelemail/thaumaste/internal/service"
+	"github.com/thelemail/thaumaste/internal/service/accountdata"
+	"github.com/thelemail/thaumaste/internal/service/directory"
 	"github.com/thelemail/thaumaste/internal/service/events"
+	"github.com/thelemail/thaumaste/internal/service/filters"
 	"github.com/thelemail/thaumaste/internal/service/keys"
 	"github.com/thelemail/thaumaste/internal/service/rooms"
 	"github.com/thelemail/thaumaste/internal/service/sync"
@@ -45,15 +50,16 @@ import (
 	"github.com/thelemail/thaumaste/internal/service/users"
 )
 
-func provideServerConfig(c config.Config) config.Server     { return c.Server }
-func providePostgresConfig(c config.Config) config.Postgres { return c.Postgres }
-func provideSigningConfig(c config.Config) config.Signing   { return c.Signing }
-func provideValkeyConfig(c config.Config) config.Valkey     { return c.Valkey }
-func provideLimitsConfig(c config.Config) config.Limits     { return c.Limits }
-func provideSyncConfig(c config.Config) config.Sync         { return c.Sync }
-func provideKeysConfig(c config.Config) config.Keys         { return c.Keys }
+func provideServerConfig(c config.Config) config.Server       { return c.Server }
+func providePostgresConfig(c config.Config) config.Postgres   { return c.Postgres }
+func provideSigningConfig(c config.Config) config.Signing     { return c.Signing }
+func provideValkeyConfig(c config.Config) config.Valkey       { return c.Valkey }
+func provideLimitsConfig(c config.Config) config.Limits       { return c.Limits }
+func provideSyncConfig(c config.Config) config.Sync           { return c.Sync }
+func provideKeysConfig(c config.Config) config.Keys           { return c.Keys }
+func provideDirectoryConfig(c config.Config) config.Directory { return c.Directory }
 
-var ConfigSet = wire.NewSet(provideSyncConfig, provideKeysConfig, provideServerConfig, providePostgresConfig, provideSigningConfig,
+var ConfigSet = wire.NewSet(provideSyncConfig, provideKeysConfig, provideDirectoryConfig, provideServerConfig, providePostgresConfig, provideSigningConfig,
 	provideValkeyConfig, provideLimitsConfig, provideAuthConfig)
 
 func providePostgres(ctx context.Context, cfg config.Postgres) (*postgres.Client, func(), error) {
@@ -170,6 +176,32 @@ func provideKeys(keyRepo repository.Key, members repository.RoomMember, tx repos
 	return keys.New(keyRepo, members, tx, cfg)
 }
 
+type AccountDataStream struct{ *postgres.Stream }
+
+func provideAccountDataStream(ctx context.Context, db *postgres.Client, cfg config.Server) (*AccountDataStream, error) {
+	stream, err := postgres.NewStream(ctx, db, postgres.StreamConfig{
+		Name:     "account_data",
+		Instance: cfg.InstanceName,
+		Sequence: "account_data_stream_seq",
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &AccountDataStream{Stream: stream}, nil
+}
+
+func provideAccountData(data repository.AccountData, roomRepo repository.Room, tx repository.Transactor,
+	stream *AccountDataStream,
+) service.AccountData {
+	return accountdata.New(data, roomRepo, tx, stream.Stream)
+}
+
+func provideDirectory(userRepo repository.User, roomRepo repository.Room, eventRepo repository.Event,
+	cfg config.Directory,
+) service.Directory {
+	return directory.New(userRepo, roomRepo, eventRepo, cfg)
+}
+
 func provideSendLimits(cfg config.Limits) entity.SendLimits {
 	return entity.SendLimits{
 		PerUser:   cfg.SendPerUser,
@@ -205,6 +237,12 @@ var DomainSet = wire.NewSet(
 	provideSync,
 	key.New,
 	provideKeys,
+	accountdatarepo.New,
+	filterrepo.New,
+	filters.New,
+	provideAccountDataStream,
+	provideAccountData,
+	provideDirectory,
 	user.New,
 	credential.New,
 	device.New,

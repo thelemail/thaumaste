@@ -14,6 +14,10 @@ func (h *Handler) roomMessages(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	query := r.URL.Query()
+	filter, ok := h.resolveFilter(w, r, query.Get("filter"))
+	if !ok {
+		return
+	}
 	found, err := h.rooms.Messages(r.Context(), tenant.Scope(), caller.UserID, caller.DeviceID,
 		entity.MessagesRequest{
 			RoomID:    roomParam(r, "roomID"),
@@ -21,7 +25,7 @@ func (h *Handler) roomMessages(w http.ResponseWriter, r *http.Request) {
 			From:      query.Get("from"),
 			To:        query.Get("to"),
 			Limit:     optionalInt(query.Get("limit")),
-			Filter:    query.Get("filter"),
+			Filter:    filter,
 		})
 	if err != nil {
 		writeRoomError(r, w, err, "Could not read the room")
@@ -46,12 +50,16 @@ func (h *Handler) roomContext(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	query := r.URL.Query()
+	filter, ok := h.resolveFilter(w, r, query.Get("filter"))
+	if !ok {
+		return
+	}
 	found, err := h.rooms.Context(r.Context(), tenant.Scope(), caller.UserID, caller.DeviceID,
 		entity.ContextRequest{
 			RoomID:  roomParam(r, "roomID"),
 			EventID: roomParam(r, "eventID"),
 			Limit:   optionalInt(query.Get("limit")),
-			Filter:  query.Get("filter"),
+			Filter:  filter,
 		})
 	if err != nil {
 		writeRoomError(r, w, err, "Could not read around the event")
