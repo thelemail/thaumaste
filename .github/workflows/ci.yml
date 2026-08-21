@@ -48,7 +48,7 @@ jobs:
         run: |
           go tool goose -dir db/migrations/postgres postgres \
             "postgres://thaumaste:thaumaste@127.0.0.1:5435/thaumaste?sslmode=disable" up
-          go tool sqlboiler psql -c sqlboiler.toml
+          make db-gen
           git diff --exit-code -- internal/db/postgres
 
   lint:

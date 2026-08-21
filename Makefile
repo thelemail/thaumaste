@@ -76,7 +76,9 @@ gen:
 	go generate ./...
 
 db-gen:
-	go tool sqlboiler psql -c sqlboiler.toml
+	@mkdir -p bin
+	go build -o bin/sqlboiler-psql github.com/aarondl/sqlboiler/v4/drivers/sqlboiler-psql
+	PATH="$(CURDIR)/bin:$$PATH" go tool sqlboiler psql -c sqlboiler.toml
 
 test:
 	go test ./... -race -count=1
