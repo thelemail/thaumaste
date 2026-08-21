@@ -131,7 +131,6 @@ func TestARoomChainRoundTripsThroughStorage(t *testing.T) {
 		}
 
 		for i, stored := range timeline {
-			// Every event verifies under the domain's published key.
 			err := stored.Event.VerifySignature(
 				alpha.ServerName, entity.KeyID(keys[0].KeyID), keys[0].PublicKey, roomVersion)
 			if err != nil {
@@ -141,7 +140,6 @@ func TestARoomChainRoundTripsThroughStorage(t *testing.T) {
 				t.Fatalf("event %d content hash: %v", i, err)
 			}
 
-			// The stored id is the reference hash of the stored bytes, recomputed.
 			sum, err := entity.ReferenceHash(stored.Event.Fields(), roomVersion)
 			if err != nil {
 				t.Fatalf("ReferenceHash: %v", err)
@@ -161,7 +159,6 @@ func TestARoomChainRoundTripsThroughStorage(t *testing.T) {
 			}
 		}
 
-		// Stream positions come from the allocator and increase strictly.
 		for i := 1; i < len(timeline); i++ {
 			if timeline[i].StreamOrdering <= timeline[i-1].StreamOrdering {
 				t.Fatalf("stream ordering did not increase: %d then %d",
@@ -172,7 +169,6 @@ func TestARoomChainRoundTripsThroughStorage(t *testing.T) {
 			}
 		}
 
-		// The DAG matches what the events themselves declare.
 		for i := 1; i < len(timeline); i++ {
 			prev := timeline[i].Event.PrevEvents()
 			if len(prev) != 1 || prev[0] != timeline[i-1].Event.ID() {

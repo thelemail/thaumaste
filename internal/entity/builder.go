@@ -32,7 +32,6 @@ type EventBuilder struct {
 // handing the raw key to the caller.
 type Signer func(document []byte) ([]byte, error)
 
-// KeySigner signs with a key held directly. Production signs through the tenant that owns the key.
 func KeySigner(serverName string, keyID KeyID, key ed25519.PrivateKey) Signer {
 	return func(document []byte) ([]byte, error) {
 		return SignJSON(document, serverName, keyID, key)
@@ -131,9 +130,6 @@ func (b EventBuilder) depth() int64 {
 	return b.PrevDepth + 1
 }
 
-// RoomIDFor derives the identifier a create event gives its room. From v12 that is the create
-// event's own reference hash, so the room ID names the event that made it and cannot be forged
-// independently of it.
 func RoomIDFor(create Event, version RoomVersion, serverName string, opaque string) (string, error) {
 	switch version.RoomIDFormat {
 	case RoomIDFormatCreateEventHash:

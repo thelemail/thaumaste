@@ -133,10 +133,6 @@ func (s *server) rowCount(t *testing.T, table string) int {
 	return count
 }
 
-// Deleting a domain must leave nothing of it anywhere, and the check is deliberately not a list of
-// tables anyone has to maintain: after the only tenant goes, every table that is not explicitly
-// global must be empty. A table added by a later task is covered the moment it exists, including
-// ones that reach the tenant through a room rather than carrying a tenant_id of their own.
 func TestDeletingADomainLeavesNothingOfItBehind(t *testing.T) {
 	s := newServer(t)
 	doomed := s.tenant(t, "alpha.test", "matrix.alpha.test")

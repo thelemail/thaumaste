@@ -38,8 +38,6 @@ func (d Disposition) Valid() bool {
 	}
 }
 
-// Deliverable reports whether an event may reach clients or be named as a parent. A rejected event
-// is stored but never relayed and never becomes a prev_event.
 func (d Disposition) Deliverable() bool {
 	return d == DispositionAccepted || d == DispositionRedacted
 }
@@ -73,9 +71,6 @@ func (n NewRoom) Validate() error {
 	return nil
 }
 
-// StoredEvent is an event as it sits in the database: the canonical bytes, plus the properties the
-// storage layer indexes on. SenderIsLocal is one of them rather than something recomputed on read,
-// so no query can assume every participant shares the room's tenant.
 type StoredEvent struct {
 	NID                 int64
 	RoomNID             int64

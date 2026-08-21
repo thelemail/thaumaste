@@ -213,8 +213,6 @@ func (s *srv) send(ctx context.Context, scope entity.TenantScope, in entity.NewE
 	return stored, nil
 }
 
-// persist records the state *before* the event alongside it. State after is the state before plus
-// the event itself, which is trivial to derive; going the other way is not.
 func (s *srv) persist(ctx context.Context, scope entity.TenantScope, room entity.Room, e entity.Event, before entity.StateMap) (entity.StoredEvent, error) {
 	positions, err := s.stream.Next(ctx, 1)
 	if err != nil {

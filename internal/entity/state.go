@@ -31,7 +31,6 @@ type StateKey struct {
 	StateKey string
 }
 
-// StateMap is the state at a point in the DAG: (type, state_key) to the event that set it.
 type StateMap map[StateKey]Event
 
 func (s StateMap) Get(eventType, stateKey string) (Event, bool) {
@@ -47,8 +46,8 @@ func (s StateMap) Clone() StateMap {
 	return out
 }
 
-// Apply folds an event into the state after it. With a single writer and one parent per event this
-// is the whole of state resolution: the state before an event is its parent's state after.
+// Apply is the whole of state resolution while every event has one parent: the state before an
+// event is its parent's state after.
 func (s StateMap) Apply(e Event) StateMap {
 	stateKey, ok := e.StateKey()
 	if !ok {
@@ -81,8 +80,6 @@ func (s StateMap) Create() (Event, bool) {
 	return s.Get(EventTypeCreate, "")
 }
 
-// Creators is the create event's sender plus, from v12, any additional_creators. Room creators
-// outrank every power level, so this list is what the auth rules compare against.
 func (s StateMap) Creators(version RoomVersion) []string {
 	create, ok := s.Create()
 	if !ok {
@@ -137,8 +134,8 @@ func (s StateMap) Keys() []StateKey {
 	return out
 }
 
-// SnapshotHash addresses a state map by its content, so two rooms that reach identical state share
-// one row rather than storing it twice.
+// SnapshotHash addresses a state map by its content, so state a room already holds is a lookup
+// rather than another row.
 func (s StateMap) SnapshotHash() [32]byte {
 	h := sha256.New()
 	var length [8]byte

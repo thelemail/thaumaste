@@ -220,9 +220,6 @@ func (e Event) deriveID(version RoomVersion) (string, error) {
 	return "$" + eventIDEncoding.EncodeToString(sum[:]), nil
 }
 
-// VerifyContentHash reports whether the event still carries the content it was signed over. A
-// mismatch means we hold a redacted copy, not a forgery: the caller keeps the redacted form rather
-// than rejecting the event.
 func (e Event) VerifyContentHash() error {
 	hashes, _ := e.fields["hashes"].(map[string]any)
 	claimed, _ := hashes["sha256"].(string)
@@ -239,8 +236,6 @@ func (e Event) VerifyContentHash() error {
 	return nil
 }
 
-// VerifySignature checks the signature over the redacted event, so it succeeds whether we hold the
-// full event or a redacted copy of it.
 func (e Event) VerifySignature(serverName string, keyID KeyID, key ed25519.PublicKey, version RoomVersion) error {
 	redacted := Redact(e.fields, version)
 	redacted["signatures"] = e.fields["signatures"]
@@ -252,8 +247,6 @@ func (e Event) VerifySignature(serverName string, keyID KeyID, key ed25519.Publi
 	return VerifyJSON(raw, serverName, keyID, key)
 }
 
-// EventIDEncoding exposes the alphabet event ids use, so a test can recompute one without
-// hard-coding which of the two base64 variants applies.
 func EventIDEncoding() *base64.Encoding { return eventIDEncoding }
 
 func SenderDomain(userID string) (string, error) {

@@ -68,7 +68,6 @@ func thirdPartyToken(content map[string]any) string {
 	return token
 }
 
-// Authorise applies the room version's authorization rules to an event against the state before it.
 func Authorise(e Event, state StateMap, version RoomVersion) error {
 	if e.Type() == EventTypeCreate {
 		return authoriseCreate(e, version)
@@ -152,8 +151,6 @@ func authoriseCreate(e Event, version RoomVersion) error {
 	return nil
 }
 
-// checkRoomID is where v12 replaces "the create event must be in auth_events" with an identity: the
-// room ID is the create event's ID, so a mismatch means the event belongs to a different room.
 func checkRoomID(e Event, create Event, version RoomVersion) error {
 	if version.RoomIDFormat != RoomIDFormatCreateEventHash {
 		return nil
@@ -409,8 +406,6 @@ func checkUserTable(sender PowerLevel, senderID string, current, proposed PowerL
 	return nil
 }
 
-// CheckAuthEvents holds the event's declared auth_events to the selection rules: no duplicates, no
-// entries the rules do not name, and every entry from this room.
 func CheckAuthEvents(e Event, declared []Event, version RoomVersion) error {
 	seen := map[StateKey]bool{}
 	for _, a := range declared {
