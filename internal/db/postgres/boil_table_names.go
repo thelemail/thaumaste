@@ -6,6 +6,9 @@ package dbpostgres
 var TableNames = struct {
 	AccessTokens        string
 	AuthAttempts        string
+	DeviceFallbackKeys  string
+	DeviceKeys          string
+	DeviceOneTimeKeys   string
 	Devices             string
 	EventAuthEdges      string
 	EventPrevEdges      string
@@ -36,6 +39,9 @@ var TableNames = struct {
 }{
 	AccessTokens:        "access_tokens",
 	AuthAttempts:        "auth_attempts",
+	DeviceFallbackKeys:  "device_fallback_keys",
+	DeviceKeys:          "device_keys",
+	DeviceOneTimeKeys:   "device_one_time_keys",
 	Devices:             "devices",
 	EventAuthEdges:      "event_auth_edges",
 	EventPrevEdges:      "event_prev_edges",

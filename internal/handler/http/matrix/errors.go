@@ -125,7 +125,7 @@ func readJSON(w http.ResponseWriter, r *http.Request, out any) bool {
 			writeError(w, http.StatusBadRequest, codeNotJSON, "Request body is not valid JSON")
 			return false
 		}
-		writeError(w, http.StatusBadRequest, codeBadJSON, "Request body is not a JSON object")
+		writeError(w, http.StatusBadRequest, codeBadJSON, "Request body does not match the expected shape")
 		return false
 	}
 	return true

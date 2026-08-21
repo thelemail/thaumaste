@@ -23,6 +23,7 @@ import (
 	"github.com/thelemail/thaumaste/internal/repository/credential"
 	"github.com/thelemail/thaumaste/internal/repository/device"
 	"github.com/thelemail/thaumaste/internal/repository/event"
+	"github.com/thelemail/thaumaste/internal/repository/key"
 	"github.com/thelemail/thaumaste/internal/repository/refreshtoken"
 	"github.com/thelemail/thaumaste/internal/repository/relation"
 	"github.com/thelemail/thaumaste/internal/repository/room"
@@ -35,6 +36,7 @@ import (
 	"github.com/thelemail/thaumaste/internal/repository/user"
 	"github.com/thelemail/thaumaste/internal/service"
 	"github.com/thelemail/thaumaste/internal/service/events"
+	"github.com/thelemail/thaumaste/internal/service/keys"
 	"github.com/thelemail/thaumaste/internal/service/rooms"
 	"github.com/thelemail/thaumaste/internal/service/sync"
 	"github.com/thelemail/thaumaste/internal/service/tenants"
@@ -49,8 +51,9 @@ func provideSigningConfig(c config.Config) config.Signing   { return c.Signing }
 func provideValkeyConfig(c config.Config) config.Valkey     { return c.Valkey }
 func provideLimitsConfig(c config.Config) config.Limits     { return c.Limits }
 func provideSyncConfig(c config.Config) config.Sync         { return c.Sync }
+func provideKeysConfig(c config.Config) config.Keys         { return c.Keys }
 
-var ConfigSet = wire.NewSet(provideSyncConfig, provideServerConfig, providePostgresConfig, provideSigningConfig,
+var ConfigSet = wire.NewSet(provideSyncConfig, provideKeysConfig, provideServerConfig, providePostgresConfig, provideSigningConfig,
 	provideValkeyConfig, provideLimitsConfig, provideAuthConfig)
 
 func providePostgres(ctx context.Context, cfg config.Postgres) (*postgres.Client, func(), error) {
@@ -163,6 +166,10 @@ func provideSync(
 	return sync.New(connections, members, eventRepo, timelineSvc, tx, stream, notifier, gate, cfg, clock)
 }
 
+func provideKeys(keyRepo repository.Key, members repository.RoomMember, tx repository.Transactor, cfg config.Keys) service.Keys {
+	return keys.New(keyRepo, members, tx, cfg)
+}
+
 func provideSendLimits(cfg config.Limits) entity.SendLimits {
 	return entity.SendLimits{
 		PerUser:   cfg.SendPerUser,
@@ -196,6 +203,8 @@ var DomainSet = wire.NewSet(
 	rooms.New,
 	connection.New,
 	provideSync,
+	key.New,
+	provideKeys,
 	user.New,
 	credential.New,
 	device.New,
