@@ -28,6 +28,11 @@ const (
 	EventTypeGuestAccess       = "m.room.guest_access"
 	EventTypeTombstone         = "m.room.tombstone"
 	EventTypeServerACL         = "m.room.server_acl"
+	EventTypeEncrypted         = "m.room.encrypted"
+	EventTypeSticker           = "m.sticker"
+	EventTypeCallInvite        = "m.call.invite"
+	EventTypePollStart         = "m.poll.start"
+	EventTypeBeaconInfo        = "m.beacon_info"
 )
 
 const (

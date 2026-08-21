@@ -214,3 +214,26 @@ func (p PublicRoom) Matches(term string) bool {
 	}
 	return false
 }
+
+type SyncRoom struct {
+	RoomNID    int64
+	RoomID     string
+	Version    RoomVersionID
+	Membership string
+	EventNID   int64
+	Forgotten  bool
+	LastStream int64
+	BumpStream int64
+}
+
+func (SyncRoom) Validate() error { return nil }
+
+type RoomWindow struct {
+	RoomNID int64
+	After   int64
+}
+
+type MemberCounts struct {
+	Joined  int
+	Invited int
+}
