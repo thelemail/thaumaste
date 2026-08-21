@@ -9,19 +9,59 @@ package internal
 import (
 	"context"
 	"github.com/thelemail/thaumaste/internal/config"
+	"github.com/thelemail/thaumaste/internal/pkg/keyseal"
+	"github.com/thelemail/thaumaste/internal/repository/accesstoken"
+	"github.com/thelemail/thaumaste/internal/repository/signingkey"
+	"github.com/thelemail/thaumaste/internal/repository/tenant"
+	"github.com/thelemail/thaumaste/internal/service"
 )
 
 // Injectors from wire.go:
 
 func InitializeServe(ctx context.Context, cfg config.Config) (*ServeRuntime, func(), error) {
 	server := provideServerConfig(cfg)
+	signing := provideSigningConfig(cfg)
 	postgres := providePostgresConfig(cfg)
 	client, cleanup, err := providePostgres(ctx, postgres)
 	if err != nil {
 		return nil, nil, err
 	}
-	serveRuntime := provideServeRuntime(server, client)
+	repositoryTenant := tenant.New(client)
+	signingKey := signingkey.New(client)
+	sealer, err := keyseal.New(signing)
+	if err != nil {
+		cleanup()
+		return nil, nil, err
+	}
+	transactor := provideTransactor(client)
+	v := provideClock()
+	tenants := provideTenants(repositoryTenant, signingKey, sealer, transactor, v)
+	accessToken := accesstoken.New(client)
+	tokens := provideTokens(accessToken, v)
+	serveRuntime := provideServeRuntime(server, signing, client, tenants, tokens, v)
 	return serveRuntime, func() {
+		cleanup()
+	}, nil
+}
+
+func InitializeTenants(ctx context.Context, cfg config.Config) (service.Tenants, func(), error) {
+	postgres := providePostgresConfig(cfg)
+	client, cleanup, err := providePostgres(ctx, postgres)
+	if err != nil {
+		return nil, nil, err
+	}
+	repositoryTenant := tenant.New(client)
+	signingKey := signingkey.New(client)
+	signing := provideSigningConfig(cfg)
+	sealer, err := keyseal.New(signing)
+	if err != nil {
+		cleanup()
+		return nil, nil, err
+	}
+	transactor := provideTransactor(client)
+	v := provideClock()
+	tenants := provideTenants(repositoryTenant, signingKey, sealer, transactor, v)
+	return tenants, func() {
 		cleanup()
 	}, nil
 }

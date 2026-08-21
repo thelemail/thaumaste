@@ -1,28 +1,96 @@
 package matrix_test
 
 import (
+	"crypto/ed25519"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/thelemail/thaumaste/internal/config"
+	"github.com/thelemail/thaumaste/internal/entity"
 	"github.com/thelemail/thaumaste/internal/handler/http/matrix"
+	"github.com/thelemail/thaumaste/internal/pkg/keyseal"
+	"github.com/thelemail/thaumaste/internal/pkg/postgres"
+	"github.com/thelemail/thaumaste/internal/pkg/signing"
+	"github.com/thelemail/thaumaste/internal/repository/accesstoken"
+	"github.com/thelemail/thaumaste/internal/repository/signingkey"
+	"github.com/thelemail/thaumaste/internal/repository/tenant"
+	"github.com/thelemail/thaumaste/internal/service"
+	"github.com/thelemail/thaumaste/internal/service/tenants"
+	"github.com/thelemail/thaumaste/internal/service/tokens"
+	"github.com/thelemail/thaumaste/internal/testutil/pgtest"
 )
 
-func do(t *testing.T, method, path string) *httptest.ResponseRecorder {
-	t.Helper()
-	r := chi.NewRouter()
-	matrix.New().Mount(r)
-	rec := httptest.NewRecorder()
-	r.ServeHTTP(rec, httptest.NewRequest(method, path, nil))
-	return rec
+type server struct {
+	router  chi.Router
+	tenants service.Tenants
+	tokens  service.Tokens
+	db      *postgres.Client
 }
 
-func get(t *testing.T, path string) *httptest.ResponseRecorder {
+func newServer(t *testing.T) *server {
 	t.Helper()
-	return do(t, http.MethodGet, path)
+
+	pg := pgtest.Connect(t, "tenants")
+
+	sealer, err := keyseal.NewWithKey(make([]byte, keyseal.MasterKeySize))
+	if err != nil {
+		t.Fatalf("keyseal: %v", err)
+	}
+
+	tenantSvc := tenants.New(tenant.New(pg), signingkey.New(pg), sealer, pg, nil, nil)
+	tokenSvc := tokens.New(accesstoken.New(pg), nil, nil)
+
+	r := chi.NewRouter()
+	matrix.New(
+		tenantSvc,
+		tokenSvc,
+		config.Server{PublicScheme: "https"},
+		config.Signing{KeyValidity: 24 * time.Hour},
+		nil,
+	).Mount(r)
+
+	return &server{router: r, tenants: tenantSvc, tokens: tokenSvc, db: pg}
+}
+
+func (s *server) tenant(t *testing.T, serverName string, hosts ...string) entity.Tenant {
+	t.Helper()
+	created, err := s.tenants.Create(t.Context(), entity.NewTenant{
+		ServerName:       serverName,
+		Hosts:            hosts,
+		RegistrationMode: entity.RegistrationClosed,
+	})
+	if err != nil {
+		t.Fatalf("create tenant %s: %v", serverName, err)
+	}
+	return created
+}
+
+func (s *server) token(t *testing.T, of entity.Tenant, userID string) string {
+	t.Helper()
+	secret, _, err := s.tokens.Mint(t.Context(), of.Scope(), userID, time.Hour)
+	if err != nil {
+		t.Fatalf("mint token for %s: %v", of.ServerName, err)
+	}
+	return secret
+}
+
+func (s *server) get(t *testing.T, host, path string, token string) *httptest.ResponseRecorder {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodGet, path, nil)
+	if host != "" {
+		req.Host = host
+	}
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
+	rec := httptest.NewRecorder()
+	s.router.ServeHTTP(rec, req)
+	return rec
 }
 
 func decode[T any](t *testing.T, rec *httptest.ResponseRecorder) T {
@@ -34,8 +102,28 @@ func decode[T any](t *testing.T, rec *httptest.ResponseRecorder) T {
 	return out
 }
 
+func errcode(t *testing.T, rec *httptest.ResponseRecorder) string {
+	t.Helper()
+	return decode[struct {
+		ErrCode string `json:"errcode"`
+	}](t, rec).ErrCode
+}
+
+type keysBody struct {
+	ServerName    string                          `json:"server_name"`
+	VerifyKeys    map[string]struct{ Key string } `json:"verify_keys"`
+	OldVerifyKeys map[string]struct {
+		Key       string `json:"key"`
+		ExpiredTS int64  `json:"expired_ts"`
+	} `json:"old_verify_keys"`
+	ValidUntilTS int64                        `json:"valid_until_ts"`
+	Signatures   map[string]map[string]string `json:"signatures"`
+}
+
 func TestVersionsReportsTheSupportedSpecVersions(t *testing.T) {
-	rec := get(t, "/_matrix/client/versions")
+	s := newServer(t)
+
+	rec := s.get(t, "", "/_matrix/client/versions", "")
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
@@ -49,10 +137,7 @@ func TestVersionsReportsTheSupportedSpecVersions(t *testing.T) {
 		UnstableFeatures map[string]bool `json:"unstable_features"`
 	}](t, rec)
 
-	if len(body.Versions) == 0 {
-		t.Fatal("versions must not be empty")
-	}
-	if body.Versions[0] != "v1.16" {
+	if len(body.Versions) == 0 || body.Versions[0] != "v1.16" {
 		t.Fatalf("versions = %v, want v1.16", body.Versions)
 	}
 	if body.UnstableFeatures == nil {
@@ -60,9 +145,302 @@ func TestVersionsReportsTheSupportedSpecVersions(t *testing.T) {
 	}
 }
 
-func TestCapabilitiesReportsRoomVersionTwelveAsDefault(t *testing.T) {
-	rec := get(t, "/_matrix/client/v3/capabilities")
+func TestTwoDomainsCoexistWithDistinctKeys(t *testing.T) {
+	s := newServer(t)
+	s.tenant(t, "alpha.test")
+	s.tenant(t, "beta.test")
 
+	alpha := decode[keysBody](t, s.get(t, "alpha.test", "/_matrix/key/v2/server", ""))
+	beta := decode[keysBody](t, s.get(t, "beta.test", "/_matrix/key/v2/server", ""))
+
+	if alpha.ServerName != "alpha.test" || beta.ServerName != "beta.test" {
+		t.Fatalf("server names = %q and %q", alpha.ServerName, beta.ServerName)
+	}
+	for id, key := range alpha.VerifyKeys {
+		if other, ok := beta.VerifyKeys[id]; ok && other.Key == key.Key {
+			t.Fatalf("both domains publish the same key %s", id)
+		}
+	}
+}
+
+func TestEachDomainSignsItsOwnKeysAndNotTheOthers(t *testing.T) {
+	s := newServer(t)
+	s.tenant(t, "alpha.test")
+	s.tenant(t, "beta.test")
+
+	raw := s.get(t, "alpha.test", "/_matrix/key/v2/server", "").Body.Bytes()
+	alpha := decode[keysBody](t, s.get(t, "alpha.test", "/_matrix/key/v2/server", ""))
+	beta := decode[keysBody](t, s.get(t, "beta.test", "/_matrix/key/v2/server", ""))
+
+	for id, key := range alpha.VerifyKeys {
+		public, err := signing.DecodeKey(key.Key)
+		if err != nil {
+			t.Fatalf("decode key: %v", err)
+		}
+		if err := signing.Verify(raw, "alpha.test", signing.KeyID(id), ed25519.PublicKey(public)); err != nil {
+			t.Fatalf("alpha does not verify under its own key: %v", err)
+		}
+	}
+	for id, key := range beta.VerifyKeys {
+		public, err := signing.DecodeKey(key.Key)
+		if err != nil {
+			t.Fatalf("decode key: %v", err)
+		}
+		if err := signing.Verify(raw, "beta.test", signing.KeyID(id), ed25519.PublicKey(public)); err == nil {
+			t.Fatal("alpha's keys verified under beta's key")
+		}
+	}
+}
+
+func TestValidUntilIsInTheFutureAndInsideTheWeekTheSpecAllows(t *testing.T) {
+	s := newServer(t)
+	s.tenant(t, "alpha.test")
+
+	body := decode[keysBody](t, s.get(t, "alpha.test", "/_matrix/key/v2/server", ""))
+
+	valid := time.UnixMilli(body.ValidUntilTS)
+	if !valid.After(time.Now().Add(time.Hour)) {
+		t.Fatalf("valid_until_ts = %s, must be more than an hour ahead", valid)
+	}
+	if valid.After(time.Now().Add(7 * 24 * time.Hour)) {
+		t.Fatalf("valid_until_ts = %s, must be inside seven days", valid)
+	}
+}
+
+func TestARotatedKeyIsRetainedAndStillPublished(t *testing.T) {
+	s := newServer(t)
+	alpha := s.tenant(t, "alpha.test")
+
+	before := decode[keysBody](t, s.get(t, "alpha.test", "/_matrix/key/v2/server", ""))
+	var oldID string
+	for id := range before.VerifyKeys {
+		oldID = id
+	}
+
+	if _, err := s.tenants.RotateKey(t.Context(), alpha.Scope()); err != nil {
+		t.Fatalf("RotateKey: %v", err)
+	}
+
+	after := decode[keysBody](t, s.get(t, "alpha.test", "/_matrix/key/v2/server", ""))
+
+	if _, ok := after.VerifyKeys[oldID]; ok {
+		t.Fatalf("the rotated key %s is still advertised as current", oldID)
+	}
+	retired, ok := after.OldVerifyKeys[oldID]
+	if !ok {
+		t.Fatalf("the rotated key %s was dropped instead of retained", oldID)
+	}
+	if retired.ExpiredTS == 0 {
+		t.Fatal("the retired key carries no expired_ts")
+	}
+	if retired.Key != before.VerifyKeys[oldID].Key {
+		t.Fatal("the retired key material changed")
+	}
+	if len(after.VerifyKeys) != 1 {
+		t.Fatalf("current keys after rotation = %d, want 1", len(after.VerifyKeys))
+	}
+}
+
+func TestOneDomainCanAnswerOnSeveralHosts(t *testing.T) {
+	s := newServer(t)
+	s.tenant(t, "alpha.test", "matrix.alpha.test")
+
+	direct := decode[keysBody](t, s.get(t, "alpha.test", "/_matrix/key/v2/server", ""))
+	delegated := decode[keysBody](t, s.get(t, "matrix.alpha.test", "/_matrix/key/v2/server", ""))
+
+	if delegated.ServerName != "alpha.test" {
+		t.Fatalf("server name on the delegated host = %q, want alpha.test", delegated.ServerName)
+	}
+	if len(direct.VerifyKeys) != len(delegated.VerifyKeys) {
+		t.Fatal("the two hosts publish different keys")
+	}
+
+	wellKnown := decode[struct {
+		Homeserver struct {
+			BaseURL string `json:"base_url"`
+		} `json:"m.homeserver"`
+	}](t, s.get(t, "matrix.alpha.test", "/.well-known/matrix/client", ""))
+
+	if wellKnown.Homeserver.BaseURL != "https://matrix.alpha.test" {
+		t.Fatalf("base_url = %q", wellKnown.Homeserver.BaseURL)
+	}
+}
+
+func TestAnUnknownHostBelongsToNoDomain(t *testing.T) {
+	s := newServer(t)
+	s.tenant(t, "alpha.test")
+
+	for _, path := range []string{
+		"/_matrix/key/v2/server",
+		"/.well-known/matrix/client",
+		"/_matrix/client/v3/capabilities",
+	} {
+		rec := s.get(t, "nobody.test", path, "")
+		if rec.Code != http.StatusNotFound {
+			t.Fatalf("%s on an unknown host = %d, want %d", path, rec.Code, http.StatusNotFound)
+		}
+		if code := errcode(t, rec); code != "M_NOT_FOUND" {
+			t.Fatalf("%s on an unknown host errcode = %q", path, code)
+		}
+	}
+}
+
+func TestATokenIsRefusedOnAnotherDomainsHost(t *testing.T) {
+	s := newServer(t)
+	alpha := s.tenant(t, "alpha.test")
+	s.tenant(t, "beta.test")
+
+	token := s.token(t, alpha, "@someone:alpha.test")
+
+	if rec := s.get(t, "alpha.test", "/_matrix/client/v3/capabilities", token); rec.Code != http.StatusOK {
+		t.Fatalf("on its own host = %d, want %d", rec.Code, http.StatusOK)
+	}
+
+	rec := s.get(t, "beta.test", "/_matrix/client/v3/capabilities", token)
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("on another domain's host = %d, want %d", rec.Code, http.StatusUnauthorized)
+	}
+	if code := errcode(t, rec); code != "M_UNKNOWN_TOKEN" {
+		t.Fatalf("errcode = %q, want M_UNKNOWN_TOKEN", code)
+	}
+}
+
+func TestACrossDomainTokenIsIndistinguishableFromAnInventedOne(t *testing.T) {
+	s := newServer(t)
+	alpha := s.tenant(t, "alpha.test")
+	s.tenant(t, "beta.test")
+
+	foreign := s.get(t, "beta.test", "/_matrix/client/v3/capabilities", s.token(t, alpha, "@someone:alpha.test"))
+	invented := s.get(t, "beta.test", "/_matrix/client/v3/capabilities", "not-a-real-token")
+
+	if foreign.Code != invented.Code {
+		t.Fatalf("status %d for a foreign token, %d for an invented one", foreign.Code, invented.Code)
+	}
+	if foreign.Body.String() != invented.Body.String() {
+		t.Fatalf("a foreign token is distinguishable: %s vs %s", foreign.Body, invented.Body)
+	}
+}
+
+func TestAMissingTokenIsReportedSeparatelyFromABadOne(t *testing.T) {
+	s := newServer(t)
+	s.tenant(t, "alpha.test")
+
+	missing := s.get(t, "alpha.test", "/_matrix/client/v3/capabilities", "")
+	if missing.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want %d", missing.Code, http.StatusUnauthorized)
+	}
+	if code := errcode(t, missing); code != "M_MISSING_TOKEN" {
+		t.Fatalf("errcode = %q, want M_MISSING_TOKEN", code)
+	}
+}
+
+func TestARevokedTokenStopsWorking(t *testing.T) {
+	s := newServer(t)
+	alpha := s.tenant(t, "alpha.test")
+
+	secret, minted, err := s.tokens.Mint(t.Context(), alpha.Scope(), "@someone:alpha.test", time.Hour)
+	if err != nil {
+		t.Fatalf("Mint: %v", err)
+	}
+	if rec := s.get(t, "alpha.test", "/_matrix/client/v3/capabilities", secret); rec.Code != http.StatusOK {
+		t.Fatalf("before revocation = %d", rec.Code)
+	}
+
+	if err := s.tokens.Revoke(t.Context(), minted.ID); err != nil {
+		t.Fatalf("Revoke: %v", err)
+	}
+
+	rec := s.get(t, "alpha.test", "/_matrix/client/v3/capabilities", secret)
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("after revocation = %d, want %d", rec.Code, http.StatusUnauthorized)
+	}
+}
+
+func TestSuspendingADomainStopsTheClientApiButKeepsItsKeysPublished(t *testing.T) {
+	s := newServer(t)
+	alpha := s.tenant(t, "alpha.test")
+	token := s.token(t, alpha, "@someone:alpha.test")
+
+	if _, err := s.tenants.Suspend(t.Context(), alpha.ID); err != nil {
+		t.Fatalf("Suspend: %v", err)
+	}
+
+	client := s.get(t, "alpha.test", "/_matrix/client/v3/capabilities", token)
+	if client.Code != http.StatusForbidden {
+		t.Fatalf("client api while suspended = %d, want %d", client.Code, http.StatusForbidden)
+	}
+	if code := errcode(t, client); code != "M_FORBIDDEN" {
+		t.Fatalf("errcode = %q, want M_FORBIDDEN", code)
+	}
+
+	keys := s.get(t, "alpha.test", "/_matrix/key/v2/server", "")
+	if keys.Code != http.StatusOK {
+		t.Fatalf("key endpoint while suspended = %d, want %d", keys.Code, http.StatusOK)
+	}
+
+	if _, err := s.tenants.Resume(t.Context(), alpha.ID); err != nil {
+		t.Fatalf("Resume: %v", err)
+	}
+	if rec := s.get(t, "alpha.test", "/_matrix/client/v3/capabilities", token); rec.Code != http.StatusOK {
+		t.Fatalf("client api after resuming = %d, want %d", rec.Code, http.StatusOK)
+	}
+}
+
+func TestWhoamiNamesTheCallerTheTokenWasMintedFor(t *testing.T) {
+	s := newServer(t)
+	alpha := s.tenant(t, "alpha.test")
+	beta := s.tenant(t, "beta.test")
+
+	rec := s.get(t, "alpha.test", "/_matrix/client/v3/account/whoami", s.token(t, alpha, "@someone:alpha.test"))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	body := decode[struct {
+		UserID string `json:"user_id"`
+	}](t, rec)
+	if body.UserID != "@someone:alpha.test" {
+		t.Fatalf("user_id = %q", body.UserID)
+	}
+
+	foreign := s.get(t, "alpha.test", "/_matrix/client/v3/account/whoami", s.token(t, beta, "@someone:beta.test"))
+	if foreign.Code != http.StatusUnauthorized {
+		t.Fatalf("a token from the other domain = %d, want %d", foreign.Code, http.StatusUnauthorized)
+	}
+}
+
+func TestUnknownEndpointIsNotRecognised(t *testing.T) {
+	s := newServer(t)
+
+	rec := s.get(t, "", "/_matrix/client/v3/nothing_here", "")
+
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusNotFound)
+	}
+	if code := errcode(t, rec); code != "M_UNRECOGNIZED" {
+		t.Fatalf("errcode = %q, want M_UNRECOGNIZED", code)
+	}
+}
+
+func TestWrongMethodOnAKnownEndpointIsNotAllowed(t *testing.T) {
+	s := newServer(t)
+
+	req := httptest.NewRequest(http.MethodPut, "/_matrix/client/versions", nil)
+	rec := httptest.NewRecorder()
+	s.router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusMethodNotAllowed)
+	}
+	if code := errcode(t, rec); code != "M_UNRECOGNIZED" {
+		t.Fatalf("errcode = %q, want M_UNRECOGNIZED", code)
+	}
+}
+
+func TestCapabilitiesReportsRoomVersionTwelveAsDefault(t *testing.T) {
+	s := newServer(t)
+	alpha := s.tenant(t, "alpha.test")
+
+	rec := s.get(t, "alpha.test", "/_matrix/client/v3/capabilities", s.token(t, alpha, "@someone:alpha.test"))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
 	}
@@ -81,37 +459,5 @@ func TestCapabilitiesReportsRoomVersionTwelveAsDefault(t *testing.T) {
 	}
 	if got := body.Capabilities.RoomVersions.Available["12"]; got != "stable" {
 		t.Fatalf("room version 12 = %q, want stable", got)
-	}
-}
-
-func TestUnknownEndpointIsNotRecognised(t *testing.T) {
-	rec := get(t, "/_matrix/client/v3/nothing_here")
-
-	if rec.Code != http.StatusNotFound {
-		t.Fatalf("status = %d, want %d", rec.Code, http.StatusNotFound)
-	}
-
-	body := decode[struct {
-		ErrCode string `json:"errcode"`
-	}](t, rec)
-
-	if body.ErrCode != "M_UNRECOGNIZED" {
-		t.Fatalf("errcode = %q, want M_UNRECOGNIZED", body.ErrCode)
-	}
-}
-
-func TestWrongMethodOnAKnownEndpointIsNotAllowed(t *testing.T) {
-	rec := do(t, http.MethodPut, "/_matrix/client/versions")
-
-	if rec.Code != http.StatusMethodNotAllowed {
-		t.Fatalf("status = %d, want %d", rec.Code, http.StatusMethodNotAllowed)
-	}
-
-	body := decode[struct {
-		ErrCode string `json:"errcode"`
-	}](t, rec)
-
-	if body.ErrCode != "M_UNRECOGNIZED" {
-		t.Fatalf("errcode = %q, want M_UNRECOGNIZED", body.ErrCode)
 	}
 }

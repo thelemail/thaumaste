@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"fmt"
 	"os"
+	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -16,12 +18,31 @@ import (
 	"github.com/thelemail/thaumaste/internal/pkg/postgres"
 )
 
-const database = "thaumaste_test"
+const databasePrefix = "thaumaste_test"
 
 var (
 	once      sync.Once
 	schemaErr error
+
+	database = databasePrefix
 )
+
+// Go runs the test binaries of different packages at the same time, so a single shared database
+// would have one package truncating tables another was midway through using. Each package gets its
+// own, named after its directory, which means a package added later is isolated without anyone
+// having to arrange it.
+func databaseFor(pkg string) string {
+	if pkg == "" {
+		return databasePrefix
+	}
+	clean := strings.Map(func(r rune) rune {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
+			return r
+		}
+		return '_'
+	}, strings.ToLower(pkg))
+	return databasePrefix + "_" + clean
+}
 
 func settings() config.Postgres {
 	port, err := strconv.Atoi(env("THAUMASTE_POSTGRES_PORT", "5435"))
@@ -57,7 +78,13 @@ func Connect(t *testing.T, truncate ...string) *postgres.Client {
 	t.Helper()
 
 	ctx := t.Context()
-	once.Do(func() { schemaErr = ensureSchema(ctx) })
+	_, file, _, ok := runtime.Caller(1)
+	once.Do(func() {
+		if ok {
+			database = databaseFor(filepath.Base(filepath.Dir(file)))
+		}
+		schemaErr = ensureSchema(ctx)
+	})
 	if schemaErr != nil {
 		unavailable(t, schemaErr)
 	}

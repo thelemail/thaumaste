@@ -65,7 +65,17 @@ report() {
 		echo
 		echo "## Why the failures stop where they do"
 		echo
-		echo "Most frequent assertion failures across the run:"
+		echo "Endpoints the suite asked for, most requested first. Whatever sits at the top is what"
+		echo "the rest of the suite is waiting on."
+		echo
+		jq -Rc 'fromjson? // empty' "$OUT/output.jsonl" \
+			| jq -r 'select(.Action == "output" and .Test != null) | .Output' \
+			| grep -oE '(GET|POST|PUT|DELETE) hs1/[^ ]*' \
+			| sed -E 's#/\$[^/]*#/{id}#g; s#/![^/]*#/{room}#g; s#/@[^/]*#/{user}#g; s#\?.*##' \
+			| sort | uniq -c | sort -rn | head -8 \
+			| sed 's/^ *\([0-9]*\) /- \1 x /'
+		echo
+		echo "Most frequent assertion failures:"
 		echo
 		jq -Rc 'fromjson? // empty' "$OUT/output.jsonl" \
 			| jq -r 'select(.Action == "output" and .Test != null) | .Output' \

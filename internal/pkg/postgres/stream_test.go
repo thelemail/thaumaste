@@ -215,6 +215,22 @@ func TestNegativePositionsRunBackwards(t *testing.T) {
 	}
 }
 
+func TestANegativeWatermarkSurvivesARestart(t *testing.T) {
+	pg := pgtest.Connect(t, "stream_positions")
+
+	before := newStream(t, pg, "backfill-restart", true)
+	for range 3 {
+		next(t, before, 1).Release()
+	}
+	want := before.Current()
+
+	after := newStream(t, pg, "backfill-restart", true)
+
+	if got := after.Current(); got != want {
+		t.Fatalf("watermark after restart = %d, want %d", got, want)
+	}
+}
+
 func TestACancelledContextDoesNotLeakAnInFlightPosition(t *testing.T) {
 	pg := pgtest.Connect(t, "stream_positions")
 	s := newStream(t, pg, "cancelled", false)

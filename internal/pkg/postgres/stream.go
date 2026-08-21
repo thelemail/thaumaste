@@ -181,7 +181,7 @@ func (s *Stream) persist(upTo int64) {
 		`INSERT INTO stream_positions (stream_name, instance_name, stream_id)
 		 VALUES ($1, $2, $3)
 		 ON CONFLICT (stream_name, instance_name) DO UPDATE SET stream_id = EXCLUDED.stream_id
-		 WHERE stream_positions.stream_id < EXCLUDED.stream_id`,
+		 WHERE abs(stream_positions.stream_id) < abs(EXCLUDED.stream_id)`,
 		s.cfg.Name, s.cfg.Instance, s.sign()*upTo)
 	if err != nil {
 		slog.ErrorContext(ctx, "could not record stream position",

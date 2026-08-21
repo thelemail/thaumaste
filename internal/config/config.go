@@ -16,6 +16,7 @@ type Config struct {
 	Server   Server
 	Health   Health
 	Postgres Postgres
+	Signing  Signing
 	Logger   Logger
 }
 
@@ -24,6 +25,7 @@ type Server struct {
 	ReadTimeout     time.Duration `env:"THAUMASTE_SERVER_READ_TIMEOUT"     envDefault:"15s"`
 	WriteTimeout    time.Duration `env:"THAUMASTE_SERVER_WRITE_TIMEOUT"    envDefault:"30s"`
 	ShutdownTimeout time.Duration `env:"THAUMASTE_SERVER_SHUTDOWN_TIMEOUT" envDefault:"30s"`
+	PublicScheme    string        `env:"THAUMASTE_SERVER_PUBLIC_SCHEME"    envDefault:"https"`
 }
 
 type Health struct {
@@ -77,6 +79,12 @@ func (p Postgres) dsn(timeouts map[string]time.Duration) string {
 		RawQuery: q.Encode(),
 	}
 	return u.String()
+}
+
+type Signing struct {
+	MasterKey     string        `env:"THAUMASTE_SIGNING_MASTER_KEY,required,unset"`
+	NextMasterKey string        `env:"THAUMASTE_SIGNING_NEXT_MASTER_KEY,unset"`
+	KeyValidity   time.Duration `env:"THAUMASTE_SIGNING_KEY_VALIDITY"           envDefault:"24h"`
 }
 
 type Logger struct {
