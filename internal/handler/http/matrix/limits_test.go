@@ -103,7 +103,7 @@ func TestARetryOfALimitedTransactionIsStillDeduplicated(t *testing.T) {
 }
 
 func TestAnUnreachableLimiterLetsSendsThrough(t *testing.T) {
-	s := wireServer(t, nil, pgtest.Connect(t, "tenants"), valkeytest.Unreachable(t),
+	s := wireServer(t, "test", nil, pgtest.Connect(t, "tenants"), valkeytest.Unreachable(t),
 		entity.SendLimits{PerUser: 1, Window: time.Minute})
 	_, token, _ := s.resident(t, "alpha.test", "alice")
 	roomID := s.createRoom(t, "alpha.test", token, map[string]any{})

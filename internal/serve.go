@@ -13,6 +13,7 @@ import (
 	"github.com/thelemail/thaumaste/internal/config"
 	"github.com/thelemail/thaumaste/internal/handler/http/matrix"
 	"github.com/thelemail/thaumaste/internal/handler/http/matrix/middleware"
+	"github.com/thelemail/thaumaste/internal/pkg/notify"
 	"github.com/thelemail/thaumaste/internal/pkg/postgres"
 	"github.com/thelemail/thaumaste/internal/runtime"
 	"github.com/thelemail/thaumaste/internal/service"
@@ -22,6 +23,10 @@ type ServeRuntime struct {
 	srv             *http.Server
 	db              *postgres.Client
 	events          service.Events
+	sync            service.Sync
+	notifier        *notify.Notifier
+	connectionTTL   time.Duration
+	connectionSweep time.Duration
 	shutdownTimeout time.Duration
 	sweepEvery      time.Duration
 	retain          time.Duration
@@ -58,8 +63,34 @@ func (r *ServeRuntime) sweep(ctx context.Context) {
 	}
 }
 
+func (r *ServeRuntime) sweepConnections(ctx context.Context) {
+	if r.connectionSweep <= 0 || r.connectionTTL <= 0 {
+		return
+	}
+	ticker := time.NewTicker(r.connectionSweep)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
+		deleted, err := r.sync.SweepConnections(ctx, r.clock().UTC().Add(-r.connectionTTL))
+		if err != nil {
+			slog.ErrorContext(ctx, "could not sweep abandoned sync connections", "error", err)
+			continue
+		}
+		if deleted > 0 {
+			slog.InfoContext(ctx, "swept abandoned sync connections", "deleted", deleted)
+		}
+	}
+}
+
 func (r *ServeRuntime) Run(ctx context.Context) error {
 	go r.sweep(ctx)
+	go r.sweepConnections(ctx)
+	go func() { _ = r.notifier.Run(ctx) }()
 
 	errCh := make(chan error, 1)
 	go func() {
@@ -90,6 +121,9 @@ func provideServeRuntime(
 	users service.Users,
 	rooms service.Rooms,
 	events service.Events,
+	syncSvc service.Sync,
+	notifier *notify.Notifier,
+	syncCfg config.Sync,
 	clock func() time.Time,
 ) *ServeRuntime {
 	router := chi.NewRouter()
@@ -98,7 +132,7 @@ func provideServeRuntime(
 	router.Use(middleware.RecoverPanic)
 	router.Use(middleware.AccessLog)
 
-	matrix.New(tenants, tokens, users, rooms, cfg, sign, clock).Mount(router)
+	matrix.New(tenants, tokens, users, rooms, syncSvc, cfg, sign, clock).Mount(router)
 
 	return &ServeRuntime{
 		srv: &http.Server{
@@ -106,9 +140,14 @@ func provideServeRuntime(
 			Handler:      router,
 			ReadTimeout:  cfg.ReadTimeout,
 			WriteTimeout: cfg.WriteTimeout,
+			IdleTimeout:  cfg.IdleTimeout,
 		},
 		db:              db,
 		events:          events,
+		sync:            syncSvc,
+		notifier:        notifier,
+		connectionTTL:   syncCfg.ConnectionTTL,
+		connectionSweep: syncCfg.SweepEvery,
 		shutdownTimeout: cfg.ShutdownTimeout,
 		sweepEvery:      limits.TxnSweepEvery,
 		retain:          limits.TxnRetention,

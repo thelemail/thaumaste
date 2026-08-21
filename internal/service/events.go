@@ -22,6 +22,6 @@ type Events interface {
 	Relations(ctx context.Context, roomID string, q entity.RelationQuery) ([]entity.RelationRef, error)
 	VisibilityFor(ctx context.Context, roomID, caller string) (entity.HistoryFilter, error)
 	PositionAtStream(ctx context.Context, roomID string, stream int64) (entity.Position, error)
-	TransactionFor(ctx context.Context, sender entity.TransactionSender, eventID string) (string, error)
+	TransactionsFor(ctx context.Context, sender entity.TransactionSender, eventIDs []string) (map[string]string, error)
 	SweepTransactions(ctx context.Context, cutoff time.Time) (int64, error)
 }

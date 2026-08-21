@@ -79,10 +79,11 @@ func TestEveryTenantOwnedTableCarriesAnIndexOnTheTenant(t *testing.T) {
 }
 
 var globalTables = map[string]bool{
-	"goose_db_version": true,
-	"stream_positions": true,
-	"event_types":      true,
-	"event_state_keys": true,
+	"goose_db_version":   true,
+	"stream_positions":   true,
+	"event_types":        true,
+	"event_state_keys":   true,
+	"sync_state_configs": true,
 }
 
 func (s *server) allTables(t *testing.T) []string {
