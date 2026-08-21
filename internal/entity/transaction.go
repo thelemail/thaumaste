@@ -1,14 +1,11 @@
 package entity
 
 import (
-	"errors"
 	"time"
 
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 	"github.com/google/uuid"
 )
-
-var ErrTransactionNotFound = errors.New("entity: transaction not found")
 
 const (
 	MaxTransactionIDBytes = 255

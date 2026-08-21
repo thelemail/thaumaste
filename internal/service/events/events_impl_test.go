@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"slices"
+	"strconv"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -653,5 +655,60 @@ func TestARefusedSendDoesNotStallTheWatermark(t *testing.T) {
 	}
 	if stored.StreamOrdering <= refused {
 		t.Fatalf("stream ordering = %d, want above %d", stored.StreamOrdering, refused)
+	}
+}
+
+func TestConcurrentSendsAcrossRoomsReuseNoPosition(t *testing.T) {
+	h := newHarness(t)
+	of := h.tenant(t, "positions.example")
+
+	const rooms, each = 4, 6
+	created := make([]entity.Room, rooms)
+	creators := make([]string, rooms)
+	for i := range rooms {
+		created[i], creators[i], _ = h.room(t, of, entity.RoomVersion11)
+	}
+
+	var wg sync.WaitGroup
+	for i := range rooms {
+		for j := range each {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				_, err := h.events.Send(t.Context(), of.Scope(), entity.NewEvent{
+					RoomID: created[i].RoomID, Type: entity.EventTypeMessage, Sender: creators[i],
+					Content: map[string]any{"msgtype": "m.text", "body": strconv.Itoa(j)},
+				})
+				if err != nil {
+					t.Errorf("Send: %v", err)
+				}
+			}()
+		}
+	}
+	wg.Wait()
+
+	rows, err := h.db.QueryContext(t.Context(),
+		`SELECT stream_ordering, count(*) FROM events GROUP BY stream_ordering HAVING count(*) > 1`)
+	if err != nil {
+		t.Fatalf("scan stream orderings: %v", err)
+	}
+	defer func() { _ = rows.Close() }()
+	for rows.Next() {
+		var position, times int64
+		if err := rows.Scan(&position, &times); err != nil {
+			t.Fatalf("scan: %v", err)
+		}
+		t.Fatalf("stream position %d was handed out %d times", position, times)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("scan stream orderings: %v", err)
+	}
+
+	var highest int64
+	if err := h.db.QueryRowContext(t.Context(), `SELECT max(stream_ordering) FROM events`).Scan(&highest); err != nil {
+		t.Fatalf("highest position: %v", err)
+	}
+	if got := h.stream.Current(); got != highest {
+		t.Fatalf("watermark = %d, want %d once every write has settled", got, highest)
 	}
 }
