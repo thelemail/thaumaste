@@ -13,16 +13,17 @@ import (
 type Config struct {
 	AppEnv string `env:"THAUMASTE_APP_ENV" envDefault:"local"`
 
-	Server   Server
-	Health   Health
-	Postgres Postgres
-	Valkey   Valkey
-	Signing  Signing
-	Auth     Auth
-	Limits   Limits
-	Sync     Sync
-	Keys     Keys
-	Logger   Logger
+	Server    Server
+	Health    Health
+	Postgres  Postgres
+	Valkey    Valkey
+	Signing   Signing
+	Auth      Auth
+	Limits    Limits
+	Sync      Sync
+	Keys      Keys
+	Directory Directory
+	Logger    Logger
 }
 
 type Server struct {
@@ -141,6 +142,10 @@ type Keys struct {
 	MaxOneTimeKeys  int `env:"THAUMASTE_KEYS_MAX_ONE_TIME"     envDefault:"200"`
 	MaxQueryUsers   int `env:"THAUMASTE_KEYS_MAX_QUERY_USERS"  envDefault:"200"`
 	MaxClaimDevices int `env:"THAUMASTE_KEYS_MAX_CLAIM_DEVICES" envDefault:"200"`
+}
+
+type Directory struct {
+	MaxResults int `env:"THAUMASTE_DIRECTORY_MAX_RESULTS" envDefault:"50"`
 }
 
 type Logger struct {
