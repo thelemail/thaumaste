@@ -18,6 +18,7 @@ type Room interface {
 	GetByRoomID(ctx context.Context, roomID string) (entity.Room, error)
 	SetCreateEvent(ctx context.Context, roomNID, eventNID int64) error
 	SetVisibility(ctx context.Context, roomNID int64, visibility string) error
+	SetActivity(ctx context.Context, roomNID, stream int64, bumping bool) error
 	ListForTenant(ctx context.Context, scope entity.TenantScope) ([]entity.Room, error)
 	ListPublic(ctx context.Context, scope entity.TenantScope) ([]entity.Room, error)
 	Extremities(ctx context.Context, roomNID int64) ([]entity.StoredEvent, error)

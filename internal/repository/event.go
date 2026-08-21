@@ -20,6 +20,10 @@ type Event interface {
 	GetManyByNID(ctx context.Context, eventNIDs []int64) ([]entity.StoredEvent, error)
 	Page(ctx context.Context, roomNID int64, in entity.PageRequest) ([]entity.StoredEvent, error)
 	ListStateOfType(ctx context.Context, roomNID int64, eventType, stateKey string) ([]entity.StoredEvent, error)
+	StateHistory(ctx context.Context, roomNIDs []int64, eventType, stateKey string) (map[int64][]entity.StoredEvent, error)
+	LatestState(ctx context.Context, roomNIDs []int64, selectors []entity.StateKey) (map[int64][]entity.StoredEvent, error)
+	Since(ctx context.Context, windows []entity.RoomWindow, upTo int64, limit int) (map[int64][]entity.StoredEvent, error)
+	StateSince(ctx context.Context, windows []entity.RoomWindow, upTo int64) (map[int64][]entity.StoredEvent, error)
 	AtStream(ctx context.Context, roomNID, stream int64) (entity.StoredEvent, error)
 	Redacted(ctx context.Context, eventNID, redactedByNID int64, eventJSON []byte) error
 	SetStateSnapshot(ctx context.Context, eventNID, snapshotNID int64) error

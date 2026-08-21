@@ -5,6 +5,9 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"slices"
+	"strconv"
+	"strings"
 
 	"github.com/aarondl/null/v8"
 	"github.com/aarondl/sqlboiler/v4/boil"
@@ -332,4 +335,171 @@ func (r *repo) AtStream(ctx context.Context, roomNID, stream int64) (entity.Stor
 		return entity.StoredEvent{}, fmt.Errorf("repository: event at stream position: %w", err)
 	}
 	return toStoredEvent(row)
+}
+
+const selectEventColumnsSQL = `
+	SELECT e.event_nid, e.room_nid, e.sender_is_local, e.stream_ordering, e.topological_ordering,
+	       e.instance_name, e.state_snapshot_nid, e.disposition, e.redacted_by_nid, e.event_json,
+	       r.room_version
+	  FROM events e
+	  JOIN rooms r ON r.room_nid = e.room_nid`
+
+func (r *repo) StateHistory(ctx context.Context, roomNIDs []int64, eventType, stateKey string) (map[int64][]entity.StoredEvent, error) {
+	if len(roomNIDs) == 0 {
+		return nil, nil
+	}
+
+	args := []any{eventType, stateKey}
+	slots := make([]string, 0, len(roomNIDs))
+	for _, roomNID := range roomNIDs {
+		args = append(args, roomNID)
+		slots = append(slots, "$"+strconv.Itoa(len(args)))
+	}
+
+	query := selectEventColumnsSQL + `
+		 WHERE e.event_type_nid = (SELECT event_type_nid FROM event_types WHERE event_type = $1)
+		   AND e.event_state_key_nid = (SELECT event_state_key_nid FROM event_state_keys WHERE event_state_key = $2)
+		   AND e.room_nid IN (` + strings.Join(slots, ", ") + `)
+		 ORDER BY e.room_nid, e.topological_ordering, e.stream_ordering`
+
+	return r.groupedEvents(ctx, "list state history", query, args)
+}
+
+func (r *repo) LatestState(ctx context.Context, roomNIDs []int64, selectors []entity.StateKey) (map[int64][]entity.StoredEvent, error) {
+	if len(roomNIDs) == 0 {
+		return nil, nil
+	}
+
+	var args []any
+	placeholder := func(value any) string {
+		args = append(args, value)
+		return "$" + strconv.Itoa(len(args))
+	}
+
+	rooms := make([]string, 0, len(roomNIDs))
+	for _, roomNID := range roomNIDs {
+		rooms = append(rooms, placeholder(roomNID))
+	}
+	wanted := "e.event_state_key_nid IS NOT NULL"
+	if len(selectors) > 0 {
+		keys := make([]string, 0, len(selectors))
+		for _, selector := range selectors {
+			keys = append(keys, "("+placeholder(selector.Type)+", "+placeholder(selector.StateKey)+")")
+		}
+		wanted = "(t.event_type, k.event_state_key) IN (" + strings.Join(keys, ", ") + ")"
+	}
+
+	query := `
+		SELECT DISTINCT ON (e.room_nid, e.event_type_nid, e.event_state_key_nid)
+		       e.event_nid, e.room_nid, e.sender_is_local, e.stream_ordering, e.topological_ordering,
+		       e.instance_name, e.state_snapshot_nid, e.disposition, e.redacted_by_nid, e.event_json,
+		       r.room_version
+		  FROM events e
+		  JOIN rooms r ON r.room_nid = e.room_nid
+		  JOIN event_types t ON t.event_type_nid = e.event_type_nid
+		  JOIN event_state_keys k ON k.event_state_key_nid = e.event_state_key_nid
+		 WHERE e.room_nid IN (` + strings.Join(rooms, ", ") + `)
+		   AND ` + wanted + `
+		   AND e.disposition IN ('accepted', 'redacted')
+		 ORDER BY e.room_nid, e.event_type_nid, e.event_state_key_nid,
+		          e.topological_ordering DESC, e.stream_ordering DESC`
+
+	return r.groupedEvents(ctx, "latest room state", query, args)
+}
+
+func (r *repo) Since(ctx context.Context, windows []entity.RoomWindow, upTo int64, limit int) (map[int64][]entity.StoredEvent, error) {
+	if len(windows) == 0 || limit <= 0 {
+		return nil, nil
+	}
+
+	args := []any{upTo, limit}
+	slots := make([]string, 0, len(windows))
+	for _, window := range windows {
+		args = append(args, window.RoomNID, window.After)
+		slots = append(slots, "($"+strconv.Itoa(len(args)-1)+"::bigint, $"+strconv.Itoa(len(args))+"::bigint)")
+	}
+
+	query := `
+		WITH wanted (room_nid, after) AS (VALUES ` + strings.Join(slots, ", ") + `)
+		SELECT recent.* FROM wanted
+		CROSS JOIN LATERAL (` + selectEventColumnsSQL + `
+			 WHERE e.room_nid = wanted.room_nid
+			   AND e.stream_ordering > wanted.after
+			   AND e.stream_ordering <= $1
+			 ORDER BY e.stream_ordering DESC
+			 LIMIT $2) recent`
+
+	grouped, err := r.groupedEvents(ctx, "list events since", query, args)
+	if err != nil {
+		return nil, err
+	}
+	for _, events := range grouped {
+		slices.Reverse(events)
+	}
+	return grouped, nil
+}
+
+func (r *repo) StateSince(ctx context.Context, windows []entity.RoomWindow, upTo int64) (map[int64][]entity.StoredEvent, error) {
+	if len(windows) == 0 {
+		return nil, nil
+	}
+
+	args := []any{upTo}
+	slots := make([]string, 0, len(windows))
+	for _, window := range windows {
+		args = append(args, window.RoomNID, window.After)
+		slots = append(slots, "($"+strconv.Itoa(len(args)-1)+"::bigint, $"+strconv.Itoa(len(args))+"::bigint)")
+	}
+
+	query := `
+		WITH wanted (room_nid, after) AS (VALUES ` + strings.Join(slots, ", ") + `)
+		SELECT changed.* FROM wanted
+		CROSS JOIN LATERAL (` + selectEventColumnsSQL + `
+			 WHERE e.room_nid = wanted.room_nid
+			   AND e.event_state_key_nid IS NOT NULL
+			   AND e.stream_ordering > wanted.after
+			   AND e.stream_ordering <= $1
+			 ORDER BY e.stream_ordering) changed`
+
+	return r.groupedEvents(ctx, "list state since", query, args)
+}
+
+func (r *repo) groupedEvents(ctx context.Context, what, query string, args []any) (map[int64][]entity.StoredEvent, error) {
+	rows, err := r.db.Querier(ctx).QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("repository: %s: %w", what, err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	out := make(map[int64][]entity.StoredEvent)
+	for rows.Next() {
+		var (
+			stored      entity.StoredEvent
+			snapshotNID null.Int64
+			redactedBy  null.Int64
+			disposition string
+			eventJSON   []byte
+			roomVersion string
+		)
+		if err := rows.Scan(&stored.NID, &stored.RoomNID, &stored.SenderIsLocal,
+			&stored.StreamOrdering, &stored.TopologicalOrdering, &stored.InstanceName,
+			&snapshotNID, &disposition, &redactedBy, &eventJSON, &roomVersion); err != nil {
+			return nil, fmt.Errorf("repository: scan event: %w", err)
+		}
+		version, err := entity.LookupRoomVersion(entity.RoomVersionID(roomVersion))
+		if err != nil {
+			return nil, err
+		}
+		if stored.Event, err = entity.NewEventFromJSON(eventJSON, version); err != nil {
+			return nil, fmt.Errorf("repository: read stored event: %w", err)
+		}
+		stored.StateSnapshotNID = snapshotNID.Int64
+		stored.RedactedByNID = redactedBy.Int64
+		stored.Disposition = entity.Disposition(disposition)
+		out[stored.RoomNID] = append(out[stored.RoomNID], stored)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("repository: %s: %w", what, err)
+	}
+	return out, nil
 }
