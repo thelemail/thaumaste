@@ -408,6 +408,21 @@ func (s *srv) StateBefore(ctx context.Context, eventID string) (entity.StateMap,
 	return s.state.Load(ctx, stored.StateSnapshotNID)
 }
 
+func (s *srv) StateAfter(ctx context.Context, eventNID int64) (entity.StateMap, error) {
+	stored, err := s.events.GetByNID(ctx, eventNID)
+	if err != nil {
+		if errors.Is(err, repository.ErrEventNotFound) {
+			return nil, entity.ErrEventNotFound
+		}
+		return nil, err
+	}
+	before, err := s.state.Load(ctx, stored.StateSnapshotNID)
+	if err != nil {
+		return nil, err
+	}
+	return before.Apply(stored.Event), nil
+}
+
 func (s *srv) parent(ctx context.Context, room entity.Room) (entity.StoredEvent, error) {
 	extremities, err := s.rooms.Extremities(ctx, room.NID)
 	if err != nil {

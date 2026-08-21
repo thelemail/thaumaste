@@ -101,6 +101,9 @@ func (s *srv) SetState(ctx context.Context, scope entity.TenantScope, in entity.
 	if in.StateKey == nil {
 		return "", entity.ErrEventMalformed
 	}
+	if _, err := s.room(ctx, scope, in.RoomID); err != nil {
+		return "", err
+	}
 	if in.Type == entity.EventTypeCanonicalAlias {
 		if err := s.checkCanonicalAlias(ctx, scope, in.RoomID, in.Content); err != nil {
 			return "", err
@@ -365,7 +368,8 @@ func (s *srv) room(ctx context.Context, scope entity.TenantScope, roomID string)
 }
 
 func (s *srv) readableState(ctx context.Context, scope entity.TenantScope, caller, roomID string) (entity.StateMap, error) {
-	if _, err := s.room(ctx, scope, roomID); err != nil {
+	room, err := s.room(ctx, scope, roomID)
+	if err != nil {
 		return nil, err
 	}
 	state, err := s.events.CurrentState(ctx, roomID)
@@ -375,5 +379,18 @@ func (s *srv) readableState(ctx context.Context, scope entity.TenantScope, calle
 	if state.Membership(caller) == entity.MembershipJoin || state.WorldReadable() {
 		return state, nil
 	}
-	return nil, entity.ErrNotInRoom
+
+	membership, err := s.members.Get(ctx, room.NID, caller)
+	if err != nil {
+		if errors.Is(err, repository.ErrMembershipNotFound) {
+			return nil, entity.ErrNotInRoom
+		}
+		return nil, err
+	}
+	switch membership.Membership {
+	case entity.MembershipLeave, entity.MembershipBan:
+		return s.events.StateAfter(ctx, membership.EventNID)
+	default:
+		return nil, entity.ErrNotInRoom
+	}
 }
