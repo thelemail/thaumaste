@@ -147,7 +147,7 @@ func TestARoomChainRoundTripsThroughStorage(t *testing.T) {
 			Content: map[string]any{"msgtype": "m.text", "body": "hello"},
 		})
 
-		timeline, err := h.events.Timeline(t.Context(), created.RoomID)
+		timeline, err := h.events.Page(t.Context(), created.RoomID, entity.PageRequest{Limit: entity.MaxPageLimit})
 		if err != nil {
 			t.Fatalf("Timeline: %v", err)
 		}
@@ -303,7 +303,7 @@ func TestTheFirstJoinNamesCreateOnlyWhereTheVersionRequiresIt(t *testing.T) {
 		created, _, chain := h.room(t, alpha, version)
 		join := chain[1]
 
-		timeline, err := h.events.Timeline(t.Context(), created.RoomID)
+		timeline, err := h.events.Page(t.Context(), created.RoomID, entity.PageRequest{Limit: entity.MaxPageLimit})
 		if err != nil {
 			t.Fatalf("Timeline: %v", err)
 		}
@@ -330,7 +330,7 @@ func TestARoomIDNamesItsCreateEventUnderVersionTwelve(t *testing.T) {
 
 	created, _, _ := h.room(t, alpha, entity.RoomVersion12)
 
-	timeline, err := h.events.Timeline(t.Context(), created.RoomID)
+	timeline, err := h.events.Page(t.Context(), created.RoomID, entity.PageRequest{Limit: entity.MaxPageLimit})
 	if err != nil {
 		t.Fatalf("Timeline: %v", err)
 	}
@@ -352,7 +352,7 @@ func TestARoomIDCarriesADomainUnderVersionEleven(t *testing.T) {
 		t.Fatalf("room id = %s, want a domain suffix", created.RoomID)
 	}
 
-	timeline, err := h.events.Timeline(t.Context(), created.RoomID)
+	timeline, err := h.events.Page(t.Context(), created.RoomID, entity.PageRequest{Limit: entity.MaxPageLimit})
 	if err != nil {
 		t.Fatalf("Timeline: %v", err)
 	}
@@ -371,7 +371,7 @@ func TestAnUnauthorisedEventIsRefusedAndNotStored(t *testing.T) {
 		alpha := h.tenant(t, "alpha.test")
 		created, _, _ := h.room(t, alpha, version)
 
-		before, err := h.events.Timeline(t.Context(), created.RoomID)
+		before, err := h.events.Page(t.Context(), created.RoomID, entity.PageRequest{Limit: entity.MaxPageLimit})
 		if err != nil {
 			t.Fatalf("Timeline: %v", err)
 		}
@@ -384,7 +384,7 @@ func TestAnUnauthorisedEventIsRefusedAndNotStored(t *testing.T) {
 			t.Fatalf("error = %v, want ErrAuthFailed", err)
 		}
 
-		after, err := h.events.Timeline(t.Context(), created.RoomID)
+		after, err := h.events.Page(t.Context(), created.RoomID, entity.PageRequest{Limit: entity.MaxPageLimit})
 		if err != nil {
 			t.Fatalf("Timeline: %v", err)
 		}
@@ -416,7 +416,7 @@ func TestTheRoomKeepsExactlyOneForwardExtremity(t *testing.T) {
 		t.Fatalf("extremities = %d, want exactly 1", len(extremities))
 	}
 
-	timeline, err := h.events.Timeline(t.Context(), created.RoomID)
+	timeline, err := h.events.Page(t.Context(), created.RoomID, entity.PageRequest{Limit: entity.MaxPageLimit})
 	if err != nil {
 		t.Fatalf("Timeline: %v", err)
 	}
@@ -447,7 +447,7 @@ func TestConcurrentSendsToOneRoomStayLinear(t *testing.T) {
 		}
 	}
 
-	timeline, err := h.events.Timeline(t.Context(), created.RoomID)
+	timeline, err := h.events.Page(t.Context(), created.RoomID, entity.PageRequest{Limit: entity.MaxPageLimit})
 	if err != nil {
 		t.Fatalf("Timeline: %v", err)
 	}
@@ -519,7 +519,7 @@ func TestTwoDomainsCanEachHoldTheirOwnRoom(t *testing.T) {
 		t.Fatalf("LookupRoomVersion: %v", err)
 	}
 
-	betaTimeline, err := h.events.Timeline(t.Context(), betaRoom.RoomID)
+	betaTimeline, err := h.events.Page(t.Context(), betaRoom.RoomID, entity.PageRequest{Limit: entity.MaxPageLimit})
 	if err != nil {
 		t.Fatalf("Timeline: %v", err)
 	}
@@ -577,7 +577,7 @@ func TestTheClockIsTheOriginServerTimestamp(t *testing.T) {
 	alpha := h.tenant(t, "alpha.test")
 	created, _, _ := h.room(t, alpha, entity.DefaultRoomVersion)
 
-	timeline, err := h.events.Timeline(t.Context(), created.RoomID)
+	timeline, err := h.events.Page(t.Context(), created.RoomID, entity.PageRequest{Limit: entity.MaxPageLimit})
 	if err != nil {
 		t.Fatalf("Timeline: %v", err)
 	}

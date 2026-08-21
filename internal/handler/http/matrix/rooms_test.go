@@ -146,7 +146,7 @@ func TestTheCreationChainIsLinearAndLeavesOneExtremity(t *testing.T) {
 	tenant, token, _ := s.resident(t, "alpha.test", "alice")
 	roomID := s.createRoom(t, "alpha.test", token, map[string]any{"name": "n", "topic": "t"})
 
-	timeline, err := s.events.Timeline(t.Context(), roomID)
+	timeline, err := s.events.Page(t.Context(), roomID, entity.PageRequest{Limit: entity.MaxPageLimit})
 	if err != nil {
 		t.Fatalf("Timeline: %v", err)
 	}

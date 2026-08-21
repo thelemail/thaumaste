@@ -387,9 +387,8 @@ func TestTheMemberListFollowsWhatTheCallerMaySee(t *testing.T) {
 		t.Fatalf("a stranger read the member list = %d: %s", rec.Code, rec.Body)
 	}
 
-	at := s.get(t, "alpha.test", "/_matrix/client/v3/rooms/"+roomID+"/members?at=s1", alice)
-	if at.Code != http.StatusBadRequest {
-		t.Fatalf("a point-in-time member query = %d, want 400: %s", at.Code, at.Body)
+	if rec := s.get(t, "alpha.test", "/_matrix/client/v3/rooms/"+roomID+"/members?at=nonsense", alice); rec.Code != http.StatusBadRequest {
+		t.Fatalf("a malformed point-in-time token = %d, want 400: %s", rec.Code, rec.Body)
 	}
 }
 
@@ -442,7 +441,7 @@ func TestJoiningTwiceIsAcceptedAndKeepsOneExtremity(t *testing.T) {
 	s.mustAct(t, "alpha.test", joinPath(roomID), bob.AccessToken, map[string]any{})
 	s.mustAct(t, "alpha.test", joinPath(roomID), bob.AccessToken, map[string]any{})
 
-	timeline, err := s.events.Timeline(t.Context(), roomID)
+	timeline, err := s.events.Page(t.Context(), roomID, entity.PageRequest{Limit: entity.MaxPageLimit})
 	if err != nil {
 		t.Fatalf("Timeline: %v", err)
 	}

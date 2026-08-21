@@ -12,7 +12,6 @@ var (
 	ErrCannotGrantJoin   = errors.New("entity: no local user can authorise this join")
 	ErrNotForgettable    = errors.New("entity: the room has not been left")
 	ErrForeignUser       = errors.New("entity: user belongs to another server")
-	ErrPointInTime       = errors.New("entity: reading state at a point is not supported")
 	ErrNotBanned         = errors.New("entity: the user is not banned")
 )
 
@@ -83,9 +82,6 @@ type MembersFilter struct {
 }
 
 func (f MembersFilter) Validate() error {
-	if f.At != "" {
-		return ErrPointInTime
-	}
 	for _, value := range []string{f.Membership, f.NotMembership} {
 		if value != "" && !slices.Contains(memberships, value) {
 			return ErrUnknownMembership

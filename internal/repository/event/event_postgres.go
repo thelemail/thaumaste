@@ -144,18 +144,6 @@ func (r *repo) GetManyByEventID(ctx context.Context, eventIDs []string) ([]entit
 	return toStoredEvents(rows)
 }
 
-func (r *repo) ListForRoom(ctx context.Context, roomNID int64) ([]entity.StoredEvent, error) {
-	rows, err := dbpg.Events(
-		dbpg.EventWhere.RoomNid.EQ(roomNID),
-		qm.Load(dbpg.EventRels.RoomNidRoom),
-		qm.OrderBy(dbpg.EventColumns.TopologicalOrdering+", "+dbpg.EventColumns.StreamOrdering),
-	).All(ctx, r.db.Querier(ctx))
-	if err != nil {
-		return nil, fmt.Errorf("repository: list events: %w", err)
-	}
-	return toStoredEvents(rows)
-}
-
 func (r *repo) SetDisposition(ctx context.Context, eventNID int64, disposition entity.Disposition) error {
 	row := dbpg.Event{EventNid: eventNID, Disposition: string(disposition)}
 	n, err := row.Update(ctx, r.db.Querier(ctx), boil.Whitelist(dbpg.EventColumns.Disposition))
@@ -272,4 +260,92 @@ func toStoredEvent(row *dbpg.Event) (entity.StoredEvent, error) {
 		StateSnapshotNID:    row.StateSnapshotNid.Int64,
 		Disposition:         entity.Disposition(row.Disposition),
 	}, nil
+}
+
+func (r *repo) GetManyByNID(ctx context.Context, eventNIDs []int64) ([]entity.StoredEvent, error) {
+	if len(eventNIDs) == 0 {
+		return nil, nil
+	}
+	rows, err := dbpg.Events(
+		dbpg.EventWhere.EventNid.IN(eventNIDs),
+		qm.Load(dbpg.EventRels.RoomNidRoom),
+		qm.OrderBy(dbpg.EventColumns.EventNid),
+	).All(ctx, r.db.Querier(ctx))
+	if err != nil {
+		return nil, fmt.Errorf("repository: list events by nid: %w", err)
+	}
+	return toStoredEvents(rows)
+}
+
+func (r *repo) Page(ctx context.Context, roomNID int64, in entity.PageRequest) ([]entity.StoredEvent, error) {
+	mods := []qm.QueryMod{
+		dbpg.EventWhere.RoomNid.EQ(roomNID),
+		qm.Load(dbpg.EventRels.RoomNidRoom),
+		qm.Limit(in.Limit),
+	}
+	if in.Backwards {
+		mods = append(mods,
+			qm.OrderBy(dbpg.EventColumns.TopologicalOrdering+" DESC, "+dbpg.EventColumns.StreamOrdering+" DESC"))
+		mods = append(mods, bound(in.From, "<"+orEqual(in.Inclusive))...)
+		mods = append(mods, bound(in.To, ">")...)
+	} else {
+		mods = append(mods,
+			qm.OrderBy(dbpg.EventColumns.TopologicalOrdering+", "+dbpg.EventColumns.StreamOrdering))
+		mods = append(mods, bound(in.From, ">"+orEqual(in.Inclusive))...)
+		mods = append(mods, bound(in.To, "<")...)
+	}
+
+	rows, err := dbpg.Events(mods...).All(ctx, r.db.Querier(ctx))
+	if err != nil {
+		return nil, fmt.Errorf("repository: page events: %w", err)
+	}
+	return toStoredEvents(rows)
+}
+
+func orEqual(inclusive bool) string {
+	if inclusive {
+		return "="
+	}
+	return ""
+}
+
+func bound(at *entity.Position, operator string) []qm.QueryMod {
+	if at == nil {
+		return nil
+	}
+	return []qm.QueryMod{qm.Where(
+		"(events.topological_ordering, events.stream_ordering) "+operator+" (?, ?)",
+		at.Topological, at.Stream)}
+}
+
+func (r *repo) ListStateOfType(ctx context.Context, roomNID int64, eventType, stateKey string) ([]entity.StoredEvent, error) {
+	rows, err := dbpg.Events(
+		dbpg.EventWhere.RoomNid.EQ(roomNID),
+		qm.InnerJoin("event_types t on t.event_type_nid = events.event_type_nid"),
+		qm.InnerJoin("event_state_keys k on k.event_state_key_nid = events.event_state_key_nid"),
+		qm.Where("t.event_type = ? and k.event_state_key = ?", eventType, stateKey),
+		qm.Load(dbpg.EventRels.RoomNidRoom),
+		qm.OrderBy(dbpg.EventColumns.TopologicalOrdering+", "+dbpg.EventColumns.StreamOrdering),
+	).All(ctx, r.db.Querier(ctx))
+	if err != nil {
+		return nil, fmt.Errorf("repository: list state events: %w", err)
+	}
+	return toStoredEvents(rows)
+}
+
+func (r *repo) AtStream(ctx context.Context, roomNID, stream int64) (entity.StoredEvent, error) {
+	row, err := dbpg.Events(
+		dbpg.EventWhere.RoomNid.EQ(roomNID),
+		dbpg.EventWhere.StreamOrdering.LTE(stream),
+		qm.Load(dbpg.EventRels.RoomNidRoom),
+		qm.OrderBy(dbpg.EventColumns.TopologicalOrdering+" DESC, "+dbpg.EventColumns.StreamOrdering+" DESC"),
+		qm.Limit(1),
+	).One(ctx, r.db.Querier(ctx))
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return entity.StoredEvent{}, repository.ErrEventNotFound
+		}
+		return entity.StoredEvent{}, fmt.Errorf("repository: event at stream position: %w", err)
+	}
+	return toStoredEvent(row)
 }

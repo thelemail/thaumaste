@@ -213,8 +213,11 @@ func writeRoomError(r *http.Request, w http.ResponseWriter, err error, msg strin
 		writeError(w, http.StatusForbidden, codeCannotGrant, "No local user can authorise this join")
 	case errors.Is(err, entity.ErrNotBanned), errors.Is(err, entity.ErrNotForgettable):
 		writeError(w, http.StatusBadRequest, codeBadState, "The room is not in a state that allows that")
-	case errors.Is(err, entity.ErrUnknownMembership), errors.Is(err, entity.ErrPointInTime):
+	case errors.Is(err, entity.ErrUnknownMembership):
 		writeError(w, http.StatusBadRequest, codeInvalidParam, "Unsupported membership query")
+	case errors.Is(err, entity.ErrBadToken), errors.Is(err, entity.ErrBadDirection),
+		errors.Is(err, entity.ErrBadFilter):
+		writeError(w, http.StatusBadRequest, codeInvalidParam, "Invalid pagination request")
 	case errors.Is(err, entity.ErrAliasNotFound):
 		writeError(w, http.StatusNotFound, codeNotFound, "Unknown room alias")
 	case errors.Is(err, entity.ErrAliasInUse):

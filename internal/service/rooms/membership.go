@@ -142,7 +142,7 @@ func (s *srv) Members(ctx context.Context, scope entity.TenantScope, caller, roo
 	if err := filter.Validate(); err != nil {
 		return nil, err
 	}
-	state, err := s.readableState(ctx, scope, caller, roomID)
+	state, err := s.membersState(ctx, scope, caller, roomID, filter.At)
 	if err != nil {
 		return nil, err
 	}
@@ -159,6 +159,32 @@ func (s *srv) Members(ctx context.Context, scope entity.TenantScope, caller, roo
 		}
 	}
 	return out, nil
+}
+
+func (s *srv) membersState(ctx context.Context, scope entity.TenantScope, caller, roomID, at string) (entity.StateMap, error) {
+	if at == "" {
+		return s.readableState(ctx, scope, caller, roomID)
+	}
+	if _, err := s.readableRoom(ctx, scope, caller, roomID); err != nil {
+		return nil, err
+	}
+	position, err := s.at(ctx, roomID, at)
+	if err != nil {
+		return nil, err
+	}
+	if position == nil {
+		return s.readableState(ctx, scope, caller, roomID)
+	}
+	page, err := s.events.Page(ctx, roomID, entity.PageRequest{
+		From: position, Backwards: true, Inclusive: true, Limit: 1,
+	})
+	if err != nil {
+		return nil, err
+	}
+	if len(page) == 0 {
+		return entity.StateMap{}, nil
+	}
+	return s.events.StateAfter(ctx, page[0].NID)
 }
 
 func (s *srv) transition(ctx context.Context, scope entity.TenantScope, change entity.MembershipChange) error {

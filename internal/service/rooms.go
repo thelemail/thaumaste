@@ -42,6 +42,8 @@ type Rooms interface {
 
 	SendMessage(ctx context.Context, scope entity.TenantScope, in entity.NewMessage) (string, error)
 	Event(ctx context.Context, scope entity.TenantScope, caller, deviceID, roomID, eventID string) (entity.ClientEvent, error)
+	Messages(ctx context.Context, scope entity.TenantScope, caller, deviceID string, in entity.MessagesRequest) (entity.Messages, error)
+	Context(ctx context.Context, scope entity.TenantScope, caller, deviceID string, in entity.ContextRequest) (entity.Context, error)
 
 	JoinedMembers(ctx context.Context, scope entity.TenantScope, caller, roomID string) ([]entity.RoomMember, error)
 	JoinedRooms(ctx context.Context, scope entity.TenantScope, userID string) ([]string, error)

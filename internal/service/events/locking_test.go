@@ -104,7 +104,7 @@ func TestTwoServersWritingOneRoomKeepItLinear(t *testing.T) {
 func assertLinear(t *testing.T, h *harness, roomID string, sent int) {
 	t.Helper()
 
-	timeline, err := h.events.Timeline(t.Context(), roomID)
+	timeline, err := h.events.Page(t.Context(), roomID, entity.PageRequest{Limit: entity.MaxPageLimit})
 	if err != nil {
 		t.Fatalf("Timeline: %v", err)
 	}

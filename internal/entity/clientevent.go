@@ -9,6 +9,7 @@ type ClientEvent struct {
 	Event         Event
 	Age           int64
 	TransactionID string
+	Membership    string
 }
 
 func (c ClientEvent) JSON() (json.RawMessage, error) {
@@ -18,6 +19,9 @@ func (c ClientEvent) JSON() (json.RawMessage, error) {
 	unsigned := map[string]any{"age": c.Age}
 	if c.TransactionID != "" {
 		unsigned["transaction_id"] = c.TransactionID
+	}
+	if c.Membership != "" {
+		unsigned["membership"] = c.Membership
 	}
 	fields["unsigned"] = unsigned
 
