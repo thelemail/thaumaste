@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"time"
 
 	"github.com/thelemail/thaumaste/internal/entity"
 )
@@ -14,4 +15,7 @@ type Events interface {
 	CurrentState(ctx context.Context, roomID string) (entity.StateMap, error)
 	StateBefore(ctx context.Context, eventID string) (entity.StateMap, error)
 	StateAfter(ctx context.Context, eventNID int64) (entity.StateMap, error)
+	Event(ctx context.Context, eventID string) (entity.StoredEvent, error)
+	TransactionFor(ctx context.Context, sender entity.TransactionSender, eventID string) (string, error)
+	SweepTransactions(ctx context.Context, cutoff time.Time) (int64, error)
 }

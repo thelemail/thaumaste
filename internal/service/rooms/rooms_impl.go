@@ -3,6 +3,7 @@ package rooms
 import (
 	"context"
 	"errors"
+	"time"
 
 	"github.com/thelemail/thaumaste/internal/entity"
 	"github.com/thelemail/thaumaste/internal/repository"
@@ -18,6 +19,7 @@ type srv struct {
 	aliases repository.Alias
 	members repository.RoomMember
 	tx      repository.Transactor
+	clock   func() time.Time
 }
 
 func New(
@@ -27,8 +29,13 @@ func New(
 	aliases repository.Alias,
 	members repository.RoomMember,
 	tx repository.Transactor,
+	clock func() time.Time,
 ) service.Rooms {
-	return &srv{events: events, users: users, rooms: rooms, aliases: aliases, members: members, tx: tx}
+	if clock == nil {
+		clock = time.Now
+	}
+	return &srv{events: events, users: users, rooms: rooms, aliases: aliases, members: members,
+		tx: tx, clock: clock}
 }
 
 func (s *srv) Create(ctx context.Context, scope entity.TenantScope, in entity.NewRoomRequest) (entity.Room, error) {

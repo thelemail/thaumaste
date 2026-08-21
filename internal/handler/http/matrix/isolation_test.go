@@ -130,8 +130,8 @@ func TestDeletingADomainLeavesNothingOfItBehind(t *testing.T) {
 	if _, err := s.tenants.RotateKey(t.Context(), doomed.Scope()); err != nil {
 		t.Fatalf("RotateKey: %v", err)
 	}
-	s.seedIdentity(t, doomed)
-	s.seedRoom(t, doomed, "@resident:alpha.test")
+	resident := s.seedIdentity(t, doomed)
+	s.seedRoom(t, doomed, resident)
 
 	tables := s.allTables(t)
 	for _, table := range tables {
@@ -165,10 +165,10 @@ func TestDeletingOneDomainLeavesTheOtherIntact(t *testing.T) {
 
 	s.token(t, doomed, "@someone:alpha.test")
 	s.token(t, survivor, "@someone:beta.test")
-	s.seedIdentity(t, doomed)
-	s.seedIdentity(t, survivor)
-	s.seedRoom(t, doomed, "@resident:alpha.test")
-	s.seedRoom(t, survivor, "@resident:beta.test")
+	doomedResident := s.seedIdentity(t, doomed)
+	survivingResident := s.seedIdentity(t, survivor)
+	s.seedRoom(t, doomed, doomedResident)
+	s.seedRoom(t, survivor, survivingResident)
 
 	if err := s.tenants.Delete(t.Context(), doomed.ID); err != nil {
 		t.Fatalf("Delete: %v", err)

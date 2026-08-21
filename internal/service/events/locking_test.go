@@ -18,6 +18,7 @@ import (
 	"github.com/thelemail/thaumaste/internal/repository/signingkey"
 	"github.com/thelemail/thaumaste/internal/repository/state"
 	"github.com/thelemail/thaumaste/internal/repository/tenant"
+	"github.com/thelemail/thaumaste/internal/repository/transaction"
 	"github.com/thelemail/thaumaste/internal/service/events"
 	"github.com/thelemail/thaumaste/internal/service/tenants"
 	"github.com/thelemail/thaumaste/internal/testutil/pgtest"
@@ -55,7 +56,7 @@ func instance(t *testing.T, name string, cfg config.Valkey) *harness {
 	if err != nil {
 		t.Fatalf("NewStream: %v", err)
 	}
-	eventSvc := events.New(room.New(pg, eventRepo), eventRepo, state.New(pg), roommember.New(pg),
+	eventSvc := events.New(room.New(pg, eventRepo), eventRepo, state.New(pg), roommember.New(pg), transaction.New(pg),
 		tenantSvc, pg, stream, locks, serialiser.New(), name, nil, nil)
 
 	return &harness{events: eventSvc, tenants: tenantSvc, stream: stream, db: pg}

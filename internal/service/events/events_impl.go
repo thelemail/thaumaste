@@ -51,6 +51,7 @@ type srv struct {
 	events     repository.Event
 	state      repository.State
 	members    repository.RoomMember
+	txns       repository.Transaction
 	tenants    service.Tenants
 	tx         repository.Transactor
 	stream     *postgres.Stream
@@ -66,6 +67,7 @@ func New(
 	events repository.Event,
 	state repository.State,
 	members repository.RoomMember,
+	txns repository.Transaction,
 	tenants service.Tenants,
 	tx repository.Transactor,
 	stream *postgres.Stream,
@@ -82,7 +84,7 @@ func New(
 		rnd = rand.Reader
 	}
 	return &srv{
-		rooms: rooms, events: events, state: state, members: members, tenants: tenants, tx: tx,
+		rooms: rooms, events: events, state: state, members: members, txns: txns, tenants: tenants, tx: tx,
 		stream: stream, locks: locks, serialiser: gate, instance: instance, clock: clock, rnd: rnd,
 	}
 }
@@ -257,6 +259,9 @@ func (s *srv) send(ctx context.Context, scope entity.TenantScope, in entity.NewE
 			return entity.StoredEvent{}, err
 		}
 	}
+	if replayed, ok, err := s.replay(ctx, scope, in); err != nil || ok {
+		return replayed, err
+	}
 
 	room, version, err := s.roomAndVersion(ctx, in.RoomID)
 	if err != nil {
@@ -312,7 +317,54 @@ func (s *srv) send(ctx context.Context, scope entity.TenantScope, in entity.NewE
 	if err := s.rooms.ReplaceExtremities(ctx, room.NID, []int64{stored.NID}); err != nil {
 		return entity.StoredEvent{}, err
 	}
+	if err := s.recordTransaction(ctx, scope, in, stored.Event.ID()); err != nil {
+		return entity.StoredEvent{}, err
+	}
 	return stored, nil
+}
+
+func (s *srv) transactionFor(scope entity.TenantScope, in entity.NewEvent, eventID string) entity.NewEventTransaction {
+	return entity.NewEventTransaction{
+		TenantID: scope.ID(),
+		UserID:   in.Sender,
+		DeviceID: in.Txn.DeviceID,
+		Endpoint: in.Txn.Endpoint,
+		RoomID:   in.RoomID,
+		TxnID:    in.Txn.TxnID,
+		EventID:  eventID,
+	}
+}
+
+func (s *srv) replay(ctx context.Context, scope entity.TenantScope, in entity.NewEvent) (entity.StoredEvent, bool, error) {
+	if in.Txn == nil {
+		return entity.StoredEvent{}, false, nil
+	}
+	recorded, err := s.txns.Get(ctx, s.transactionFor(scope, in, "").Key())
+	if err != nil {
+		if errors.Is(err, repository.ErrTransactionNotFound) {
+			return entity.StoredEvent{}, false, nil
+		}
+		return entity.StoredEvent{}, false, err
+	}
+	stored, err := s.events.GetByEventID(ctx, recorded.EventID)
+	if err != nil {
+		if errors.Is(err, repository.ErrEventNotFound) {
+			return entity.StoredEvent{}, false, entity.ErrEventNotFound
+		}
+		return entity.StoredEvent{}, false, err
+	}
+	return stored, true, nil
+}
+
+func (s *srv) recordTransaction(ctx context.Context, scope entity.TenantScope, in entity.NewEvent, eventID string) error {
+	if in.Txn == nil {
+		return nil
+	}
+	record := s.transactionFor(scope, in, eventID)
+	if err := record.Validate(); err != nil {
+		return err
+	}
+	return s.txns.Record(ctx, record)
 }
 
 func (s *srv) write(ctx context.Context, roomID string, fn func(context.Context) error) error {
@@ -538,4 +590,30 @@ func (s *srv) opaque() (string, error) {
 		return "", fmt.Errorf("events: room id: %w", err)
 	}
 	return strings.ToLower(opaqueEncoding.EncodeToString(raw)), nil
+}
+
+func (s *srv) Event(ctx context.Context, eventID string) (entity.StoredEvent, error) {
+	stored, err := s.events.GetByEventID(ctx, eventID)
+	if err != nil {
+		if errors.Is(err, repository.ErrEventNotFound) {
+			return entity.StoredEvent{}, entity.ErrEventNotFound
+		}
+		return entity.StoredEvent{}, err
+	}
+	return stored, nil
+}
+
+func (s *srv) TransactionFor(ctx context.Context, sender entity.TransactionSender, eventID string) (string, error) {
+	recorded, err := s.txns.ForEvent(ctx, sender, eventID)
+	if err != nil {
+		if errors.Is(err, repository.ErrTransactionNotFound) {
+			return "", nil
+		}
+		return "", err
+	}
+	return recorded.TxnID, nil
+}
+
+func (s *srv) SweepTransactions(ctx context.Context, cutoff time.Time) (int64, error) {
+	return s.txns.DeleteBefore(ctx, cutoff)
 }

@@ -22,6 +22,7 @@ import (
 	"github.com/thelemail/thaumaste/internal/repository/signingkey"
 	"github.com/thelemail/thaumaste/internal/repository/state"
 	"github.com/thelemail/thaumaste/internal/repository/tenant"
+	"github.com/thelemail/thaumaste/internal/repository/transaction"
 	"github.com/thelemail/thaumaste/internal/repository/user"
 	"github.com/thelemail/thaumaste/internal/service"
 	"github.com/thelemail/thaumaste/internal/service/rooms"
@@ -61,6 +62,7 @@ func InitializeServe(ctx context.Context, cfg config.Config) (*ServeRuntime, fun
 	repositoryRoom := room.New(client, repositoryEvent)
 	repositoryState := state.New(client)
 	roomMember := roommember.New(client)
+	repositoryTransaction := transaction.New(client)
 	stream, err := provideEventStream(ctx, client, server)
 	if err != nil {
 		cleanup()
@@ -74,9 +76,9 @@ func InitializeServe(ctx context.Context, cfg config.Config) (*ServeRuntime, fun
 		return nil, nil, err
 	}
 	serialiser := provideSerialiser()
-	events := provideEvents(repositoryRoom, repositoryEvent, repositoryState, roomMember, tenants, transactor, stream, valkeyClient, serialiser, server, v)
+	events := provideEvents(repositoryRoom, repositoryEvent, repositoryState, roomMember, repositoryTransaction, tenants, transactor, stream, valkeyClient, serialiser, server, v)
 	repositoryAlias := alias.New(client)
-	serviceRooms := rooms.New(events, users, repositoryRoom, repositoryAlias, roomMember, transactor)
+	serviceRooms := rooms.New(events, users, repositoryRoom, repositoryAlias, roomMember, transactor, v)
 	serveRuntime := provideServeRuntime(server, signing, client, tenants, tokens, users, serviceRooms, v)
 	return serveRuntime, func() {
 		cleanup2()

@@ -36,6 +36,7 @@ const (
 	codeBadAlias     errorCode = "M_BAD_ALIAS"
 	codeBadState     errorCode = "M_BAD_STATE"
 	codeCannotGrant  errorCode = "M_UNABLE_TO_GRANT_JOIN"
+	codeTooLarge     errorCode = "M_TOO_LARGE"
 )
 
 type errorEnvelope struct {
@@ -60,6 +61,13 @@ func writeJSON(w http.ResponseWriter, status int, body any) {
 	w.Header().Set("Content-Length", strconv.Itoa(len(buf)))
 	w.WriteHeader(status)
 	_, _ = w.Write(buf)
+}
+
+func writeRaw(w http.ResponseWriter, status int, body []byte) {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Content-Length", strconv.Itoa(len(body)))
+	w.WriteHeader(status)
+	_, _ = w.Write(body)
 }
 
 func writeError(w http.ResponseWriter, status int, code errorCode, msg string) {

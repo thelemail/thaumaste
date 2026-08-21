@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
+	"strings"
 	"testing"
 	"time"
 
@@ -28,6 +30,7 @@ import (
 	"github.com/thelemail/thaumaste/internal/repository/signingkey"
 	"github.com/thelemail/thaumaste/internal/repository/state"
 	"github.com/thelemail/thaumaste/internal/repository/tenant"
+	"github.com/thelemail/thaumaste/internal/repository/transaction"
 	"github.com/thelemail/thaumaste/internal/repository/uiasession"
 	"github.com/thelemail/thaumaste/internal/repository/user"
 	"github.com/thelemail/thaumaste/internal/service"
@@ -82,8 +85,18 @@ func signAssertion(key ed25519.PrivateKey, subject, serverName string, issued ti
 
 func buildServer(t *testing.T, assertion ed25519.PublicKey) *server {
 	t.Helper()
+	return wireServer(t, assertion, pgtest.Connect(t, "tenants"))
+}
 
-	pg := pgtest.Connect(t, "tenants")
+func reopen(t *testing.T, s *server) *server {
+	t.Helper()
+	next := wireServer(t, nil, pgtest.Connect(t))
+	next.assertionKey = s.assertionKey
+	return next
+}
+
+func wireServer(t *testing.T, assertion ed25519.PublicKey, pg *postgres.Client) *server {
+	t.Helper()
 
 	sealer, err := keyseal.NewWithKey(make([]byte, keyseal.MasterKeySize))
 	if err != nil {
@@ -102,7 +115,7 @@ func buildServer(t *testing.T, assertion ed25519.PublicKey) *server {
 	}
 	roomRepo := room.New(pg, eventRepo)
 	memberRepo := roommember.New(pg)
-	eventSvc := events.New(roomRepo, eventRepo, state.New(pg), memberRepo,
+	eventSvc := events.New(roomRepo, eventRepo, state.New(pg), memberRepo, transaction.New(pg),
 		tenantSvc, pg, stream, nil, serialiser.New(), "test", nil, nil)
 
 	userSvc := users.New(
@@ -115,7 +128,7 @@ func buildServer(t *testing.T, assertion ed25519.PublicKey) *server {
 			AssertionKey: entity.EncodeBase64(assertion), AssertionTTL: 5 * time.Minute,
 		}, nil, nil)
 
-	roomSvc := rooms.New(eventSvc, userSvc, roomRepo, alias.New(pg), memberRepo, pg)
+	roomSvc := rooms.New(eventSvc, userSvc, roomRepo, alias.New(pg), memberRepo, pg, nil)
 
 	r := chi.NewRouter()
 	matrix.New(
@@ -537,11 +550,11 @@ func TestCapabilitiesReportsRoomVersionTwelveAsDefault(t *testing.T) {
 	}
 }
 
-func (s *server) seedRoom(t *testing.T, of entity.Tenant, creator string) entity.Room {
+func (s *server) seedRoom(t *testing.T, of entity.Tenant, resident sessionBody) entity.Room {
 	t.Helper()
 
 	created, err := s.rooms.Create(t.Context(), of.Scope(), entity.NewRoomRequest{
-		Creator:        creator,
+		Creator:        resident.UserID,
 		Version:        entity.DefaultRoomVersion,
 		Visibility:     entity.VisibilityPublic,
 		AliasLocalpart: "seeded",
@@ -552,12 +565,24 @@ func (s *server) seedRoom(t *testing.T, of entity.Tenant, creator string) entity
 		t.Fatalf("Create room: %v", err)
 	}
 
-	_, err = s.events.Send(t.Context(), of.Scope(), entity.NewEvent{
-		RoomID: created.RoomID, Type: entity.EventTypeMessage, Sender: creator,
-		Content: map[string]any{"msgtype": "m.text", "body": "hello"},
-	})
-	if err != nil {
-		t.Fatalf("Send message: %v", err)
+	sent := s.do(t, http.MethodPut, of.ServerName,
+		"/_matrix/client/v3/rooms/"+url.PathEscape(created.RoomID)+"/send/m.room.message/seeded",
+		resident.AccessToken, map[string]any{"msgtype": "m.text", "body": "hello"})
+	if sent.Code != http.StatusOK {
+		t.Fatalf("seed a message = %d: %s", sent.Code, sent.Body)
 	}
 	return created
+}
+
+func (s *server) raw(t *testing.T, method, host, path, token, body string) *httptest.ResponseRecorder {
+	t.Helper()
+	req := httptest.NewRequest(method, path, strings.NewReader(body))
+	req.Host = host
+	req.Header.Set("Content-Type", "application/json")
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
+	rec := httptest.NewRecorder()
+	s.router.ServeHTTP(rec, req)
+	return rec
 }

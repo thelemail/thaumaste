@@ -227,9 +227,14 @@ func writeRoomError(r *http.Request, w http.ResponseWriter, err error, msg strin
 	case errors.Is(err, entity.ErrInvalidRoomState), errors.Is(err, entity.ErrPowerLevelsMalformed),
 		errors.Is(err, entity.ErrPowerLevelsNameCreator):
 		writeError(w, http.StatusBadRequest, codeBadRoomState, "Invalid room state content")
-	case errors.Is(err, entity.ErrEventMalformed), errors.Is(err, entity.ErrEventTooLarge),
-		errors.Is(err, entity.ErrEventFieldTooLong), errors.Is(err, entity.ErrInvalidUsername):
+	case errors.Is(err, entity.ErrEventTooLarge), errors.Is(err, entity.ErrEventFieldTooLong):
+		writeError(w, http.StatusRequestEntityTooLarge, codeTooLarge, "Event exceeds the maximum size")
+	case errors.Is(err, entity.ErrCanonicalFloat), errors.Is(err, entity.ErrCanonicalIntegerRange),
+		errors.Is(err, entity.ErrCanonicalUTF8), errors.Is(err, entity.ErrCanonicalType),
+		errors.Is(err, entity.ErrEventMalformed), errors.Is(err, entity.ErrInvalidUsername):
 		writeError(w, http.StatusBadRequest, codeBadJSON, "The request is not a valid event")
+	case errors.Is(err, entity.ErrTransactionMissing):
+		writeError(w, http.StatusBadRequest, codeMissingParam, "Missing transaction id")
 	case errors.As(err, &validation.Errors{}):
 		writeError(w, http.StatusBadRequest, codeInvalidParam, err.Error())
 	default:

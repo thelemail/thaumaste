@@ -40,6 +40,9 @@ type Rooms interface {
 	StateEvent(ctx context.Context, scope entity.TenantScope, caller, roomID, eventType, stateKey string) (entity.Event, error)
 	SetState(ctx context.Context, scope entity.TenantScope, in entity.NewEvent) (string, error)
 
+	SendMessage(ctx context.Context, scope entity.TenantScope, in entity.NewMessage) (string, error)
+	Event(ctx context.Context, scope entity.TenantScope, caller, deviceID, roomID, eventID string) (entity.ClientEvent, error)
+
 	JoinedMembers(ctx context.Context, scope entity.TenantScope, caller, roomID string) ([]entity.RoomMember, error)
 	JoinedRooms(ctx context.Context, scope entity.TenantScope, userID string) ([]string, error)
 
