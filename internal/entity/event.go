@@ -252,6 +252,10 @@ func (e Event) VerifySignature(serverName string, keyID KeyID, key ed25519.Publi
 	return VerifyJSON(raw, serverName, keyID, key)
 }
 
+// EventIDEncoding exposes the alphabet event ids use, so a test can recompute one without
+// hard-coding which of the two base64 variants applies.
+func EventIDEncoding() *base64.Encoding { return eventIDEncoding }
+
 func SenderDomain(userID string) (string, error) {
 	_, domain, found := strings.Cut(userID, ":")
 	if !found || domain == "" || !strings.HasPrefix(userID, "@") {
