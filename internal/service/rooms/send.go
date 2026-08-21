@@ -14,6 +14,9 @@ func (s *srv) SendMessage(ctx context.Context, scope entity.TenantScope, in enti
 	if _, err := s.room(ctx, scope, in.RoomID); err != nil {
 		return "", err
 	}
+	if err := s.allow(ctx, scope, in.Sender, in.RoomID); err != nil {
+		return "", err
+	}
 	stored, err := s.events.Send(ctx, scope, in.Event())
 	if err != nil {
 		return "", err

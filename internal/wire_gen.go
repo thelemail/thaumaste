@@ -33,6 +33,7 @@ import (
 func InitializeServe(ctx context.Context, cfg config.Config) (*ServeRuntime, func(), error) {
 	server := provideServerConfig(cfg)
 	signing := provideSigningConfig(cfg)
+	limits := provideLimitsConfig(cfg)
 	postgres := providePostgresConfig(cfg)
 	client, cleanup, err := providePostgres(ctx, postgres)
 	if err != nil {
@@ -69,7 +70,6 @@ func InitializeServe(ctx context.Context, cfg config.Config) (*ServeRuntime, fun
 		return nil, nil, err
 	}
 	valkey := provideValkeyConfig(cfg)
-	limits := provideLimitsConfig(cfg)
 	valkeyClient, cleanup2, err := provideValkey(ctx, valkey, limits)
 	if err != nil {
 		cleanup()
@@ -78,8 +78,9 @@ func InitializeServe(ctx context.Context, cfg config.Config) (*ServeRuntime, fun
 	serialiser := provideSerialiser()
 	events := provideEvents(repositoryRoom, repositoryEvent, repositoryState, roomMember, repositoryTransaction, tenants, transactor, stream, valkeyClient, serialiser, server, v)
 	repositoryAlias := alias.New(client)
-	serviceRooms := rooms.New(events, users, repositoryRoom, repositoryAlias, roomMember, transactor, v)
-	serveRuntime := provideServeRuntime(server, signing, client, tenants, tokens, users, serviceRooms, v)
+	sendLimits := provideSendLimits(limits)
+	serviceRooms := rooms.New(events, users, repositoryRoom, repositoryAlias, roomMember, transactor, valkeyClient, sendLimits, v)
+	serveRuntime := provideServeRuntime(server, signing, limits, client, tenants, tokens, users, serviceRooms, events, v)
 	return serveRuntime, func() {
 		cleanup2()
 		cleanup()

@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -334,4 +335,103 @@ func TestConcurrentRetriesOfOneTransactionWriteOneEvent(t *testing.T) {
 	if got := s.messageCount(t, roomID); got != 1 {
 		t.Fatalf("%d messages in the room, want 1", got)
 	}
+}
+
+func (s *server) streamOrder(t *testing.T, roomID, eventID string) int64 {
+	t.Helper()
+	var ordering int64
+	err := s.db.QueryRowContext(t.Context(), `
+		SELECT e.stream_ordering FROM events e
+		JOIN rooms r ON r.room_nid = e.room_nid
+		WHERE r.room_id = $1 AND e.event_id = $2`, roomID, eventID).Scan(&ordering)
+	if err != nil {
+		t.Fatalf("stream ordering of %s: %v", eventID, err)
+	}
+	return ordering
+}
+
+func TestNothingFromAKickedUserLandsAfterTheKick(t *testing.T) {
+	s := newServer(t)
+	tenant, token, _ := s.resident(t, "alpha.test", "alice")
+	roomID := s.createRoom(t, "alpha.test", token, map[string]any{"preset": entity.PresetPublicChat})
+
+	bob := s.register(t, "alpha.test", "bob", goodPassword)
+	s.joinAs(t, tenant, roomID, bob.UserID)
+
+	const attempts = 12
+	start := make(chan struct{})
+	landed := make(chan string, attempts)
+	refused := make(chan int, attempts)
+	var wg sync.WaitGroup
+
+	for i := range attempts {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			rec := s.send(t, "alpha.test", bob.AccessToken, roomID, "bob-"+strconv.Itoa(i), text("hello"))
+			switch rec.Code {
+			case http.StatusOK:
+				landed <- decode[struct {
+					EventID string `json:"event_id"`
+				}](t, rec).EventID
+			case http.StatusForbidden:
+				refused <- rec.Code
+			default:
+				t.Errorf("a racing send answered %d: %s", rec.Code, rec.Body)
+			}
+		}()
+	}
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		<-start
+		s.mustAct(t, "alpha.test", "/_matrix/client/v3/rooms/"+url.PathEscape(roomID)+"/kick", token,
+			map[string]any{"user_id": bob.UserID})
+	}()
+
+	close(start)
+	wg.Wait()
+	close(landed)
+	close(refused)
+
+	kick := s.memberEvent(t, roomID, bob.UserID)
+	cutoff := s.streamOrder(t, roomID, kick)
+
+	accepted := 0
+	for id := range landed {
+		accepted++
+		if got := s.streamOrder(t, roomID, id); got > cutoff {
+			t.Fatalf("a message from a kicked user landed at %d, after the kick at %d", got, cutoff)
+		}
+	}
+	if accepted+len(refused) != attempts {
+		t.Fatalf("%d accepted and %d refused, want %d in total", accepted, len(refused), attempts)
+	}
+	if got := s.messageCount(t, roomID); got != accepted {
+		t.Fatalf("%d messages in the room but %d sends were accepted", got, accepted)
+	}
+
+	after := s.send(t, "alpha.test", bob.AccessToken, roomID, "bob-after", text("hello"))
+	if after.Code != http.StatusForbidden {
+		t.Fatalf("a kicked user could still send: %d %s", after.Code, after.Body)
+	}
+}
+
+func (s *server) memberEvent(t *testing.T, roomID, userID string) string {
+	t.Helper()
+	var eventID string
+	err := s.db.QueryRowContext(t.Context(), `
+		SELECT e.event_id FROM events e
+		JOIN rooms r ON r.room_nid = e.room_nid
+		JOIN event_types ty ON ty.event_type_nid = e.event_type_nid
+		JOIN event_state_keys k ON k.event_state_key_nid = e.event_state_key_nid
+		WHERE r.room_id = $1 AND ty.event_type = $2 AND k.event_state_key = $3
+		ORDER BY e.stream_ordering DESC LIMIT 1`,
+		roomID, entity.EventTypeMember, userID).Scan(&eventID)
+	if err != nil {
+		t.Fatalf("latest membership of %s: %v", userID, err)
+	}
+	return eventID
 }

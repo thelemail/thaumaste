@@ -198,6 +198,11 @@ func writeForbidden(w http.ResponseWriter) {
 }
 
 func writeRoomError(r *http.Request, w http.ResponseWriter, err error, msg string) {
+	var limited entity.RateLimited
+	if errors.As(err, &limited) {
+		writeRateLimited(w, limited.RetryAfter)
+		return
+	}
 	switch {
 	case errors.Is(err, entity.ErrRoomNotFound), errors.Is(err, entity.ErrNotInRoom),
 		errors.Is(err, entity.ErrAuthFailed), errors.Is(err, entity.ErrForeignUser):

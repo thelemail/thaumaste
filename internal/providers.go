@@ -9,6 +9,7 @@ import (
 	"github.com/google/wire"
 
 	"github.com/thelemail/thaumaste/internal/config"
+	"github.com/thelemail/thaumaste/internal/entity"
 	"github.com/thelemail/thaumaste/internal/pkg/keyseal"
 	"github.com/thelemail/thaumaste/internal/pkg/postgres"
 	"github.com/thelemail/thaumaste/internal/pkg/serialiser"
@@ -135,7 +136,17 @@ func provideEvents(
 		cfg.InstanceName, clock, nil)
 }
 
+func provideSendLimits(cfg config.Limits) entity.SendLimits {
+	return entity.SendLimits{
+		PerUser:   cfg.SendPerUser,
+		PerRoom:   cfg.SendPerRoom,
+		PerTenant: cfg.SendPerTenant,
+		Window:    cfg.SendWindow,
+	}
+}
+
 var DomainSet = wire.NewSet(
+	provideSendLimits,
 	provideClock,
 	keyseal.New,
 	tenant.New,

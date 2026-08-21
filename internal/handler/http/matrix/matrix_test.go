@@ -18,6 +18,7 @@ import (
 	"github.com/thelemail/thaumaste/internal/pkg/keyseal"
 	"github.com/thelemail/thaumaste/internal/pkg/postgres"
 	"github.com/thelemail/thaumaste/internal/pkg/serialiser"
+	"github.com/thelemail/thaumaste/internal/pkg/valkey"
 	"github.com/thelemail/thaumaste/internal/repository/accesstoken"
 	"github.com/thelemail/thaumaste/internal/repository/alias"
 	"github.com/thelemail/thaumaste/internal/repository/authattempt"
@@ -40,6 +41,7 @@ import (
 	"github.com/thelemail/thaumaste/internal/service/tokens"
 	"github.com/thelemail/thaumaste/internal/service/users"
 	"github.com/thelemail/thaumaste/internal/testutil/pgtest"
+	"github.com/thelemail/thaumaste/internal/testutil/valkeytest"
 )
 
 type server struct {
@@ -85,17 +87,25 @@ func signAssertion(key ed25519.PrivateKey, subject, serverName string, issued ti
 
 func buildServer(t *testing.T, assertion ed25519.PublicKey) *server {
 	t.Helper()
-	return wireServer(t, assertion, pgtest.Connect(t, "tenants"))
+	return wireServer(t, assertion, pgtest.Connect(t, "tenants"), nil, entity.SendLimits{})
 }
 
 func reopen(t *testing.T, s *server) *server {
 	t.Helper()
-	next := wireServer(t, nil, pgtest.Connect(t))
+	next := wireServer(t, nil, pgtest.Connect(t), nil, entity.SendLimits{})
 	next.assertionKey = s.assertionKey
 	return next
 }
 
-func wireServer(t *testing.T, assertion ed25519.PublicKey, pg *postgres.Client) *server {
+func newLimitedServer(t *testing.T, limits entity.SendLimits) *server {
+	t.Helper()
+	return wireServer(t, nil, pgtest.Connect(t, "tenants"),
+		valkeytest.Connect(t, config.Limits{SendPerUser: limits.PerUser, SendWindow: limits.Window}), limits)
+}
+
+func wireServer(t *testing.T, assertion ed25519.PublicKey, pg *postgres.Client,
+	limiter *valkey.Client, limits entity.SendLimits,
+) *server {
 	t.Helper()
 
 	sealer, err := keyseal.NewWithKey(make([]byte, keyseal.MasterKeySize))
@@ -128,7 +138,8 @@ func wireServer(t *testing.T, assertion ed25519.PublicKey, pg *postgres.Client) 
 			AssertionKey: entity.EncodeBase64(assertion), AssertionTTL: 5 * time.Minute,
 		}, nil, nil)
 
-	roomSvc := rooms.New(eventSvc, userSvc, roomRepo, alias.New(pg), memberRepo, pg, nil)
+	roomSvc := rooms.New(eventSvc, userSvc, roomRepo, alias.New(pg), memberRepo, pg,
+		limiter, limits, nil)
 
 	r := chi.NewRouter()
 	matrix.New(
