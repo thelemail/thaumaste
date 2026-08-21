@@ -25,3 +25,9 @@ TestEvent
 TestJson
 
 TestFetchMessagesFromNonExistentRoom
+
+TestUploadKey
+TestKeyClaimOrdering
+TestUploadKeyIdempotency
+TestUploadKeyIdempotencyOverlap
+TestKeysQueryWithDeviceIDAsObjectFails

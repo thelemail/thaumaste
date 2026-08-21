@@ -28,6 +28,7 @@ import (
 	"github.com/thelemail/thaumaste/internal/repository/credential"
 	"github.com/thelemail/thaumaste/internal/repository/device"
 	"github.com/thelemail/thaumaste/internal/repository/event"
+	"github.com/thelemail/thaumaste/internal/repository/key"
 	"github.com/thelemail/thaumaste/internal/repository/refreshtoken"
 	"github.com/thelemail/thaumaste/internal/repository/relation"
 	"github.com/thelemail/thaumaste/internal/repository/room"
@@ -40,6 +41,7 @@ import (
 	"github.com/thelemail/thaumaste/internal/repository/user"
 	"github.com/thelemail/thaumaste/internal/service"
 	"github.com/thelemail/thaumaste/internal/service/events"
+	"github.com/thelemail/thaumaste/internal/service/keys"
 	"github.com/thelemail/thaumaste/internal/service/rooms"
 	"github.com/thelemail/thaumaste/internal/service/sync"
 	"github.com/thelemail/thaumaste/internal/service/tenants"
@@ -58,6 +60,7 @@ type server struct {
 	users    service.Users
 	rooms    service.Rooms
 	sync     service.Sync
+	keys     service.Keys
 	notifier *notify.Notifier
 
 	assertionKey ed25519.PrivateKey
@@ -166,6 +169,9 @@ func wireServer(t *testing.T, instance string, assertion ed25519.PublicKey, pg *
 		notifier, serialiser.New(), config.Sync{MaxTimeout: 2 * time.Second, MaxRoomsPerSync: 200}, nil)
 	roomSvc := rooms.New(eventSvc, timelineSvc, userSvc, roomRepo, alias.New(pg), memberRepo, pg,
 		limiter, limits, nil)
+	keySvc := keys.New(key.New(pg), memberRepo, pg, config.Keys{
+		MaxOneTimeKeys: 8, MaxQueryUsers: 200, MaxClaimDevices: 200,
+	})
 
 	r := chi.NewRouter()
 	matrix.New(
@@ -174,13 +180,14 @@ func wireServer(t *testing.T, instance string, assertion ed25519.PublicKey, pg *
 		userSvc,
 		roomSvc,
 		syncSvc,
+		keySvc,
 		config.Server{PublicScheme: "https"},
 		config.Signing{KeyValidity: 24 * time.Hour},
 		nil,
 	).Mount(r)
 
 	return &server{router: r, tenants: tenantSvc, tokens: tokenSvc, events: eventSvc,
-		users: userSvc, rooms: roomSvc, sync: syncSvc, notifier: notifier, db: pg, queries: queries}
+		users: userSvc, rooms: roomSvc, sync: syncSvc, keys: keySvc, notifier: notifier, db: pg, queries: queries}
 }
 
 func (s *server) tenant(t *testing.T, serverName string, hosts ...string) entity.Tenant {
@@ -634,7 +641,23 @@ func (s *server) seedRoom(t *testing.T, of entity.Tenant, resident sessionBody) 
 	if synced.Code != http.StatusOK {
 		t.Fatalf("seed a sync connection = %d: %s", synced.Code, synced.Body)
 	}
+
+	s.seedKeys(t, of, resident)
 	return created
+}
+
+func (s *server) seedKeys(t *testing.T, of entity.Tenant, resident sessionBody) {
+	t.Helper()
+
+	id := newIdentity(t, 0, resident.UserID, resident.DeviceID, 2)
+	names := id.oneTimeIDs()
+	s.mustUpload(t, of.ServerName, resident.AccessToken, map[string]any{
+		"device_keys":   id.device,
+		"one_time_keys": map[string]any{names[0]: id.oneTime[names[0]]},
+		"fallback_keys": map[string]any{
+			entity.AlgorithmSignedCurve25519 + ":fallback": id.oneTime[names[1]],
+		},
+	})
 }
 
 func (s *server) raw(t *testing.T, method, host, path, token, body string) *httptest.ResponseRecorder {
