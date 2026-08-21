@@ -21,10 +21,6 @@ const (
 	defaultUsersDefault  = 0
 )
 
-// PowerLevel carries whether the holder is a room creator rather than giving creators a very large
-// number. From v12 a creator outranks every non-creator and ties with every other creator, which no
-// integer expresses: MaxInt64 would make two creators comparable only by luck and would let a
-// power_levels event reach the same value.
 type PowerLevel struct {
 	value   int64
 	creator bool

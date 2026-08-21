@@ -8,9 +8,6 @@ IMAGE="${COMPLEMENT_BASE_IMAGE:-thaumaste:complement}"
 PACKAGES="./tests/csapi"
 OUT="$ROOT/complement"
 
-# TestPushSync fails inside a goroutine after the test itself has returned, which panics the whole
-# test binary and stops every test after it from reporting a result. Excluding it is what makes a
-# full run measure the full suite.
 EXCLUDED='^TestPushSync$'
 
 mode="${1:-allowlist}"

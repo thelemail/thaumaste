@@ -21,8 +21,6 @@ import (
 	"github.com/thelemail/thaumaste/internal/service"
 )
 
-// Injectors from wire.go:
-
 func InitializeServe(ctx context.Context, cfg config.Config) (*ServeRuntime, func(), error) {
 	server := provideServerConfig(cfg)
 	signing := provideSigningConfig(cfg)

@@ -14,9 +14,6 @@ import (
 	"github.com/thelemail/thaumaste/internal/repository"
 )
 
-// provider turns a login request into a user id, or refuses. The local store and the external
-// assertion are both providers, neither wrapping the other, so a deployment can offer one, the
-// other, or both without either being a special case.
 type provider interface {
 	loginType() string
 	authenticate(ctx context.Context, scope entity.TenantScope, in providerInput) (providerResult, error)
@@ -65,8 +62,6 @@ func (p *localProvider) authenticate(ctx context.Context, scope entity.TenantSco
 
 var decoySalt = make([]byte, 16)
 
-// burnHash spends the same work a real verification would. Answering an unknown user faster than a
-// wrong password is how an attacker enumerates accounts without ever guessing one.
 func burnHash(password string, params entity.Argon2Params) {
 	entity.HashPassword(password, decoySalt, params)
 }

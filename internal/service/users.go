@@ -9,8 +9,6 @@ import (
 	"github.com/thelemail/thaumaste/internal/entity"
 )
 
-// Session is what a completed login hands back. The access token is bound to exactly one device,
-// which is why every path that issues one has to name a device first.
 type Session struct {
 	UserID       string
 	DeviceID     string

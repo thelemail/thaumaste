@@ -1,10 +1,7 @@
 # Complement tests that must pass. CI fails if any of these regress.
 # A task proves itself by adding its tests here.
 
-# reads /_matrix/client/versions with an unauthenticated client
 TestVersionStructure
-
-# register, log in, log out, and the account endpoints behind interactive auth
 TestRegistration
 TestLogin
 TestLogout
@@ -12,8 +9,6 @@ TestChangePassword
 TestDeactivateAccount
 TestProfileDisplayName
 TestProfileAvatarURL
-
-# reached once registration works: both need an account before they test anything
 TestServerCapabilities
 TestFilter
 TestRequestEncodingFails

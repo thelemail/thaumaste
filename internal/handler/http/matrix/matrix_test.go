@@ -52,7 +52,6 @@ func newServer(t *testing.T) *server {
 	return buildServer(t, nil)
 }
 
-// newAssertedServer trusts an external identity provider, so the assertion login path is live.
 func newAssertedServer(t *testing.T) *server {
 	t.Helper()
 	public, private, err := ed25519.GenerateKey(nil)
@@ -528,8 +527,6 @@ func TestCapabilitiesReportsRoomVersionTwelveAsDefault(t *testing.T) {
 	}
 }
 
-// seedRoom puts a whole room on disk: a create event, the creator's join, power levels and a
-// message. It exists so the deletion guard has something in every table to find missing afterwards.
 func (s *server) seedRoom(t *testing.T, of entity.Tenant) entity.Room {
 	t.Helper()
 	creator := "@creator:" + of.ServerName

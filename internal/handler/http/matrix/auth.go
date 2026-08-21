@@ -49,9 +49,6 @@ func (h *Handler) authenticate(next http.Handler) http.Handler {
 			return
 		}
 
-		// The host says one tenant and the token says another. Answering as though the token were
-		// simply unknown is deliberate: a distinguishable error would let a caller map which hosts
-		// carry which tenants by probing with a token they already hold.
 		if caller.TenantID != tenant.ID {
 			writeUnknownToken(w, "Invalid access token")
 			return
@@ -71,10 +68,6 @@ func bearerToken(r *http.Request) (string, bool) {
 	return token, token != ""
 }
 
-// unauthenticatedNotFound answers an unmatched path. A caller presenting a credential we reject is
-// told the credential is bad rather than that the endpoint is unknown: the token is invalid
-// whichever endpoint it was aimed at, and saying so does not disclose which paths this server
-// serves. A caller with a good token, or none at all, gets the ordinary unrecognised answer.
 func (h *Handler) unauthenticatedNotFound(w http.ResponseWriter, r *http.Request) {
 	presented, ok := bearerToken(r)
 	if !ok || !strings.HasPrefix(r.URL.Path, clientAPIPrefix) {

@@ -62,8 +62,6 @@ func (s *server) open(t *testing.T, serverName string) entity.Tenant {
 	return updated
 }
 
-// register walks the whole interactive flow the way a client must: a bare post that is challenged,
-// then the same post carrying the session it was given.
 func (s *server) register(t *testing.T, host, username, password string) sessionBody {
 	t.Helper()
 	challenged := s.do(t, http.MethodPost, host, "/_matrix/client/v3/register", "",
@@ -116,8 +114,6 @@ func TestABareRegistrationIsChallengedAndTheChallengeCarriesASession(t *testing.
 	}
 }
 
-// The spec requires the availability verdict before any challenge, and a client that re-posts
-// without auth must hear that the name is taken rather than be asked to authenticate again.
 func TestAnUnusableUsernameIsRefusedBeforeTheChallenge(t *testing.T) {
 	s := newServer(t)
 	s.open(t, "alpha.test")
@@ -280,8 +276,6 @@ func TestLogoutAllEndsEverySession(t *testing.T) {
 	}
 }
 
-// The old refresh token stays usable until the tokens it produced are, so a client that loses the
-// response can present it again rather than being logged out by a dropped packet.
 func TestRefreshRotatesAndTheOldTokenIsSpentOnce(t *testing.T) {
 	s := newServer(t)
 	s.open(t, "alpha.test")
@@ -446,8 +440,6 @@ func TestRepeatedFailuresLockTheAccountOut(t *testing.T) {
 		}
 	}
 
-	// Locked out now, and the correct password does not get through either: the lock is on the
-	// account, not on the guess.
 	rec := s.do(t, http.MethodPost, "alpha.test", "/_matrix/client/v3/login", "", wrong)
 	if rec.Code != http.StatusTooManyRequests {
 		t.Fatalf("status = %d, want 429: %s", rec.Code, rec.Body)
@@ -515,7 +507,6 @@ func TestAnExternalAssertionLogsInAndProvisions(t *testing.T) {
 		t.Fatalf("assertion login returned %+v", session)
 	}
 
-	// The account now exists, so a second assertion reuses it rather than failing.
 	again := s.do(t, http.MethodPost, "alpha.test", "/_matrix/client/v3/login", "",
 		map[string]any{"type": entity.LoginTypeToken, "token": s.assert(t, "@newcomer:alpha.test", "alpha.test", time.Minute)})
 	if again.Code != http.StatusOK {
@@ -529,10 +520,6 @@ func TestAnAssertionThatDoesNotHoldUpIsRefused(t *testing.T) {
 		t.Fatalf("GenerateKey: %v", err)
 	}
 
-	// Each refusal is a failed login from the same address, so one shared server would lock itself
-	// out partway through and answer 429 to whichever cases came last. Every token is minted
-	// against the server that will judge it, so the expiry and domain cases are not quietly passing
-	// on a key mismatch instead.
 	for _, c := range []struct {
 		name  string
 		token func(*server) string
@@ -593,7 +580,6 @@ func TestRegistrationModeDecidesWhoMayCreateAnAccount(t *testing.T) {
 			t.Fatalf("%s register = %d, want 403: %s", mode, rec.Code, rec.Body)
 		}
 
-		// An external assertion still provisions where the mode allows it, and nowhere else.
 		token := s.assert(t, "@vouched:"+host, host, time.Minute)
 		login := s.do(t, http.MethodPost, host, "/_matrix/client/v3/login", "",
 			map[string]any{"type": entity.LoginTypeToken, "token": token})
@@ -635,7 +621,6 @@ func TestTheSameNameOnTwoDomainsIsTwoPeople(t *testing.T) {
 		t.Fatalf("alpha's token worked on beta: %d", rec.Code)
 	}
 
-	// And the password of one is not the password of the other, even though the localpart matches.
 	rec := s.do(t, http.MethodPost, "beta.test", "/_matrix/client/v3/login", "", map[string]any{
 		"type":       entity.LoginTypePassword,
 		"identifier": map[string]any{"type": entity.IdentifierTypeUser, "user": "@alice:alpha.test"},
@@ -697,8 +682,6 @@ func TestOnlyTheOwnerMayChangeAProfile(t *testing.T) {
 	}
 }
 
-// A credential that is rejected must cost the same whether or not the account exists, or the
-// timing alone tells an attacker which names are real.
 func TestAnUnknownUserCostsTheSameAsAWrongPassword(t *testing.T) {
 	s := newServer(t)
 	s.open(t, "alpha.test")
@@ -765,8 +748,6 @@ func (s *server) seedIdentity(t *testing.T, of entity.Tenant) {
 		t.Fatalf("login with a bad password = %d, want 403: %s", failed.Code, failed.Body)
 	}
 
-	// A completed flow deletes its session, so the only way to leave a row behind is a challenge
-	// the client never answers.
 	abandoned := s.do(t, http.MethodPost, of.ServerName, "/_matrix/client/v3/register", "",
 		map[string]any{"username": "abandoned", "password": goodPassword})
 	if abandoned.Code != http.StatusUnauthorized {

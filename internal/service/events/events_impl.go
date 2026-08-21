@@ -139,9 +139,6 @@ func (s *srv) Send(ctx context.Context, scope entity.TenantScope, in entity.NewE
 	}
 
 	var stored entity.StoredEvent
-	// One room at a time. Choosing a parent, authorising against the state after it and recording
-	// the new extremity have to happen without another write landing in between, or two events
-	// pick the same parent and the room forks.
 	err := s.serialiser.Do(ctx, in.RoomID, func(ctx context.Context) error {
 		return s.tx.WithTx(ctx, func(ctx context.Context) error {
 			var err error
@@ -303,8 +300,6 @@ func (s *srv) StateBefore(ctx context.Context, eventID string) (entity.StateMap,
 	return s.state.Load(ctx, stored.StateSnapshotNID)
 }
 
-// parent returns the room's single forward extremity. More than one means the DAG has forked, which
-// this server never does on purpose, and every downstream assumption rests on it not having.
 func (s *srv) parent(ctx context.Context, room entity.Room) (entity.StoredEvent, error) {
 	extremities, err := s.rooms.Extremities(ctx, room.NID)
 	if err != nil {
@@ -329,8 +324,6 @@ func (s *srv) roomAndVersion(ctx context.Context, roomID string) (entity.Room, e
 	return room, version, nil
 }
 
-// senderIsLocal is recorded rather than recomputed on read. Storing it is what stops a query from
-// quietly assuming that everyone in a room belongs to the room's own domain.
 func (s *srv) senderIsLocal(sender string, scope entity.TenantScope) (bool, error) {
 	domain, err := entity.SenderDomain(sender)
 	if err != nil {

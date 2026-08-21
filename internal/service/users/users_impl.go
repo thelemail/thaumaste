@@ -220,8 +220,6 @@ func (s *srv) Login(ctx context.Context, scope entity.TenantScope, in service.Lo
 			return entity.ErrUserDeactivated
 		}
 
-		// A password login re-hashes when the stored cost has fallen behind configuration. This is
-		// the only moment the plaintext is available, so it is the only moment it can be done.
 		if in.Type == entity.LoginTypePassword {
 			s.rehashIfStale(ctx, scope, user.UserID, in.Password)
 		}
@@ -291,8 +289,6 @@ func (s *srv) issue(ctx context.Context, scope entity.TenantScope, userID, devic
 		return service.Session{}, err
 	}
 
-	// Reusing a device id replaces the session on it, as the spec requires. Otherwise a client
-	// that logs in twice on one device would leave a token behind that nobody can see or revoke.
 	if _, err := s.tokens.RevokeForDevice(ctx, scope, userID, deviceID); err != nil {
 		return service.Session{}, err
 	}
@@ -491,8 +487,6 @@ func (s *srv) ChangePassword(ctx context.Context, scope entity.TenantScope, call
 		if !logoutDevices {
 			return nil
 		}
-		// Every other session goes, and the caller's own stays. The spec is explicit that the token
-		// used to make the change must survive it.
 		devices, err := s.devices.ListForUser(ctx, scope, caller.UserID)
 		if err != nil {
 			return err

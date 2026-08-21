@@ -77,8 +77,6 @@ func (s *srv) FinishAuth(ctx context.Context, scope entity.TenantScope, sessionI
 	return s.sessions.Delete(ctx, scope, sessionID)
 }
 
-// GuardAttempt refuses before any work is done. Checking the lock first is what stops a locked
-// account from still costing a password hash on every attempt.
 func (s *srv) GuardAttempt(ctx context.Context, scope entity.TenantScope, subject string, kind entity.AttemptKind) error {
 	attempt, err := s.attempts.Get(ctx, scope, subject, kind)
 	if err != nil {

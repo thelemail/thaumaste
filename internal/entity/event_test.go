@@ -86,8 +86,6 @@ func TestEventIDIsTheReferenceHashInUrlSafeBase64(t *testing.T) {
 	}
 }
 
-// The content hash and the event ID cover the same digest in different alphabets. Swapping them
-// yields identifiers that look right and match nothing, so the difference is pinned here.
 func TestTheContentHashAndTheEventIDUseDifferentAlphabets(t *testing.T) {
 	v := version(t, entity.RoomVersion12)
 	created, _, _ := buildCreate(t, v)
@@ -173,8 +171,6 @@ func TestTheContentHashIsSetBeforeSigning(t *testing.T) {
 		t.Fatalf("VerifySignature: %v", err)
 	}
 
-	// If the hash were added after signing, stripping it would leave a signature that still
-	// verified. It must not.
 	fields := created.Fields()
 	delete(fields, "hashes")
 	raw, err := json.Marshal(fields)
@@ -316,7 +312,6 @@ func TestFieldLimitsAreMeasuredInBytesNotRunes(t *testing.T) {
 	v := version(t, entity.RoomVersion12)
 	keyID, _, priv := signingKey(t, 6)
 
-	// 200 runes, but 600 bytes in utf-8: under the limit by runes, over it by bytes.
 	long := strings.Repeat("日", 200)
 
 	_, err := entity.EventBuilder{

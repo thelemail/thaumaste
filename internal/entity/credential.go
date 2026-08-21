@@ -29,8 +29,6 @@ const (
 	credentialKeyBytes  = 32
 )
 
-// Argon2Params are stored beside every hash rather than assumed, so raising the cost later leaves
-// existing rows verifiable and lets each one be re-hashed on the owner's next successful login.
 type Argon2Params struct {
 	Time    uint32
 	Memory  uint32
@@ -107,8 +105,6 @@ func NewCredential(userID, password string, params Argon2Params, rnd io.Reader) 
 	}, nil
 }
 
-// Verify compares in constant time. A mismatch and a malformed row both answer ErrBadCredentials so
-// a caller cannot tell one from the other by timing or by message.
 func (c Credential) Verify(password string) error {
 	if c.Algorithm != CredentialAlgorithmArgon2id {
 		return ErrBadCredentials

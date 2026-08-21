@@ -61,9 +61,6 @@ func (h *Handler) Mount(r chi.Router) {
 			r.Get("/_matrix/client/v3/profile/{userID}", h.getProfile)
 			r.Get("/_matrix/client/v3/profile/{userID}/{keyName}", h.getProfileField)
 
-			// Everything below answers an invalid credential as invalid, whatever endpoint it was
-			// aimed at, so a caller learns nothing about which paths exist by presenting a bad
-			// token. A valid token on a path we do not serve still gets M_UNRECOGNIZED.
 			r.Group(func(r chi.Router) {
 				r.Use(h.authenticate)
 

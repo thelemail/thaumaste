@@ -73,10 +73,6 @@ func (t Tenant) Scope() TenantScope {
 	return TenantScope{id: t.ID, serverName: t.ServerName}
 }
 
-// TenantScope is what a discovery query is answered against. Every repository method that lists,
-// searches or resolves by name takes one, so a new endpoint that forgets to scope its reads does
-// not compile. It deliberately does not gate reads of a room, event or media item: those are
-// answered by membership, which is what leaves a cross-tenant room possible later.
 type TenantScope struct {
 	id         uuid.UUID
 	serverName string
@@ -115,9 +111,6 @@ var (
 	ipv6Pattern    = regexp.MustCompile(`^\[[0-9A-Fa-f:.]{2,45}\]$`)
 )
 
-// ValidateServerName holds the name to the grammar in the spec's appendices rather than to a
-// general hostname rule: an underscore is a legal DNS label but not a legal Matrix server name,
-// and accepting one produces user IDs no other server will parse.
 func ValidateServerName(name string) error {
 	if name == "" || len(name) > MaxServerNameLength {
 		return ErrInvalidServerName

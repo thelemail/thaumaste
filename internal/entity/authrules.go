@@ -15,9 +15,6 @@ func authFailure(format string, args ...any) error {
 	return fmt.Errorf("%w: %s", ErrAuthFailed, fmt.Sprintf(format, args...))
 }
 
-// SelectAuthEvents names the state that gives the sender permission to send this event. From v12
-// the create event is deliberately absent: the room ID is the create event's own ID, so listing it
-// again is redundant and is rejected rather than ignored.
 func SelectAuthEvents(e EventBuilder, state StateMap) []string {
 	if e.Type == EventTypeCreate {
 		return []string{}

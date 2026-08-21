@@ -48,9 +48,6 @@ func (h *Handler) requireUIA(w http.ResponseWriter, r *http.Request, auth *authD
 		return entity.UIASession{}, false
 	}
 
-	// A stage that carries its own evidence, such as a password, needs no session: answering it
-	// is proof in itself. The dummy stage proves nothing, so there the session is the only
-	// evidence the client went through the flow at all, and it is required.
 	var sessionID uuid.UUID
 	switch {
 	case auth.Session == "" && auth.Type != entity.LoginTypeDummy && auth.Type != "":

@@ -17,8 +17,6 @@ CREATE TABLE users (
 CREATE UNIQUE INDEX users_tenant_localpart_uidx ON users (tenant_id, localpart);
 CREATE INDEX users_tenant_id_idx ON users (tenant_id);
 
--- Credentials are their own table so a user the external provider vouches for simply has no row,
--- rather than carrying a sentinel hash that nothing can ever match.
 CREATE TABLE user_credentials (
     tenant_id  UUID        NOT NULL,
     user_id    TEXT        NOT NULL,
@@ -70,8 +68,6 @@ CREATE UNIQUE INDEX refresh_tokens_hash_uidx ON refresh_tokens (token_hash);
 CREATE INDEX refresh_tokens_tenant_id_idx ON refresh_tokens (tenant_id);
 CREATE INDEX refresh_tokens_device_idx ON refresh_tokens (tenant_id, user_id, device_id);
 
--- A user-interactive session spans two requests. Holding it in memory would lose it whenever a
--- second writer answered the follow-up, or whenever the process restarted between them.
 CREATE TABLE uia_sessions (
     id         UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
     tenant_id  UUID        NOT NULL REFERENCES tenants (id) ON DELETE CASCADE,
@@ -87,8 +83,6 @@ CREATE TABLE uia_sessions (
 CREATE INDEX uia_sessions_tenant_id_idx ON uia_sessions (tenant_id);
 CREATE INDEX uia_sessions_expires_at_idx ON uia_sessions (expires_at);
 
--- Lockout lives in the database so neither a restart nor a second instance clears it. An attacker
--- who could reset the counter by waiting out a deploy would have no counter at all.
 CREATE TABLE auth_attempts (
     tenant_id         UUID        NOT NULL REFERENCES tenants (id) ON DELETE CASCADE,
     subject           TEXT        NOT NULL,

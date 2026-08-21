@@ -27,9 +27,6 @@ type EventBuilder struct {
 	OriginServerTS int64
 }
 
-// Signer attaches a signature to a JSON document, the way SignJSON does. Taking one instead of a
-// private key keeps key material inside whatever holds it, so building an event never requires
-// handing the raw key to the caller.
 type Signer func(document []byte) ([]byte, error)
 
 func KeySigner(serverName string, keyID KeyID, key ed25519.PrivateKey) Signer {
@@ -38,9 +35,6 @@ func KeySigner(serverName string, keyID KeyID, key ed25519.PrivateKey) Signer {
 	}
 }
 
-// Build hashes and signs the event, in that order. The signature is taken over the redacted form,
-// which still carries `hashes`, so a redacted copy of this event verifies against the same
-// signature and still proves what the original content hashed to.
 func (b EventBuilder) Build(sign Signer) (Event, error) {
 	if err := b.check(); err != nil {
 		return Event{}, err
@@ -98,9 +92,6 @@ func (b EventBuilder) attachSignature(fields map[string]any, sign Signer) (any, 
 	return object["signatures"], nil
 }
 
-// check refuses a forked DAG rather than tolerating it. With one writer and a per-room lock every
-// event has exactly one parent, which is what collapses state resolution into a plain fold. If that
-// ever stops being true the fold is silently wrong, so it has to fail here instead.
 func (b EventBuilder) check() error {
 	if b.Type == "" || b.Sender == "" {
 		return ErrBuilderInvalid

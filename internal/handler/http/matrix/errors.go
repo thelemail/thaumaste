@@ -65,8 +65,6 @@ func writeInternal(ctx context.Context, w http.ResponseWriter, msg string, err e
 	writeError(w, http.StatusInternalServerError, codeUnknown, msg)
 }
 
-// writeRateLimited carries both forms the spec names: the header, which is current, and
-// retry_after_ms, which is deprecated but still what most clients read.
 func writeRateLimited(w http.ResponseWriter, retryAfter time.Duration) {
 	if retryAfter < time.Second {
 		retryAfter = time.Second
@@ -93,8 +91,6 @@ func writeUnknownToken(w http.ResponseWriter, msg string) {
 
 const maxRequestBytes = 1 << 20
 
-// readJSON refuses a body that is not an object before anything else looks at it. Complement
-// checks that a malformed body answers M_NOT_JSON rather than a validation error about a field.
 func readJSON(w http.ResponseWriter, r *http.Request, out any) bool {
 	raw, err := io.ReadAll(io.LimitReader(r.Body, maxRequestBytes))
 	if err != nil {
@@ -104,8 +100,6 @@ func readJSON(w http.ResponseWriter, r *http.Request, out any) bool {
 	if len(raw) == 0 {
 		raw = []byte("{}")
 	}
-	// Go's decoder silently replaces invalid UTF-8 rather than refusing it. The spec treats such a
-	// body as not being JSON at all, and a client should hear that rather than a field complaint.
 	if !utf8.Valid(raw) {
 		writeError(w, http.StatusBadRequest, codeNotJSON, "Request body is not valid UTF-8")
 		return false

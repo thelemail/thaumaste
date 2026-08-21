@@ -264,9 +264,6 @@ func TestTheDagEdgesAreStoredNotJustDeclared(t *testing.T) {
 	})
 }
 
-// The first join in a room has nothing to authorise against except the create event, and whether it
-// names it is the clearest difference between the two versions: v11 must list it, v12 must not,
-// because the room id is already the create event's id.
 func TestTheFirstJoinNamesCreateOnlyWhereTheVersionRequiresIt(t *testing.T) {
 	eachVersion(t, func(t *testing.T, version entity.RoomVersionID) {
 		h := newHarness(t)
@@ -441,8 +438,6 @@ func TestConcurrentSendsToOneRoomStayLinear(t *testing.T) {
 		t.Fatalf("timeline = %d events, want %d", len(timeline), writers+2)
 	}
 
-	// Every event but the create names exactly one parent, and no parent is named twice: the
-	// chain is linear, which is what lets state be a plain fold.
 	seen := map[string]bool{}
 	for _, stored := range timeline[1:] {
 		prev := stored.Event.PrevEvents()
@@ -471,7 +466,6 @@ func TestStateIsSharedRatherThanRewrittenForAQuietRoom(t *testing.T) {
 		snapshots = append(snapshots, stored.StateSnapshotNID)
 	}
 
-	// Messages do not change state, so every one of them shares a snapshot.
 	for i := 1; i < len(snapshots); i++ {
 		if snapshots[i] != snapshots[0] {
 			t.Fatalf("message %d wrote a fresh snapshot %d instead of reusing %d",

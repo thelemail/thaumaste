@@ -196,8 +196,6 @@ func (r *repo) AuthParentsOf(ctx context.Context, eventNID int64) ([]string, err
 	return out, nil
 }
 
-// The interning upserts stay hand-written: sqlboiler's Upsert cannot return the existing row's key
-// on conflict without updating it, and these tables are append-only by design.
 const (
 	internTypeSQL = `
 		INSERT INTO event_types (event_type) VALUES ($1)

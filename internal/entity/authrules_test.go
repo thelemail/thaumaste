@@ -97,9 +97,6 @@ func (r *room) commit(e entity.Event) {
 	r.last = e
 }
 
-// usersWith names the creator only where the version allows it. Under v11 the creator is an
-// ordinary user who happens to hold 100, and dropping them from users demotes them; under v12
-// naming them at all is refused.
 func (r *room) usersWith(rest map[string]any) map[string]any {
 	out := map[string]any{}
 	for k, v := range rest {
@@ -442,7 +439,6 @@ func TestACreatorOutranksEveryPowerLevelUnderVersionTwelve(t *testing.T) {
 	r := newRoom(t, entity.RoomVersion12, creator)
 	r.commit(r.join(creator))
 
-	// Nobody may name a creator in users, so the creator cannot be demoted at all.
 	demote := r.build(entity.EventTypePowerLevels, ptr(""), creator, map[string]any{
 		"users": map[string]any{creator: 0},
 	})
@@ -471,7 +467,6 @@ func TestACreatorOutranksEveryPowerLevelUnderVersionTwelve(t *testing.T) {
 		t.Fatal("one creator outranks another")
 	}
 
-	// Even with state_default at 100 and no users entry, the creator can still send state.
 	r.commit(r.build(entity.EventTypeJoinRules, ptr(""), creator,
 		map[string]any{"join_rule": entity.JoinRulePublic}))
 }
@@ -492,7 +487,6 @@ func TestUnderVersionElevenTheCreatorIsJustAUserWithAHundred(t *testing.T) {
 		t.Fatalf("creator level = %d, want 100", levels.UserLevel(creator).Value())
 	}
 
-	// And unlike v12, naming the creator in users is allowed.
 	r.commit(r.build(entity.EventTypePowerLevels, ptr(""), creator, map[string]any{
 		"users": map[string]any{creator: 100},
 	}))

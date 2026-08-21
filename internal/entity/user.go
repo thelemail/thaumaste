@@ -63,9 +63,6 @@ func NormaliseLocalpart(username string) string {
 	return strings.ToLower(strings.TrimSpace(username))
 }
 
-// MintUserID builds an identifier this server is prepared to own. It is deliberately stricter than
-// ParseUserID: a name we create must satisfy the current grammar exactly, while a name we merely
-// read may predate it.
 func MintUserID(localpart, serverName string) (string, error) {
 	if localpart == "" || len(localpart) > MaxLocalpartBytes {
 		return "", ErrInvalidUsername
@@ -96,9 +93,6 @@ func isLocalpartByte(c byte) bool {
 	}
 }
 
-// ParseUserID accepts the historical character set, which is every non-surrogate codepoint except a
-// colon and NUL. Rooms created years ago carry senders that the current grammar forbids, and a
-// server that refuses to parse them cannot read those rooms at all.
 func ParseUserID(userID string) (localpart, serverName string, err error) {
 	if !strings.HasPrefix(userID, "@") || len(userID) > MaxUserIDBytes {
 		return "", "", ErrInvalidUsername

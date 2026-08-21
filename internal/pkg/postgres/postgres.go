@@ -13,8 +13,6 @@ import (
 
 type Client struct{ *sql.DB }
 
-// Querier is satisfied by both *sql.DB and *sql.Tx, and matches sqlboiler's executor interface, so
-// a generated query joins the ambient transaction exactly as a hand-written one does.
 type Querier interface {
 	Exec(query string, args ...any) (sql.Result, error)
 	Query(query string, args ...any) (*sql.Rows, error)

@@ -34,10 +34,6 @@ func tenantOwnedTables(t *testing.T, s *server) []string {
 	return out
 }
 
-// Every table that names a tenant must be reachable by a cascading delete from tenants, directly or
-// through a parent that is itself reachable. Checking this against the live catalogue rather than a
-// hand-kept list is the point: a table added by a later task is covered the moment it exists,
-// without anyone remembering to come back here.
 func TestEveryTenantOwnedTableCascadesFromTheTenant(t *testing.T) {
 	s := newServer(t)
 
@@ -82,9 +78,6 @@ func TestEveryTenantOwnedTableCarriesAnIndexOnTheTenant(t *testing.T) {
 	}
 }
 
-// globalTables are deliberately not tenant-owned. goose keeps its own bookkeeping, stream positions
-// are per writer rather than per domain, and the two interning tables hold shared vocabulary with no
-// content in it. Everything else must be gone once its domain is.
 var globalTables = map[string]bool{
 	"goose_db_version": true,
 	"stream_positions": true,

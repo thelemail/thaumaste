@@ -114,8 +114,6 @@ type RefreshToken struct {
 
 func (RefreshToken) Validate() error { return nil }
 
-// Usable follows the spec's rotation rule: a refresh token stays valid until the tokens it produced
-// are themselves used, so a client that loses the response can safely present it again.
 func (t RefreshToken) Usable(now time.Time) error {
 	if t.RevokedAt != nil {
 		return ErrRefreshTokenNotFound

@@ -89,9 +89,6 @@ func (r *repo) ListForTenant(ctx context.Context, scope entity.TenantScope) ([]e
 	return out, nil
 }
 
-// Extremities and ReplaceExtremities go through the generated many-to-many relation rather than a
-// model of their own: room_extremities is two foreign keys and nothing else, which is sqlboiler's
-// definition of a join table, so it produces a relation instead of a table type.
 func (r *repo) Extremities(ctx context.Context, roomNID int64) ([]entity.StoredEvent, error) {
 	room, err := dbpg.Rooms(
 		dbpg.RoomWhere.RoomNid.EQ(roomNID),

@@ -22,8 +22,6 @@ type Config struct {
 }
 
 type Server struct {
-	// InstanceName is recorded on every event this process writes, so a second writer can be
-	// added later without a migration.
 	InstanceName    string        `env:"THAUMASTE_SERVER_INSTANCE_NAME"     envDefault:"default"`
 	Addr            string        `env:"THAUMASTE_SERVER_ADDR"             envDefault:":8008"`
 	ReadTimeout     time.Duration `env:"THAUMASTE_SERVER_READ_TIMEOUT"     envDefault:"15s"`
@@ -104,8 +102,6 @@ type Auth struct {
 	FailureWindow time.Duration `env:"THAUMASTE_AUTH_FAILURE_WINDOW" envDefault:"15m"`
 	LockFor       time.Duration `env:"THAUMASTE_AUTH_LOCK_FOR"       envDefault:"15m"`
 
-	// AssertionKey is the public half of the key an external identity provider signs with. Empty
-	// disables that provider, which is the standalone deployment.
 	AssertionKey string        `env:"THAUMASTE_AUTH_ASSERTION_KEY"`
 	AssertionTTL time.Duration `env:"THAUMASTE_AUTH_ASSERTION_TTL" envDefault:"5m"`
 }
