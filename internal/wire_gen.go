@@ -66,12 +66,20 @@ func InitializeServe(ctx context.Context, cfg config.Config) (*ServeRuntime, fun
 		cleanup()
 		return nil, nil, err
 	}
+	valkey := provideValkeyConfig(cfg)
+	limits := provideLimitsConfig(cfg)
+	valkeyClient, cleanup2, err := provideValkey(ctx, valkey, limits)
+	if err != nil {
+		cleanup()
+		return nil, nil, err
+	}
 	serialiser := provideSerialiser()
-	events := provideEvents(repositoryRoom, repositoryEvent, repositoryState, roomMember, tenants, transactor, stream, serialiser, server, v)
+	events := provideEvents(repositoryRoom, repositoryEvent, repositoryState, roomMember, tenants, transactor, stream, valkeyClient, serialiser, server, v)
 	repositoryAlias := alias.New(client)
 	serviceRooms := rooms.New(events, users, repositoryRoom, repositoryAlias, roomMember, transactor)
 	serveRuntime := provideServeRuntime(server, signing, client, tenants, tokens, users, serviceRooms, v)
 	return serveRuntime, func() {
+		cleanup2()
 		cleanup()
 	}, nil
 }

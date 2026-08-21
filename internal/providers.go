@@ -124,11 +124,13 @@ func provideEvents(
 	tenants service.Tenants,
 	tx repository.Transactor,
 	stream *postgres.Stream,
+	locks *valkey.Client,
 	gate *serialiser.Serialiser,
 	cfg config.Server,
 	clock func() time.Time,
 ) service.Events {
-	return events.New(rooms, eventRepo, stateRepo, members, tenants, tx, stream, gate, cfg.InstanceName, clock, nil)
+	return events.New(rooms, eventRepo, stateRepo, members, tenants, tx, stream, locks, gate,
+		cfg.InstanceName, clock, nil)
 }
 
 var DomainSet = wire.NewSet(

@@ -12,7 +12,7 @@ import (
 )
 
 func InitializeServe(ctx context.Context, cfg config.Config) (*ServeRuntime, func(), error) {
-	wire.Build(ConfigSet, PostgresSet, DomainSet, ServeSet)
+	wire.Build(ConfigSet, PostgresSet, ValkeySet, DomainSet, ServeSet)
 	return nil, nil, nil
 }
 

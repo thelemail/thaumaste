@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"strings"
 	"sync"
 	"time"
@@ -14,6 +15,7 @@ import (
 	"github.com/thelemail/thaumaste/internal/entity"
 	"github.com/thelemail/thaumaste/internal/pkg/postgres"
 	"github.com/thelemail/thaumaste/internal/pkg/serialiser"
+	"github.com/thelemail/thaumaste/internal/pkg/valkey"
 	"github.com/thelemail/thaumaste/internal/repository"
 	"github.com/thelemail/thaumaste/internal/service"
 )
@@ -52,6 +54,7 @@ type srv struct {
 	tenants    service.Tenants
 	tx         repository.Transactor
 	stream     *postgres.Stream
+	locks      *valkey.Client
 	serialiser *serialiser.Serialiser
 	instance   string
 	clock      func() time.Time
@@ -66,6 +69,7 @@ func New(
 	tenants service.Tenants,
 	tx repository.Transactor,
 	stream *postgres.Stream,
+	locks *valkey.Client,
 	gate *serialiser.Serialiser,
 	instance string,
 	clock func() time.Time,
@@ -79,7 +83,7 @@ func New(
 	}
 	return &srv{
 		rooms: rooms, events: events, state: state, members: members, tenants: tenants, tx: tx,
-		stream: stream, serialiser: gate, instance: instance, clock: clock, rnd: rnd,
+		stream: stream, locks: locks, serialiser: gate, instance: instance, clock: clock, rnd: rnd,
 	}
 }
 
@@ -127,39 +131,37 @@ func (s *srv) CreateRoom(ctx context.Context, scope entity.TenantScope, in entit
 	)
 	err = s.write(ctx, roomID, func(ctx context.Context) error {
 		written = nil
-		return s.tx.WithTx(ctx, func(ctx context.Context) error {
-			room, err = s.rooms.Create(ctx, entity.NewRoom{
-				TenantID: scope.ID(),
-				RoomID:   roomID,
-				Version:  version.ID,
-			})
+		room, err = s.rooms.Create(ctx, entity.NewRoom{
+			TenantID: scope.ID(),
+			RoomID:   roomID,
+			Version:  version.ID,
+		})
+		if err != nil {
+			if errors.Is(err, repository.ErrRoomAlreadyExists) {
+				return entity.ErrRoomAlreadyExists
+			}
+			return err
+		}
+		stored, err := s.persist(ctx, scope, room, create, entity.StateMap{})
+		if err != nil {
+			return err
+		}
+		if err := s.rooms.SetCreateEvent(ctx, room.NID, stored.NID); err != nil {
+			return err
+		}
+		if err := s.rooms.ReplaceExtremities(ctx, room.NID, []int64{stored.NID}); err != nil {
+			return err
+		}
+		written = append(written, stored)
+
+		for _, next := range creationChain(in, roomID, version) {
+			stored, err := s.send(ctx, scope, next)
 			if err != nil {
-				if errors.Is(err, repository.ErrRoomAlreadyExists) {
-					return entity.ErrRoomAlreadyExists
-				}
-				return err
-			}
-			stored, err := s.persist(ctx, scope, room, create, entity.StateMap{})
-			if err != nil {
-				return err
-			}
-			if err := s.rooms.SetCreateEvent(ctx, room.NID, stored.NID); err != nil {
-				return err
-			}
-			if err := s.rooms.ReplaceExtremities(ctx, room.NID, []int64{stored.NID}); err != nil {
 				return err
 			}
 			written = append(written, stored)
-
-			for _, next := range creationChain(in, roomID, version) {
-				stored, err := s.send(ctx, scope, next)
-				if err != nil {
-					return err
-				}
-				written = append(written, stored)
-			}
-			return nil
-		})
+		}
+		return nil
 	})
 	if err != nil {
 		return entity.Room{}, nil, err
@@ -239,11 +241,9 @@ func (s *srv) Send(ctx context.Context, scope entity.TenantScope, in entity.NewE
 
 	var stored entity.StoredEvent
 	err := s.write(ctx, in.RoomID, func(ctx context.Context) error {
-		return s.tx.WithTx(ctx, func(ctx context.Context) error {
-			var err error
-			stored, err = s.send(ctx, scope, in)
-			return err
-		})
+		var err error
+		stored, err = s.send(ctx, scope, in)
+		return err
 	})
 	if err != nil {
 		return entity.StoredEvent{}, err
@@ -319,7 +319,36 @@ func (s *srv) write(ctx context.Context, roomID string, fn func(context.Context)
 	held := &heldPositions{}
 	defer held.release()
 
-	return s.serialiser.Do(context.WithValue(ctx, positionsKey{}, held), roomID, fn)
+	return s.serialiser.Do(context.WithValue(ctx, positionsKey{}, held), roomID, func(ctx context.Context) error {
+		ctx, released, err := s.lease(ctx, roomID)
+		if err != nil {
+			return err
+		}
+		defer released()
+
+		return s.tx.WithTx(ctx, func(ctx context.Context) error {
+			if err := s.rooms.Lock(ctx, roomID); err != nil {
+				return err
+			}
+			return fn(ctx)
+		})
+	})
+}
+
+func (s *srv) lease(ctx context.Context, roomID string) (context.Context, func(), error) {
+	if s.locks == nil {
+		return ctx, func() {}, nil
+	}
+	held, release, err := s.locks.Lock(ctx, roomID)
+	switch {
+	case err == nil:
+		return held, release, nil
+	case errors.Is(err, valkey.ErrUnavailable):
+		slog.WarnContext(ctx, "writing without the shared room lease", "room_id", roomID, "error", err)
+		return ctx, func() {}, nil
+	default:
+		return nil, nil, err
+	}
 }
 
 func (s *srv) nextPosition(ctx context.Context) (int64, error) {

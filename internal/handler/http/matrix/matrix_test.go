@@ -103,7 +103,7 @@ func buildServer(t *testing.T, assertion ed25519.PublicKey) *server {
 	roomRepo := room.New(pg, eventRepo)
 	memberRepo := roommember.New(pg)
 	eventSvc := events.New(roomRepo, eventRepo, state.New(pg), memberRepo,
-		tenantSvc, pg, stream, serialiser.New(), "test", nil, nil)
+		tenantSvc, pg, stream, nil, serialiser.New(), "test", nil, nil)
 
 	userSvc := users.New(
 		user.New(pg), credential.New(pg), device.New(pg), refreshtoken.New(pg),

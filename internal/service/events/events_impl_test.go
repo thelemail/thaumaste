@@ -83,7 +83,7 @@ func buildHarness(t *testing.T, wrap func(repository.Transactor) repository.Tran
 		tx = wrap(tx)
 	}
 	eventSvc := events.New(room.New(pg, eventRepo), eventRepo, state.New(pg), roommember.New(pg),
-		tenantSvc, tx, stream, serialiser.New(), "test", nil, nil)
+		tenantSvc, tx, stream, nil, serialiser.New(), "test", nil, nil)
 
 	return &harness{events: eventSvc, tenants: tenantSvc, stream: stream, db: pg}
 }

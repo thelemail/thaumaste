@@ -25,17 +25,37 @@ func Settings(t *testing.T) config.Valkey {
 	}
 }
 
+func Require(t *testing.T, cfg config.Valkey) {
+	t.Helper()
+
+	client, err := valkey.New(t.Context(), cfg, config.Limits{SendPerUser: 1, SendWindow: time.Second})
+	if err == nil {
+		defer client.Close()
+		err = client.Ping(t.Context())
+	}
+	if err == nil {
+		return
+	}
+	if os.Getenv("THAUMASTE_TEST_REQUIRE_VALKEY") != "" {
+		t.Fatalf("valkey is required but unavailable: %v", err)
+	}
+	t.Skipf("valkey unavailable: %v", err)
+}
+
 func Connect(t *testing.T, limits config.Limits) *valkey.Client {
 	t.Helper()
 
 	client, err := valkey.New(t.Context(), Settings(t), limits)
+	if err == nil {
+		t.Cleanup(client.Close)
+		err = client.Ping(t.Context())
+	}
 	if err != nil {
 		if os.Getenv("THAUMASTE_TEST_REQUIRE_VALKEY") != "" {
 			t.Fatalf("valkey is required but unavailable: %v", err)
 		}
 		t.Skipf("valkey unavailable: %v", err)
 	}
-	t.Cleanup(client.Close)
 	return client
 }
 

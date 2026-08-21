@@ -13,6 +13,7 @@ var (
 )
 
 type Room interface {
+	Lock(ctx context.Context, roomID string) error
 	Create(ctx context.Context, in entity.NewRoom) (entity.Room, error)
 	GetByRoomID(ctx context.Context, roomID string) (entity.Room, error)
 	SetCreateEvent(ctx context.Context, roomNID, eventNID int64) error
