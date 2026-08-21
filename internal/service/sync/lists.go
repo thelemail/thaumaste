@@ -51,13 +51,13 @@ func (s *srv) candidates(ctx context.Context, sess *session) (map[int64]*candida
 		}
 	}
 
-	byNID := make(map[int64]entity.SyncRoom, len(rooms))
+	byID := make(map[string]entity.SyncRoom, len(rooms))
 	for _, room := range rooms {
-		byNID[room.RoomNID] = room
+		byID[room.RoomID] = room
 	}
 	for _, roomID := range slices.Sorted(maps.Keys(sess.request.RoomSubscriptions)) {
 		subscription := sess.request.RoomSubscriptions[roomID]
-		room, ok := roomWithID(byNID, roomID)
+		room, ok := byID[roomID]
 		if !ok {
 			continue
 		}
@@ -118,15 +118,6 @@ func union(a, b []entity.StateSelector) []entity.StateSelector {
 		}
 	}
 	return out
-}
-
-func roomWithID(byNID map[int64]entity.SyncRoom, roomID string) (entity.SyncRoom, bool) {
-	for _, room := range byNID {
-		if room.RoomID == roomID {
-			return room, true
-		}
-	}
-	return entity.SyncRoom{}, false
 }
 
 type roomTraits struct {

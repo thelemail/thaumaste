@@ -1375,3 +1375,71 @@ func bundleOf(t *testing.T, events []json.RawMessage, eventID string) string {
 	}
 	return ""
 }
+
+func TestRemovingARoomNameIsSentAsNullRatherThanOmitted(t *testing.T) {
+	s := newServer(t)
+	tenant, alice, _ := s.resident(t, "alpha.test", "alice")
+	room := s.createRoom(t, tenant.ServerName, alice, map[string]any{
+		"preset": entity.PresetPublicChat, "name": "named for now",
+	})
+
+	first := s.syncOnce(t, tenant.ServerName, alice, "", window(1, 0, 9))
+	if first.Rooms[room].Name == nil || *first.Rooms[room].Name != "named for now" {
+		t.Fatalf("name = %v, want the room name", first.Rooms[room].Name)
+	}
+
+	s.do(t, http.MethodPut, tenant.ServerName,
+		"/_matrix/client/v3/rooms/"+url.PathEscape(room)+"/state/m.room.name",
+		alice, map[string]any{"name": ""})
+
+	rec := s.syncRaw(t, tenant.ServerName, alice, first.Pos, window(1, 0, 9))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("sync = %d: %s", rec.Code, rec.Body)
+	}
+	var wire struct {
+		Rooms map[string]map[string]json.RawMessage `json:"rooms"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &wire); err != nil {
+		t.Fatalf("decode sync response: %v", err)
+	}
+	fields, ok := wire.Rooms[room]
+	if !ok {
+		t.Fatal("removing the room name did not re-send the room")
+	}
+	value, present := fields["name"]
+	if !present {
+		t.Fatal("a removed room name was omitted, which a client reads as unchanged")
+	}
+	if string(value) != "null" {
+		t.Fatalf("a removed room name came back as %s, want null", value)
+	}
+}
+
+func TestStrippedStateCarriesOnlyWhatAnInviteeNeeds(t *testing.T) {
+	s := newServer(t)
+	tenant, alice, _ := s.resident(t, "alpha.test", "alice")
+	bob := s.register(t, tenant.ServerName, "bob", goodPassword)
+	room := s.createRoom(t, tenant.ServerName, alice, map[string]any{"name": "invited"})
+	s.mustAct(t, tenant.ServerName, "/_matrix/client/v3/rooms/"+url.PathEscape(room)+"/invite", alice,
+		map[string]any{"user_id": bob.UserID})
+
+	body := s.syncOnce(t, tenant.ServerName, bob.AccessToken, "", window(10, 0, 9))
+	for _, raw := range body.Rooms[room].StrippedState {
+		var fields map[string]json.RawMessage
+		if err := json.Unmarshal(raw, &fields); err != nil {
+			t.Fatalf("decode stripped state: %v", err)
+		}
+		for key := range fields {
+			switch key {
+			case "type", "state_key", "sender", "content":
+			default:
+				t.Fatalf("a stripped state event carried %q", key)
+			}
+		}
+		for _, required := range []string{"type", "state_key", "sender", "content"} {
+			if _, ok := fields[required]; !ok {
+				t.Fatalf("a stripped state event is missing %q", required)
+			}
+		}
+	}
+}

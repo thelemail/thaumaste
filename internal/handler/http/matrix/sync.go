@@ -3,6 +3,7 @@ package matrix
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strconv"
 	"time"
@@ -72,8 +73,8 @@ type syncRoomResult struct {
 	BumpStamp        int64             `json:"bump_stamp,omitempty"`
 	Lists            []string          `json:"lists,omitempty"`
 	Initial          bool              `json:"initial,omitempty"`
-	Name             *string           `json:"name,omitempty"`
-	Avatar           *string           `json:"avatar,omitempty"`
+	Name             json.RawMessage   `json:"name,omitempty"`
+	Avatar           json.RawMessage   `json:"avatar,omitempty"`
 	Heroes           []syncHero        `json:"heroes,omitempty"`
 	JoinedCount      *int              `json:"joined_count,omitempty"`
 	InvitedCount     *int              `json:"invited_count,omitempty"`
@@ -247,11 +248,12 @@ func renderSyncRoom(room entity.RoomResult) (syncRoomResult, error) {
 		NumLive:          room.NumLive,
 		ExpandedTimeline: room.ExpandedTimeline,
 	}
-	if room.Name.Present {
-		out.Name = optionalName(room.Name)
+	var err error
+	if out.Name, err = optionalName(room.Name); err != nil {
+		return syncRoomResult{}, err
 	}
-	if room.Avatar.Present {
-		out.Avatar = optionalName(room.Avatar)
+	if out.Avatar, err = optionalName(room.Avatar); err != nil {
+		return syncRoomResult{}, err
 	}
 	if room.JoinedCount.Present {
 		out.JoinedCount = &room.JoinedCount.Value
@@ -268,24 +270,30 @@ func renderSyncRoom(room entity.RoomResult) (syncRoomResult, error) {
 		}
 	}
 
-	var err error
 	if out.Timeline, err = renderEvents(room.Timeline); err != nil {
 		return syncRoomResult{}, err
 	}
 	if out.RequiredState, err = renderEvents(room.RequiredState); err != nil {
 		return syncRoomResult{}, err
 	}
-	if out.StrippedState, err = entity.ClientEvents(room.StrippedState, 0); err != nil {
+	if out.StrippedState, err = entity.StrippedEvents(room.StrippedState); err != nil {
 		return syncRoomResult{}, err
 	}
 	return out, nil
 }
 
-func optionalName(value entity.OptionalString) *string {
-	if value.Cleared() {
-		return nil
+func optionalName(value entity.OptionalString) (json.RawMessage, error) {
+	if !value.Present {
+		return nil, nil
 	}
-	return &value.Value
+	if value.Cleared() {
+		return json.RawMessage("null"), nil
+	}
+	raw, err := json.Marshal(value.Value)
+	if err != nil {
+		return nil, fmt.Errorf("matrix: render room name: %w", err)
+	}
+	return raw, nil
 }
 
 func firstOf(preferred, fallback string) string {

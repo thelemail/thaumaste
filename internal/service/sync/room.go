@@ -57,15 +57,16 @@ func (s *srv) build(ctx context.Context, sess *session) (entity.SyncResult, []en
 		if err != nil {
 			return entity.SyncResult{}, nil, err
 		}
+		if !ok {
+			continue
+		}
 		staged = append(staged, entity.NewRoomStatus{
 			RoomNID:       entry.room.RoomNID,
 			SentTo:        sess.ceiling,
 			TimelineLimit: entry.limit,
 			RequiredState: entry.required.Canonical(),
 		})
-		if ok {
-			result.Rooms[entry.room.RoomID] = room
-		}
+		result.Rooms[entry.room.RoomID] = room
 	}
 	if len(result.Rooms) == 0 {
 		return result, nil, nil

@@ -53,6 +53,27 @@ func (c ClientEvent) JSON() (json.RawMessage, error) {
 	return raw, nil
 }
 
+func StrippedEvents(events []Event) ([]json.RawMessage, error) {
+	out := make([]json.RawMessage, 0, len(events))
+	for _, e := range events {
+		stateKey, ok := e.StateKey()
+		if !ok {
+			continue
+		}
+		raw, err := json.Marshal(map[string]any{
+			"type":      e.Type(),
+			"state_key": stateKey,
+			"sender":    e.Sender(),
+			"content":   e.Content(),
+		})
+		if err != nil {
+			return nil, fmt.Errorf("entity: marshal stripped state: %w", err)
+		}
+		out = append(out, raw)
+	}
+	return out, nil
+}
+
 func ClientEvents(events []Event, now int64) ([]json.RawMessage, error) {
 	out := make([]json.RawMessage, 0, len(events))
 	for _, e := range events {
