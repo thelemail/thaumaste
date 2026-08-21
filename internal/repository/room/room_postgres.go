@@ -69,6 +69,30 @@ func (r *repo) SetCreateEvent(ctx context.Context, roomNID, eventNID int64) erro
 	return nil
 }
 
+func (r *repo) SetVisibility(ctx context.Context, roomNID int64, visibility string) error {
+	row := dbpg.Room{RoomNid: roomNID, Visibility: visibility}
+	n, err := row.Update(ctx, r.db.Querier(ctx), boil.Whitelist(dbpg.RoomColumns.Visibility))
+	if err != nil {
+		return fmt.Errorf("repository: set room visibility: %w", err)
+	}
+	if n == 0 {
+		return repository.ErrRoomNotFound
+	}
+	return nil
+}
+
+func (r *repo) ListPublic(ctx context.Context, scope entity.TenantScope) ([]entity.Room, error) {
+	rows, err := dbpg.Rooms(
+		dbpg.RoomWhere.TenantID.EQ(scope.ID().String()),
+		dbpg.RoomWhere.Visibility.EQ(entity.VisibilityPublic),
+		qm.OrderBy(dbpg.RoomColumns.RoomNid),
+	).All(ctx, r.db.Querier(ctx))
+	if err != nil {
+		return nil, fmt.Errorf("repository: list public rooms: %w", err)
+	}
+	return toRooms(rows)
+}
+
 func (r *repo) ListForTenant(ctx context.Context, scope entity.TenantScope) ([]entity.Room, error) {
 	rows, err := dbpg.Rooms(
 		dbpg.RoomWhere.TenantID.EQ(scope.ID().String()),
@@ -78,6 +102,10 @@ func (r *repo) ListForTenant(ctx context.Context, scope entity.TenantScope) ([]e
 		return nil, fmt.Errorf("repository: list rooms: %w", err)
 	}
 
+	return toRooms(rows)
+}
+
+func toRooms(rows dbpg.RoomSlice) ([]entity.Room, error) {
 	out := make([]entity.Room, 0, len(rows))
 	for _, row := range rows {
 		converted, err := toRoom(row)
@@ -141,10 +169,11 @@ func toRoom(row *dbpg.Room) (entity.Room, error) {
 		return entity.Room{}, fmt.Errorf("parse room tenant id: %w", err)
 	}
 	return entity.Room{
-		NID:       row.RoomNid,
-		TenantID:  tenantID,
-		RoomID:    row.RoomID,
-		Version:   entity.RoomVersionID(row.RoomVersion),
-		CreatedAt: row.CreatedAt,
+		NID:        row.RoomNid,
+		TenantID:   tenantID,
+		RoomID:     row.RoomID,
+		Version:    entity.RoomVersionID(row.RoomVersion),
+		Visibility: row.Visibility,
+		CreatedAt:  row.CreatedAt,
 	}, nil
 }

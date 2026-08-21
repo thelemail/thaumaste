@@ -211,6 +211,7 @@ var EventRels = struct {
 	ChildNidEventAuthEdges        string
 	ChildNidEventPrevEdges        string
 	RoomNidRooms                  string
+	EventNidRoomMemberships       string
 	CreateEventNidRooms           string
 	EventNidStateBlockEntries     string
 }{
@@ -221,6 +222,7 @@ var EventRels = struct {
 	ChildNidEventAuthEdges:        "ChildNidEventAuthEdges",
 	ChildNidEventPrevEdges:        "ChildNidEventPrevEdges",
 	RoomNidRooms:                  "RoomNidRooms",
+	EventNidRoomMemberships:       "EventNidRoomMemberships",
 	CreateEventNidRooms:           "CreateEventNidRooms",
 	EventNidStateBlockEntries:     "EventNidStateBlockEntries",
 }
@@ -234,6 +236,7 @@ type eventR struct {
 	ChildNidEventAuthEdges        EventAuthEdgeSlice   `boil:"ChildNidEventAuthEdges" json:"ChildNidEventAuthEdges" toml:"ChildNidEventAuthEdges" yaml:"ChildNidEventAuthEdges"`
 	ChildNidEventPrevEdges        EventPrevEdgeSlice   `boil:"ChildNidEventPrevEdges" json:"ChildNidEventPrevEdges" toml:"ChildNidEventPrevEdges" yaml:"ChildNidEventPrevEdges"`
 	RoomNidRooms                  RoomSlice            `boil:"RoomNidRooms" json:"RoomNidRooms" toml:"RoomNidRooms" yaml:"RoomNidRooms"`
+	EventNidRoomMemberships       RoomMembershipSlice  `boil:"EventNidRoomMemberships" json:"EventNidRoomMemberships" toml:"EventNidRoomMemberships" yaml:"EventNidRoomMemberships"`
 	CreateEventNidRooms           RoomSlice            `boil:"CreateEventNidRooms" json:"CreateEventNidRooms" toml:"CreateEventNidRooms" yaml:"CreateEventNidRooms"`
 	EventNidStateBlockEntries     StateBlockEntrySlice `boil:"EventNidStateBlockEntries" json:"EventNidStateBlockEntries" toml:"EventNidStateBlockEntries" yaml:"EventNidStateBlockEntries"`
 }
@@ -353,6 +356,22 @@ func (r *eventR) GetRoomNidRooms() RoomSlice {
 	}
 
 	return r.RoomNidRooms
+}
+
+func (o *Event) GetEventNidRoomMemberships() RoomMembershipSlice {
+	if o == nil {
+		return nil
+	}
+
+	return o.R.GetEventNidRoomMemberships()
+}
+
+func (r *eventR) GetEventNidRoomMemberships() RoomMembershipSlice {
+	if r == nil {
+		return nil
+	}
+
+	return r.EventNidRoomMemberships
 }
 
 func (o *Event) GetCreateEventNidRooms() RoomSlice {
@@ -788,6 +807,20 @@ func (o *Event) RoomNidRooms(mods ...qm.QueryMod) roomQuery {
 	)
 
 	return Rooms(queryMods...)
+}
+
+// EventNidRoomMemberships retrieves all the room_membership's RoomMemberships with an executor via event_nid column.
+func (o *Event) EventNidRoomMemberships(mods ...qm.QueryMod) roomMembershipQuery {
+	var queryMods []qm.QueryMod
+	if len(mods) != 0 {
+		queryMods = append(queryMods, mods...)
+	}
+
+	queryMods = append(queryMods,
+		qm.Where("\"room_memberships\".\"event_nid\"=?", o.EventNid),
+	)
+
+	return RoomMemberships(queryMods...)
 }
 
 // CreateEventNidRooms retrieves all the room's Rooms with an executor via create_event_nid column.
@@ -1587,7 +1620,7 @@ func (eventL) LoadRoomNidRooms(ctx context.Context, e boil.ContextExecutor, sing
 	}
 
 	query := NewQuery(
-		qm.Select("\"rooms\".\"room_nid\", \"rooms\".\"tenant_id\", \"rooms\".\"room_id\", \"rooms\".\"room_version\", \"rooms\".\"created_at\", \"rooms\".\"create_event_nid\", \"a\".\"event_nid\""),
+		qm.Select("\"rooms\".\"room_nid\", \"rooms\".\"tenant_id\", \"rooms\".\"room_id\", \"rooms\".\"room_version\", \"rooms\".\"created_at\", \"rooms\".\"create_event_nid\", \"rooms\".\"visibility\", \"a\".\"event_nid\""),
 		qm.From("\"rooms\""),
 		qm.InnerJoin("\"room_extremities\" as \"a\" on \"rooms\".\"room_nid\" = \"a\".\"room_nid\""),
 		qm.WhereIn("\"a\".\"event_nid\" in ?", argsSlice...),
@@ -1608,7 +1641,7 @@ func (eventL) LoadRoomNidRooms(ctx context.Context, e boil.ContextExecutor, sing
 		one := new(Room)
 		var localJoinCol int64
 
-		err = results.Scan(&one.RoomNid, &one.TenantID, &one.RoomID, &one.RoomVersion, &one.CreatedAt, &one.CreateEventNid, &localJoinCol)
+		err = results.Scan(&one.RoomNid, &one.TenantID, &one.RoomID, &one.RoomVersion, &one.CreatedAt, &one.CreateEventNid, &one.Visibility, &localJoinCol)
 		if err != nil {
 			return errors.Wrap(err, "failed to scan eager loaded results for rooms")
 		}
@@ -1654,6 +1687,119 @@ func (eventL) LoadRoomNidRooms(ctx context.Context, e boil.ContextExecutor, sing
 					foreign.R = &roomR{}
 				}
 				foreign.R.EventNidEvents = append(foreign.R.EventNidEvents, local)
+				break
+			}
+		}
+	}
+
+	return nil
+}
+
+// LoadEventNidRoomMemberships allows an eager lookup of values, cached into the
+// loaded structs of the objects. This is for a 1-M or N-M relationship.
+func (eventL) LoadEventNidRoomMemberships(ctx context.Context, e boil.ContextExecutor, singular bool, maybeEvent any, mods queries.Applicator) error {
+	var slice []*Event
+	var object *Event
+
+	if singular {
+		var ok bool
+		object, ok = maybeEvent.(*Event)
+		if !ok {
+			object = new(Event)
+			ok = queries.SetFromEmbeddedStruct(&object, &maybeEvent)
+			if !ok {
+				return errors.New(fmt.Sprintf("failed to set %T from embedded struct %T", object, maybeEvent))
+			}
+		}
+	} else {
+		s, ok := maybeEvent.(*[]*Event)
+		if ok {
+			slice = *s
+		} else {
+			ok = queries.SetFromEmbeddedStruct(&slice, maybeEvent)
+			if !ok {
+				return errors.New(fmt.Sprintf("failed to set %T from embedded struct %T", slice, maybeEvent))
+			}
+		}
+	}
+
+	args := make(map[any]struct{})
+	if singular {
+		if object.R == nil {
+			object.R = &eventR{}
+		}
+		args[object.EventNid] = struct{}{}
+	} else {
+		for _, obj := range slice {
+			if obj.R == nil {
+				obj.R = &eventR{}
+			}
+			args[obj.EventNid] = struct{}{}
+		}
+	}
+
+	if len(args) == 0 {
+		return nil
+	}
+
+	argsSlice := make([]any, len(args))
+	i := 0
+	for arg := range args {
+		argsSlice[i] = arg
+		i++
+	}
+
+	query := NewQuery(
+		qm.From(`room_memberships`),
+		qm.WhereIn(`room_memberships.event_nid in ?`, argsSlice...),
+	)
+	if mods != nil {
+		mods.Apply(query)
+	}
+
+	results, err := query.QueryContext(ctx, e)
+	if err != nil {
+		return errors.Wrap(err, "failed to eager load room_memberships")
+	}
+
+	var resultSlice []*RoomMembership
+	if err = queries.Bind(results, &resultSlice); err != nil {
+		return errors.Wrap(err, "failed to bind eager loaded slice room_memberships")
+	}
+
+	if err = results.Close(); err != nil {
+		return errors.Wrap(err, "failed to close results in eager load on room_memberships")
+	}
+	if err = results.Err(); err != nil {
+		return errors.Wrap(err, "error occurred during iteration of eager loaded relations for room_memberships")
+	}
+
+	if len(roomMembershipAfterSelectHooks) != 0 {
+		for _, obj := range resultSlice {
+			if err := obj.doAfterSelectHooks(ctx, e); err != nil {
+				return err
+			}
+		}
+	}
+	if singular {
+		object.R.EventNidRoomMemberships = resultSlice
+		for _, foreign := range resultSlice {
+			if foreign.R == nil {
+				foreign.R = &roomMembershipR{}
+			}
+			foreign.R.EventNidEvent = object
+		}
+		return nil
+	}
+
+	for _, foreign := range resultSlice {
+		for _, local := range slice {
+			if local.EventNid == foreign.EventNid {
+				local.R.EventNidRoomMemberships = append(local.R.EventNidRoomMemberships, foreign)
+				if foreign.R == nil {
+					foreign.R = &roomMembershipR{}
+				}
+				foreign.R.EventNidEvent = local
 				break
 			}
 		}
@@ -2391,6 +2537,59 @@ func removeRoomNidRoomsFromEventNidEventsSlice(o *Event, related []*Room) {
 			break
 		}
 	}
+}
+
+// AddEventNidRoomMemberships adds the given related objects to the existing relationships
+// of the event, optionally inserting them as new records.
+// Appends related to o.R.EventNidRoomMemberships.
+// Sets related.R.EventNidEvent appropriately.
+func (o *Event) AddEventNidRoomMemberships(ctx context.Context, exec boil.ContextExecutor, insert bool, related ...*RoomMembership) error {
+	var err error
+	for _, rel := range related {
+		if insert {
+			rel.EventNid = o.EventNid
+			if err = rel.Insert(ctx, exec, boil.Infer()); err != nil {
+				return errors.Wrap(err, "failed to insert into foreign table")
+			}
+		} else {
+			updateQuery := fmt.Sprintf(
+				"UPDATE \"room_memberships\" SET %s WHERE %s",
+				strmangle.SetParamNames("\"", "\"", 1, []string{"event_nid"}),
+				strmangle.WhereClause("\"", "\"", 2, roomMembershipPrimaryKeyColumns),
+			)
+			values := []any{o.EventNid, rel.TenantID, rel.RoomNid, rel.UserID}
+
+			if boil.IsDebug(ctx) {
+				writer := boil.DebugWriterFrom(ctx)
+				fmt.Fprintln(writer, updateQuery)
+				fmt.Fprintln(writer, values)
+			}
+			if _, err = exec.ExecContext(ctx, updateQuery, values...); err != nil {
+				return errors.Wrap(err, "failed to update foreign table")
+			}
+
+			rel.EventNid = o.EventNid
+		}
+	}
+
+	if o.R == nil {
+		o.R = &eventR{
+			EventNidRoomMemberships: related,
+		}
+	} else {
+		o.R.EventNidRoomMemberships = append(o.R.EventNidRoomMemberships, related...)
+	}
+
+	for _, rel := range related {
+		if rel.R == nil {
+			rel.R = &roomMembershipR{
+				EventNidEvent: o,
+			}
+		} else {
+			rel.R.EventNidEvent = o
+		}
+	}
+	return nil
 }
 
 // AddCreateEventNidRooms adds the given related objects to the existing relationships
