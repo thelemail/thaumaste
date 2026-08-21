@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/aarondl/sqlboiler/v4/boil"
@@ -136,6 +138,57 @@ func toUser(row *dbpg.User) (entity.User, error) {
 	if row.DeactivatedAt.Valid {
 		at := row.DeactivatedAt.Time
 		out.DeactivatedAt = &at
+	}
+	return out, nil
+}
+
+const searchUsersSQL = `
+	SELECT u.user_id, u.display_name, u.avatar_url
+	  FROM users u
+	 WHERE u.tenant_id = $1
+	   AND u.user_id <> $2
+	   AND u.deactivated_at IS NULL
+	   AND (lower(u.localpart) LIKE $3 OR lower(u.user_id) LIKE $3 OR lower(u.display_name) LIKE $4)
+	   AND EXISTS (
+	       SELECT 1 FROM room_memberships m
+	        WHERE m.tenant_id = u.tenant_id
+	          AND m.user_id = u.user_id
+	          AND m.membership IN ('join', 'invite')
+	          AND (m.room_nid = ANY(string_to_array($5, ',')::bigint[])
+	               OR EXISTS (SELECT 1 FROM room_memberships mine
+	                           WHERE mine.tenant_id = u.tenant_id
+	                             AND mine.user_id = $2
+	                             AND mine.room_nid = m.room_nid
+	                             AND mine.membership IN ('join', 'invite'))))
+	 ORDER BY u.display_name, u.user_id
+	 LIMIT $6`
+
+func (r *repo) Search(ctx context.Context, scope entity.TenantScope, caller, term string,
+	discoverable []int64, limit int,
+) ([]entity.DirectoryResult, error) {
+	prefix := strings.ToLower(term) + "%"
+	anywhere := "%" + strings.ToLower(term) + "%"
+	rooms := make([]string, 0, len(discoverable))
+	for _, roomNID := range discoverable {
+		rooms = append(rooms, strconv.FormatInt(roomNID, 10))
+	}
+	rows, err := r.db.Querier(ctx).QueryContext(ctx, searchUsersSQL,
+		scope.ID().String(), caller, prefix, anywhere, strings.Join(rooms, ","), limit)
+	if err != nil {
+		return nil, fmt.Errorf("repository: search users: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	var out []entity.DirectoryResult
+	for rows.Next() {
+		var found entity.DirectoryResult
+		if err := rows.Scan(&found.UserID, &found.DisplayName, &found.AvatarURL); err != nil {
+			return nil, fmt.Errorf("repository: scan user: %w", err)
+		}
+		out = append(out, found)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("repository: search users: %w", err)
 	}
 	return out, nil
 }

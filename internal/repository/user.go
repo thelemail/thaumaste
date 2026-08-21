@@ -14,6 +14,8 @@ var (
 )
 
 type User interface {
+	Search(ctx context.Context, scope entity.TenantScope, caller, term string,
+		discoverable []int64, limit int) ([]entity.DirectoryResult, error)
 	Create(ctx context.Context, in entity.NewUser) (entity.User, error)
 	Get(ctx context.Context, scope entity.TenantScope, userID string) (entity.User, error)
 	Exists(ctx context.Context, scope entity.TenantScope, localpart string) (bool, error)
