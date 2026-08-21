@@ -12,3 +12,6 @@ TestProfileAvatarURL
 TestServerCapabilities
 TestFilter
 TestRequestEncodingFails
+
+TestRoomAlias
+TestPublicRooms
