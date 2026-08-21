@@ -17,7 +17,7 @@ type Event interface {
 	GetByEventID(ctx context.Context, eventID string) (entity.StoredEvent, error)
 	GetByNID(ctx context.Context, eventNID int64) (entity.StoredEvent, error)
 	GetManyByEventID(ctx context.Context, eventIDs []string) ([]entity.StoredEvent, error)
-	ListForRoom(ctx context.Context, roomNID int64) ([]entity.StoredEvent, error)
+	GetManyByNID(ctx context.Context, eventNIDs []int64) ([]entity.StoredEvent, error)
 	Page(ctx context.Context, roomNID int64, in entity.PageRequest) ([]entity.StoredEvent, error)
 	ListStateOfType(ctx context.Context, roomNID int64, eventType, stateKey string) ([]entity.StoredEvent, error)
 	AtStream(ctx context.Context, roomNID, stream int64) (entity.StoredEvent, error)

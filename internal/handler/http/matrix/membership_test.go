@@ -441,7 +441,7 @@ func TestJoiningTwiceIsAcceptedAndKeepsOneExtremity(t *testing.T) {
 	s.mustAct(t, "alpha.test", joinPath(roomID), bob.AccessToken, map[string]any{})
 	s.mustAct(t, "alpha.test", joinPath(roomID), bob.AccessToken, map[string]any{})
 
-	timeline, err := s.events.Timeline(t.Context(), roomID)
+	timeline, err := s.events.Page(t.Context(), roomID, entity.PageRequest{Limit: entity.MaxPageLimit})
 	if err != nil {
 		t.Fatalf("Timeline: %v", err)
 	}

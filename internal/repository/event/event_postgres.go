@@ -144,18 +144,6 @@ func (r *repo) GetManyByEventID(ctx context.Context, eventIDs []string) ([]entit
 	return toStoredEvents(rows)
 }
 
-func (r *repo) ListForRoom(ctx context.Context, roomNID int64) ([]entity.StoredEvent, error) {
-	rows, err := dbpg.Events(
-		dbpg.EventWhere.RoomNid.EQ(roomNID),
-		qm.Load(dbpg.EventRels.RoomNidRoom),
-		qm.OrderBy(dbpg.EventColumns.TopologicalOrdering+", "+dbpg.EventColumns.StreamOrdering),
-	).All(ctx, r.db.Querier(ctx))
-	if err != nil {
-		return nil, fmt.Errorf("repository: list events: %w", err)
-	}
-	return toStoredEvents(rows)
-}
-
 func (r *repo) SetDisposition(ctx context.Context, eventNID int64, disposition entity.Disposition) error {
 	row := dbpg.Event{EventNid: eventNID, Disposition: string(disposition)}
 	n, err := row.Update(ctx, r.db.Querier(ctx), boil.Whitelist(dbpg.EventColumns.Disposition))
@@ -272,6 +260,21 @@ func toStoredEvent(row *dbpg.Event) (entity.StoredEvent, error) {
 		StateSnapshotNID:    row.StateSnapshotNid.Int64,
 		Disposition:         entity.Disposition(row.Disposition),
 	}, nil
+}
+
+func (r *repo) GetManyByNID(ctx context.Context, eventNIDs []int64) ([]entity.StoredEvent, error) {
+	if len(eventNIDs) == 0 {
+		return nil, nil
+	}
+	rows, err := dbpg.Events(
+		dbpg.EventWhere.EventNid.IN(eventNIDs),
+		qm.Load(dbpg.EventRels.RoomNidRoom),
+		qm.OrderBy(dbpg.EventColumns.EventNid),
+	).All(ctx, r.db.Querier(ctx))
+	if err != nil {
+		return nil, fmt.Errorf("repository: list events by nid: %w", err)
+	}
+	return toStoredEvents(rows)
 }
 
 func (r *repo) Page(ctx context.Context, roomNID int64, in entity.PageRequest) ([]entity.StoredEvent, error) {

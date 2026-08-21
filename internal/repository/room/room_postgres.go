@@ -142,20 +142,13 @@ func (r *repo) Extremities(ctx context.Context, roomNID int64) ([]entity.StoredE
 		return nil, nil
 	}
 
-	all, err := r.events.ListForRoom(ctx, roomNID)
+	nids := make([]int64, 0, len(room.R.EventNidEvents))
+	for _, related := range room.R.EventNidEvents {
+		nids = append(nids, related.EventNid)
+	}
+	out, err := r.events.GetManyByNID(ctx, nids)
 	if err != nil {
 		return nil, err
-	}
-	byNID := make(map[int64]entity.StoredEvent, len(all))
-	for _, e := range all {
-		byNID[e.NID] = e
-	}
-
-	out := make([]entity.StoredEvent, 0, len(room.R.EventNidEvents))
-	for _, related := range room.R.EventNidEvents {
-		if e, ok := byNID[related.EventNid]; ok {
-			out = append(out, e)
-		}
 	}
 	slices.SortFunc(out, func(a, b entity.StoredEvent) int { return int(a.NID - b.NID) })
 	return out, nil

@@ -496,14 +496,6 @@ func (s *srv) Room(ctx context.Context, roomID string) (entity.Room, error) {
 	return room, nil
 }
 
-func (s *srv) Timeline(ctx context.Context, roomID string) ([]entity.StoredEvent, error) {
-	room, err := s.Room(ctx, roomID)
-	if err != nil {
-		return nil, err
-	}
-	return s.events.ListForRoom(ctx, room.NID)
-}
-
 func (s *srv) CurrentState(ctx context.Context, roomID string) (entity.StateMap, error) {
 	room, err := s.Room(ctx, roomID)
 	if err != nil {

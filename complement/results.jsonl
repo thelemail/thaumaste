@@ -63,7 +63,7 @@
 {"Action":"fail","Test":"TestFetchHistoricalInvitedEventFromBetweenInvite"}
 {"Action":"fail","Test":"TestFetchHistoricalJoinedEventDenied"}
 {"Action":"fail","Test":"TestFetchHistoricalSharedEvent"}
-{"Action":"fail","Test":"TestFetchMessagesFromNonExistentRoom"}
+{"Action":"pass","Test":"TestFetchMessagesFromNonExistentRoom"}
 {"Action":"pass","Test":"TestFilter"}
 {"Action":"fail","Test":"TestGappedSyncLeaveSection"}
 {"Action":"fail","Test":"TestGetFilteredRoomMembers"}
