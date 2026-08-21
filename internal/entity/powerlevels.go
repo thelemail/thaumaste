@@ -193,9 +193,6 @@ func asInt(raw any) (int64, bool) {
 }
 
 func isUserID(id string) bool {
-	if len(id) < 2 || id[0] != '@' || len(id) > MaxUserIDBytes {
-		return false
-	}
-	_, err := SenderDomain(id)
+	_, _, err := ParseUserID(id)
 	return err == nil
 }

@@ -24,52 +24,62 @@ import (
 
 // AccessToken is an object representing the database table.
 type AccessToken struct {
-	ID        string    `boil:"id" json:"id" toml:"id" yaml:"id"`
-	TenantID  string    `boil:"tenant_id" json:"tenant_id" toml:"tenant_id" yaml:"tenant_id"`
-	TokenHash []byte    `boil:"token_hash" json:"token_hash" toml:"token_hash" yaml:"token_hash"`
-	UserID    string    `boil:"user_id" json:"user_id" toml:"user_id" yaml:"user_id"`
-	CreatedAt time.Time `boil:"created_at" json:"created_at" toml:"created_at" yaml:"created_at"`
-	ExpiresAt null.Time `boil:"expires_at" json:"expires_at,omitempty" toml:"expires_at" yaml:"expires_at,omitempty"`
-	RevokedAt null.Time `boil:"revoked_at" json:"revoked_at,omitempty" toml:"revoked_at" yaml:"revoked_at,omitempty"`
+	ID             string      `boil:"id" json:"id" toml:"id" yaml:"id"`
+	TenantID       string      `boil:"tenant_id" json:"tenant_id" toml:"tenant_id" yaml:"tenant_id"`
+	TokenHash      []byte      `boil:"token_hash" json:"token_hash" toml:"token_hash" yaml:"token_hash"`
+	UserID         string      `boil:"user_id" json:"user_id" toml:"user_id" yaml:"user_id"`
+	CreatedAt      time.Time   `boil:"created_at" json:"created_at" toml:"created_at" yaml:"created_at"`
+	ExpiresAt      null.Time   `boil:"expires_at" json:"expires_at,omitempty" toml:"expires_at" yaml:"expires_at,omitempty"`
+	RevokedAt      null.Time   `boil:"revoked_at" json:"revoked_at,omitempty" toml:"revoked_at" yaml:"revoked_at,omitempty"`
+	DeviceID       string      `boil:"device_id" json:"device_id" toml:"device_id" yaml:"device_id"`
+	RefreshTokenID null.String `boil:"refresh_token_id" json:"refresh_token_id,omitempty" toml:"refresh_token_id" yaml:"refresh_token_id,omitempty"`
 
 	R *accessTokenR `boil:"-" json:"-" toml:"-" yaml:"-"`
 	L accessTokenL  `boil:"-" json:"-" toml:"-" yaml:"-"`
 }
 
 var AccessTokenColumns = struct {
-	ID        string
-	TenantID  string
-	TokenHash string
-	UserID    string
-	CreatedAt string
-	ExpiresAt string
-	RevokedAt string
+	ID             string
+	TenantID       string
+	TokenHash      string
+	UserID         string
+	CreatedAt      string
+	ExpiresAt      string
+	RevokedAt      string
+	DeviceID       string
+	RefreshTokenID string
 }{
-	ID:        "id",
-	TenantID:  "tenant_id",
-	TokenHash: "token_hash",
-	UserID:    "user_id",
-	CreatedAt: "created_at",
-	ExpiresAt: "expires_at",
-	RevokedAt: "revoked_at",
+	ID:             "id",
+	TenantID:       "tenant_id",
+	TokenHash:      "token_hash",
+	UserID:         "user_id",
+	CreatedAt:      "created_at",
+	ExpiresAt:      "expires_at",
+	RevokedAt:      "revoked_at",
+	DeviceID:       "device_id",
+	RefreshTokenID: "refresh_token_id",
 }
 
 var AccessTokenTableColumns = struct {
-	ID        string
-	TenantID  string
-	TokenHash string
-	UserID    string
-	CreatedAt string
-	ExpiresAt string
-	RevokedAt string
+	ID             string
+	TenantID       string
+	TokenHash      string
+	UserID         string
+	CreatedAt      string
+	ExpiresAt      string
+	RevokedAt      string
+	DeviceID       string
+	RefreshTokenID string
 }{
-	ID:        "access_tokens.id",
-	TenantID:  "access_tokens.tenant_id",
-	TokenHash: "access_tokens.token_hash",
-	UserID:    "access_tokens.user_id",
-	CreatedAt: "access_tokens.created_at",
-	ExpiresAt: "access_tokens.expires_at",
-	RevokedAt: "access_tokens.revoked_at",
+	ID:             "access_tokens.id",
+	TenantID:       "access_tokens.tenant_id",
+	TokenHash:      "access_tokens.token_hash",
+	UserID:         "access_tokens.user_id",
+	CreatedAt:      "access_tokens.created_at",
+	ExpiresAt:      "access_tokens.expires_at",
+	RevokedAt:      "access_tokens.revoked_at",
+	DeviceID:       "access_tokens.device_id",
+	RefreshTokenID: "access_tokens.refresh_token_id",
 }
 
 // Generated where
@@ -159,39 +169,118 @@ func (w whereHelpernull_Time) GTE(x null.Time) qm.QueryMod {
 func (w whereHelpernull_Time) IsNull() qm.QueryMod    { return qmhelper.WhereIsNull(w.field) }
 func (w whereHelpernull_Time) IsNotNull() qm.QueryMod { return qmhelper.WhereIsNotNull(w.field) }
 
+type whereHelpernull_String struct{ field string }
+
+func (w whereHelpernull_String) EQ(x null.String) qm.QueryMod {
+	return qmhelper.WhereNullEQ(w.field, false, x)
+}
+func (w whereHelpernull_String) NEQ(x null.String) qm.QueryMod {
+	return qmhelper.WhereNullEQ(w.field, true, x)
+}
+func (w whereHelpernull_String) LT(x null.String) qm.QueryMod {
+	return qmhelper.Where(w.field, qmhelper.LT, x)
+}
+func (w whereHelpernull_String) LTE(x null.String) qm.QueryMod {
+	return qmhelper.Where(w.field, qmhelper.LTE, x)
+}
+func (w whereHelpernull_String) GT(x null.String) qm.QueryMod {
+	return qmhelper.Where(w.field, qmhelper.GT, x)
+}
+func (w whereHelpernull_String) GTE(x null.String) qm.QueryMod {
+	return qmhelper.Where(w.field, qmhelper.GTE, x)
+}
+func (w whereHelpernull_String) LIKE(x null.String) qm.QueryMod {
+	return qm.Where(w.field+" LIKE ?", x)
+}
+func (w whereHelpernull_String) NLIKE(x null.String) qm.QueryMod {
+	return qm.Where(w.field+" NOT LIKE ?", x)
+}
+func (w whereHelpernull_String) ILIKE(x null.String) qm.QueryMod {
+	return qm.Where(w.field+" ILIKE ?", x)
+}
+func (w whereHelpernull_String) NILIKE(x null.String) qm.QueryMod {
+	return qm.Where(w.field+" NOT ILIKE ?", x)
+}
+func (w whereHelpernull_String) SIMILAR(x null.String) qm.QueryMod {
+	return qm.Where(w.field+" SIMILAR TO ?", x)
+}
+func (w whereHelpernull_String) NSIMILAR(x null.String) qm.QueryMod {
+	return qm.Where(w.field+" NOT SIMILAR TO ?", x)
+}
+func (w whereHelpernull_String) IN(slice []string) qm.QueryMod {
+	values := make([]any, 0, len(slice))
+	for _, value := range slice {
+		values = append(values, value)
+	}
+	return qm.WhereIn(fmt.Sprintf("%s IN ?", w.field), values...)
+}
+func (w whereHelpernull_String) NIN(slice []string) qm.QueryMod {
+	values := make([]any, 0, len(slice))
+	for _, value := range slice {
+		values = append(values, value)
+	}
+	return qm.WhereNotIn(fmt.Sprintf("%s NOT IN ?", w.field), values...)
+}
+
+func (w whereHelpernull_String) IsNull() qm.QueryMod    { return qmhelper.WhereIsNull(w.field) }
+func (w whereHelpernull_String) IsNotNull() qm.QueryMod { return qmhelper.WhereIsNotNull(w.field) }
+
 var AccessTokenWhere = struct {
-	ID        whereHelperstring
-	TenantID  whereHelperstring
-	TokenHash whereHelper__byte
-	UserID    whereHelperstring
-	CreatedAt whereHelpertime_Time
-	ExpiresAt whereHelpernull_Time
-	RevokedAt whereHelpernull_Time
+	ID             whereHelperstring
+	TenantID       whereHelperstring
+	TokenHash      whereHelper__byte
+	UserID         whereHelperstring
+	CreatedAt      whereHelpertime_Time
+	ExpiresAt      whereHelpernull_Time
+	RevokedAt      whereHelpernull_Time
+	DeviceID       whereHelperstring
+	RefreshTokenID whereHelpernull_String
 }{
-	ID:        whereHelperstring{field: "\"access_tokens\".\"id\""},
-	TenantID:  whereHelperstring{field: "\"access_tokens\".\"tenant_id\""},
-	TokenHash: whereHelper__byte{field: "\"access_tokens\".\"token_hash\""},
-	UserID:    whereHelperstring{field: "\"access_tokens\".\"user_id\""},
-	CreatedAt: whereHelpertime_Time{field: "\"access_tokens\".\"created_at\""},
-	ExpiresAt: whereHelpernull_Time{field: "\"access_tokens\".\"expires_at\""},
-	RevokedAt: whereHelpernull_Time{field: "\"access_tokens\".\"revoked_at\""},
+	ID:             whereHelperstring{field: "\"access_tokens\".\"id\""},
+	TenantID:       whereHelperstring{field: "\"access_tokens\".\"tenant_id\""},
+	TokenHash:      whereHelper__byte{field: "\"access_tokens\".\"token_hash\""},
+	UserID:         whereHelperstring{field: "\"access_tokens\".\"user_id\""},
+	CreatedAt:      whereHelpertime_Time{field: "\"access_tokens\".\"created_at\""},
+	ExpiresAt:      whereHelpernull_Time{field: "\"access_tokens\".\"expires_at\""},
+	RevokedAt:      whereHelpernull_Time{field: "\"access_tokens\".\"revoked_at\""},
+	DeviceID:       whereHelperstring{field: "\"access_tokens\".\"device_id\""},
+	RefreshTokenID: whereHelpernull_String{field: "\"access_tokens\".\"refresh_token_id\""},
 }
 
 // AccessTokenRels is where relationship names are stored.
 var AccessTokenRels = struct {
-	Tenant string
+	RefreshToken string
+	Tenant       string
 }{
-	Tenant: "Tenant",
+	RefreshToken: "RefreshToken",
+	Tenant:       "Tenant",
 }
 
 // accessTokenR is where relationships are stored.
 type accessTokenR struct {
-	Tenant *Tenant `boil:"Tenant" json:"Tenant" toml:"Tenant" yaml:"Tenant"`
+	RefreshToken *RefreshToken `boil:"RefreshToken" json:"RefreshToken" toml:"RefreshToken" yaml:"RefreshToken"`
+	Tenant       *Tenant       `boil:"Tenant" json:"Tenant" toml:"Tenant" yaml:"Tenant"`
 }
 
 // NewStruct creates a new relationship struct
 func (*accessTokenR) NewStruct() *accessTokenR {
 	return &accessTokenR{}
+}
+
+func (o *AccessToken) GetRefreshToken() *RefreshToken {
+	if o == nil {
+		return nil
+	}
+
+	return o.R.GetRefreshToken()
+}
+
+func (r *accessTokenR) GetRefreshToken() *RefreshToken {
+	if r == nil {
+		return nil
+	}
+
+	return r.RefreshToken
 }
 
 func (o *AccessToken) GetTenant() *Tenant {
@@ -214,9 +303,9 @@ func (r *accessTokenR) GetTenant() *Tenant {
 type accessTokenL struct{}
 
 var (
-	accessTokenAllColumns            = []string{"id", "tenant_id", "token_hash", "user_id", "created_at", "expires_at", "revoked_at"}
+	accessTokenAllColumns            = []string{"id", "tenant_id", "token_hash", "user_id", "created_at", "expires_at", "revoked_at", "device_id", "refresh_token_id"}
 	accessTokenColumnsWithoutDefault = []string{"tenant_id", "token_hash", "user_id"}
-	accessTokenColumnsWithDefault    = []string{"id", "created_at", "expires_at", "revoked_at"}
+	accessTokenColumnsWithDefault    = []string{"id", "created_at", "expires_at", "revoked_at", "device_id", "refresh_token_id"}
 	accessTokenPrimaryKeyColumns     = []string{"id"}
 	accessTokenGeneratedColumns      = []string{}
 )
@@ -526,6 +615,17 @@ func (q accessTokenQuery) Exists(ctx context.Context, exec boil.ContextExecutor)
 	return count > 0, nil
 }
 
+// RefreshToken pointed to by the foreign key.
+func (o *AccessToken) RefreshToken(mods ...qm.QueryMod) refreshTokenQuery {
+	queryMods := []qm.QueryMod{
+		qm.Where("\"id\" = ?", o.RefreshTokenID),
+	}
+
+	queryMods = append(queryMods, mods...)
+
+	return RefreshTokens(queryMods...)
+}
+
 // Tenant pointed to by the foreign key.
 func (o *AccessToken) Tenant(mods ...qm.QueryMod) tenantQuery {
 	queryMods := []qm.QueryMod{
@@ -535,6 +635,130 @@ func (o *AccessToken) Tenant(mods ...qm.QueryMod) tenantQuery {
 	queryMods = append(queryMods, mods...)
 
 	return Tenants(queryMods...)
+}
+
+// LoadRefreshToken allows an eager lookup of values, cached into the
+// loaded structs of the objects. This is for an N-1 relationship.
+func (accessTokenL) LoadRefreshToken(ctx context.Context, e boil.ContextExecutor, singular bool, maybeAccessToken any, mods queries.Applicator) error {
+	var slice []*AccessToken
+	var object *AccessToken
+
+	if singular {
+		var ok bool
+		object, ok = maybeAccessToken.(*AccessToken)
+		if !ok {
+			object = new(AccessToken)
+			ok = queries.SetFromEmbeddedStruct(&object, &maybeAccessToken)
+			if !ok {
+				return errors.New(fmt.Sprintf("failed to set %T from embedded struct %T", object, maybeAccessToken))
+			}
+		}
+	} else {
+		s, ok := maybeAccessToken.(*[]*AccessToken)
+		if ok {
+			slice = *s
+		} else {
+			ok = queries.SetFromEmbeddedStruct(&slice, maybeAccessToken)
+			if !ok {
+				return errors.New(fmt.Sprintf("failed to set %T from embedded struct %T", slice, maybeAccessToken))
+			}
+		}
+	}
+
+	args := make(map[any]struct{})
+	if singular {
+		if object.R == nil {
+			object.R = &accessTokenR{}
+		}
+		if !queries.IsNil(object.RefreshTokenID) {
+			args[object.RefreshTokenID] = struct{}{}
+		}
+
+	} else {
+		for _, obj := range slice {
+			if obj.R == nil {
+				obj.R = &accessTokenR{}
+			}
+
+			if !queries.IsNil(obj.RefreshTokenID) {
+				args[obj.RefreshTokenID] = struct{}{}
+			}
+
+		}
+	}
+
+	if len(args) == 0 {
+		return nil
+	}
+
+	argsSlice := make([]any, len(args))
+	i := 0
+	for arg := range args {
+		argsSlice[i] = arg
+		i++
+	}
+
+	query := NewQuery(
+		qm.From(`refresh_tokens`),
+		qm.WhereIn(`refresh_tokens.id in ?`, argsSlice...),
+	)
+	if mods != nil {
+		mods.Apply(query)
+	}
+
+	results, err := query.QueryContext(ctx, e)
+	if err != nil {
+		return errors.Wrap(err, "failed to eager load RefreshToken")
+	}
+
+	var resultSlice []*RefreshToken
+	if err = queries.Bind(results, &resultSlice); err != nil {
+		return errors.Wrap(err, "failed to bind eager loaded slice RefreshToken")
+	}
+
+	if err = results.Close(); err != nil {
+		return errors.Wrap(err, "failed to close results of eager load for refresh_tokens")
+	}
+	if err = results.Err(); err != nil {
+		return errors.Wrap(err, "error occurred during iteration of eager loaded relations for refresh_tokens")
+	}
+
+	if len(refreshTokenAfterSelectHooks) != 0 {
+		for _, obj := range resultSlice {
+			if err := obj.doAfterSelectHooks(ctx, e); err != nil {
+				return err
+			}
+		}
+	}
+
+	if len(resultSlice) == 0 {
+		return nil
+	}
+
+	if singular {
+		foreign := resultSlice[0]
+		object.R.RefreshToken = foreign
+		if foreign.R == nil {
+			foreign.R = &refreshTokenR{}
+		}
+		foreign.R.AccessTokens = append(foreign.R.AccessTokens, object)
+		return nil
+	}
+
+	for _, local := range slice {
+		for _, foreign := range resultSlice {
+			if queries.Equal(local.RefreshTokenID, foreign.ID) {
+				local.R.RefreshToken = foreign
+				if foreign.R == nil {
+					foreign.R = &refreshTokenR{}
+				}
+				foreign.R.AccessTokens = append(foreign.R.AccessTokens, local)
+				break
+			}
+		}
+	}
+
+	return nil
 }
 
 // LoadTenant allows an eager lookup of values, cached into the
@@ -654,6 +878,86 @@ func (accessTokenL) LoadTenant(ctx context.Context, e boil.ContextExecutor, sing
 		}
 	}
 
+	return nil
+}
+
+// SetRefreshToken of the accessToken to the related item.
+// Sets o.R.RefreshToken to related.
+// Adds o to related.R.AccessTokens.
+func (o *AccessToken) SetRefreshToken(ctx context.Context, exec boil.ContextExecutor, insert bool, related *RefreshToken) error {
+	var err error
+	if insert {
+		if err = related.Insert(ctx, exec, boil.Infer()); err != nil {
+			return errors.Wrap(err, "failed to insert into foreign table")
+		}
+	}
+
+	updateQuery := fmt.Sprintf(
+		"UPDATE \"access_tokens\" SET %s WHERE %s",
+		strmangle.SetParamNames("\"", "\"", 1, []string{"refresh_token_id"}),
+		strmangle.WhereClause("\"", "\"", 2, accessTokenPrimaryKeyColumns),
+	)
+	values := []any{related.ID, o.ID}
+
+	if boil.IsDebug(ctx) {
+		writer := boil.DebugWriterFrom(ctx)
+		fmt.Fprintln(writer, updateQuery)
+		fmt.Fprintln(writer, values)
+	}
+	if _, err = exec.ExecContext(ctx, updateQuery, values...); err != nil {
+		return errors.Wrap(err, "failed to update local table")
+	}
+
+	queries.Assign(&o.RefreshTokenID, related.ID)
+	if o.R == nil {
+		o.R = &accessTokenR{
+			RefreshToken: related,
+		}
+	} else {
+		o.R.RefreshToken = related
+	}
+
+	if related.R == nil {
+		related.R = &refreshTokenR{
+			AccessTokens: AccessTokenSlice{o},
+		}
+	} else {
+		related.R.AccessTokens = append(related.R.AccessTokens, o)
+	}
+
+	return nil
+}
+
+// RemoveRefreshToken relationship.
+// Sets o.R.RefreshToken to nil.
+// Removes o from all passed in related items' relationships struct.
+func (o *AccessToken) RemoveRefreshToken(ctx context.Context, exec boil.ContextExecutor, related *RefreshToken) error {
+	var err error
+
+	queries.SetScanner(&o.RefreshTokenID, nil)
+	if _, err = o.Update(ctx, exec, boil.Whitelist("refresh_token_id")); err != nil {
+		return errors.Wrap(err, "failed to update local table")
+	}
+
+	if o.R != nil {
+		o.R.RefreshToken = nil
+	}
+	if related == nil || related.R == nil {
+		return nil
+	}
+
+	for i, ri := range related.R.AccessTokens {
+		if queries.Equal(o.RefreshTokenID, ri.RefreshTokenID) {
+			continue
+		}
+
+		ln := len(related.R.AccessTokens)
+		if ln > 1 && i < ln-1 {
+			related.R.AccessTokens[i] = related.R.AccessTokens[ln-1]
+		}
+		related.R.AccessTokens = related.R.AccessTokens[:ln-1]
+		break
+	}
 	return nil
 }
 
