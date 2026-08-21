@@ -1,5 +1,68 @@
 package entity
 
+import (
+	"errors"
+
+	validation "github.com/go-ozzo/ozzo-validation/v4"
+)
+
+var (
+	ErrCannotRedact       = errors.New("entity: not permitted to redact that event")
+	ErrRedactionProtected = errors.New("entity: that event may not be redacted")
+)
+
+type NewRedaction struct {
+	RoomID   string
+	EventID  string
+	Sender   string
+	DeviceID string
+	TxnID    string
+	Reason   string
+}
+
+func (n NewRedaction) Validate() error {
+	if n.TxnID == "" {
+		return ErrTransactionMissing
+	}
+	return validation.ValidateStruct(&n,
+		validation.Field(&n.RoomID, validation.Required, validation.Length(1, MaxRoomIDBytes)),
+		validation.Field(&n.EventID, validation.Required, validation.Length(1, MaxEventIDBytes)),
+		validation.Field(&n.Sender, validation.Required, validation.Length(1, MaxUserIDBytes)),
+		validation.Field(&n.DeviceID, validation.Required, validation.Length(1, MaxDeviceIDBytes)),
+		validation.Field(&n.TxnID, validation.Length(1, MaxTransactionIDBytes)),
+	)
+}
+
+func (n NewRedaction) Event() NewEvent {
+	content := map[string]any{redactsKey: n.EventID}
+	if n.Reason != "" {
+		content["reason"] = n.Reason
+	}
+	return NewEvent{
+		RoomID:  n.RoomID,
+		Type:    EventTypeRedaction,
+		Sender:  n.Sender,
+		Content: content,
+		Txn: &TransactionRef{
+			DeviceID: n.DeviceID,
+			Endpoint: EndpointRedact,
+			TxnID:    n.TxnID,
+		},
+	}
+}
+
+func Redactable(e Event) bool {
+	return e.Type() != EventTypeEncryption
+}
+
+func RedactionTarget(e Event) (string, bool) {
+	if e.Type() != EventTypeRedaction {
+		return "", false
+	}
+	target, ok := e.Content()[redactsKey].(string)
+	return target, ok
+}
+
 type redactionRules struct {
 	topLevel   []string
 	content    map[string][]string

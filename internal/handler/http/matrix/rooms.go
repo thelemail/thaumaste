@@ -211,6 +211,10 @@ func writeRoomError(r *http.Request, w http.ResponseWriter, err error, msg strin
 		writeError(w, http.StatusNotFound, codeNotFound, "Unknown state event")
 	case errors.Is(err, entity.ErrCannotGrantJoin):
 		writeError(w, http.StatusForbidden, codeCannotGrant, "No local user can authorise this join")
+	case errors.Is(err, entity.ErrCannotRedact):
+		writeError(w, http.StatusForbidden, codeForbidden, "You are not permitted to redact that event")
+	case errors.Is(err, entity.ErrRedactionProtected):
+		writeError(w, http.StatusForbidden, codeForbidden, "That event may not be redacted")
 	case errors.Is(err, entity.ErrDuplicateAnnotation):
 		writeError(w, http.StatusBadRequest, codeDuplicate, "An identical annotation already exists")
 	case errors.Is(err, entity.ErrThreadTargetRelated):

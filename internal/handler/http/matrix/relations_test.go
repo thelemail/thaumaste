@@ -157,3 +157,48 @@ func TestAThreadCannotStartFromAnEventThatIsItselfRelated(t *testing.T) {
 		t.Fatalf("a nested thread answered %s", got)
 	}
 }
+
+func TestRedactingAChildBreaksTheRelation(t *testing.T) {
+	s := newServer(t)
+	_, token, _ := s.resident(t, "alpha.test", "alice")
+	roomID := s.createRoom(t, "alpha.test", token, map[string]any{})
+
+	root := s.mustSend(t, "alpha.test", token, roomID, "root", text("root"))
+	reply := s.mustSend(t, "alpha.test", token, roomID, "reply", threaded(root, "in the thread"))
+	if got := s.relationCount(t, roomID, entity.RelThread); got != 1 {
+		t.Fatalf("thread relations before the redaction = %d, want 1", got)
+	}
+
+	s.mustRedact(t, "alpha.test", token, roomID, reply, "one")
+
+	if got := s.relationCount(t, roomID, entity.RelThread); got != 0 {
+		t.Fatalf("a redacted child left %d relations behind", got)
+	}
+}
+
+func TestRedactingAnAnnotationLetsTheSameOneBeSentAgain(t *testing.T) {
+	s := newServer(t)
+	_, token, _ := s.resident(t, "alpha.test", "alice")
+	roomID := s.createRoom(t, "alpha.test", token, map[string]any{})
+	root := s.mustSend(t, "alpha.test", token, roomID, "root", text("root"))
+
+	first := s.mustSendType(t, "alpha.test", token, roomID, entity.EventTypeReaction, "first", annotation(root, "👍"))
+	s.mustRedact(t, "alpha.test", token, roomID, first, "one")
+
+	s.mustSendType(t, "alpha.test", token, roomID, entity.EventTypeReaction, "again", annotation(root, "👍"))
+}
+
+func TestRedactingAParentLeavesItsChildrenInPlace(t *testing.T) {
+	s := newServer(t)
+	_, token, _ := s.resident(t, "alpha.test", "alice")
+	roomID := s.createRoom(t, "alpha.test", token, map[string]any{})
+
+	root := s.mustSend(t, "alpha.test", token, roomID, "root", text("root"))
+	s.mustSend(t, "alpha.test", token, roomID, "reply", threaded(root, "in the thread"))
+
+	s.mustRedact(t, "alpha.test", token, roomID, root, "one")
+
+	if got := s.relationCount(t, roomID, entity.RelThread); got != 1 {
+		t.Fatalf("redacting the parent removed %d child relations", 1-got)
+	}
+}

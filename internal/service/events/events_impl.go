@@ -472,6 +472,89 @@ func (s *srv) persist(ctx context.Context, scope entity.TenantScope, room entity
 	return stored, nil
 }
 
+func (s *srv) Redact(ctx context.Context, scope entity.TenantScope, in entity.NewRedaction) (entity.StoredEvent, error) {
+	if err := in.Validate(); err != nil {
+		return entity.StoredEvent{}, err
+	}
+
+	var stored entity.StoredEvent
+	err := s.write(ctx, in.RoomID, func(ctx context.Context) error {
+		var err error
+		stored, err = s.redact(ctx, scope, in)
+		return err
+	})
+	if err != nil {
+		return entity.StoredEvent{}, err
+	}
+	return stored, nil
+}
+
+func (s *srv) redact(ctx context.Context, scope entity.TenantScope, in entity.NewRedaction) (entity.StoredEvent, error) {
+	room, version, err := s.roomAndVersion(ctx, in.RoomID)
+	if err != nil {
+		return entity.StoredEvent{}, err
+	}
+
+	target, err := s.events.GetByEventID(ctx, in.EventID)
+	if err != nil {
+		if errors.Is(err, repository.ErrEventNotFound) {
+			return entity.StoredEvent{}, entity.ErrEventNotFound
+		}
+		return entity.StoredEvent{}, err
+	}
+	if target.RoomNID != room.NID {
+		return entity.StoredEvent{}, entity.ErrEventNotFound
+	}
+	if !entity.Redactable(target.Event) {
+		return entity.StoredEvent{}, entity.ErrRedactionProtected
+	}
+	if err := s.mayRedact(ctx, room, version, in.Sender, target); err != nil {
+		return entity.StoredEvent{}, err
+	}
+
+	stored, err := s.send(ctx, scope, in.Event())
+	if err != nil {
+		return entity.StoredEvent{}, err
+	}
+	return stored, s.apply(ctx, version, stored, target)
+}
+
+func (s *srv) mayRedact(ctx context.Context, room entity.Room, version entity.RoomVersion,
+	sender string, target entity.StoredEvent,
+) error {
+	if sender == target.Event.Sender() {
+		return nil
+	}
+
+	latest, err := s.parent(ctx, room)
+	if err != nil {
+		return err
+	}
+	before, err := s.state.Load(ctx, latest.StateSnapshotNID)
+	if err != nil {
+		return err
+	}
+	levels, err := before.Apply(latest.Event).PowerLevels(version)
+	if err != nil {
+		return err
+	}
+	if !levels.CanRedact(sender) {
+		return entity.ErrCannotRedact
+	}
+	return nil
+}
+
+func (s *srv) apply(ctx context.Context, version entity.RoomVersion, redaction, target entity.StoredEvent) error {
+	redacted, err := entity.RedactedJSON(target.Event, version)
+	if err != nil {
+		return err
+	}
+	if err := s.events.Redacted(ctx, target.NID, redaction.NID, redacted); err != nil {
+		return err
+	}
+	return s.relations.Delete(ctx, target.NID)
+}
+
 func (s *srv) checkRelation(ctx context.Context, room entity.Room, in entity.NewEvent) error {
 	if in.StateKey != nil {
 		return nil
@@ -661,6 +744,10 @@ func (s *srv) TransactionFor(ctx context.Context, sender entity.TransactionSende
 
 func (s *srv) SweepTransactions(ctx context.Context, cutoff time.Time) (int64, error) {
 	return s.txns.DeleteBefore(ctx, cutoff)
+}
+
+func (s *srv) Many(ctx context.Context, eventNIDs []int64) ([]entity.StoredEvent, error) {
+	return s.events.GetManyByNID(ctx, eventNIDs)
 }
 
 func (s *srv) Page(ctx context.Context, roomID string, in entity.PageRequest) ([]entity.StoredEvent, error) {

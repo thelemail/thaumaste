@@ -38,7 +38,12 @@ func (s *srv) Messages(ctx context.Context, scope entity.TenantScope, caller, de
 		return entity.Messages{}, err
 	}
 
-	out := entity.Messages{Chunk: s.render(ctx, scope, caller, deviceID, history, filter, scanned)}
+	chunk, err := s.render(ctx, view{scope, caller, deviceID, in.RoomID, history, filter}, scanned)
+	if err != nil {
+		return entity.Messages{}, err
+	}
+
+	out := entity.Messages{Chunk: chunk}
 	switch {
 	case from != nil:
 		out.Start = entity.Anchor(*from).String()
@@ -86,10 +91,24 @@ func (s *srv) Context(ctx context.Context, scope entity.TenantScope, caller, dev
 		return entity.Context{}, err
 	}
 
+	v := view{scope, caller, deviceID, in.RoomID, history, filter}
+	target, err := s.single(ctx, v, stored)
+	if err != nil {
+		return entity.Context{}, err
+	}
+	renderedBefore, err := s.render(ctx, v, before)
+	if err != nil {
+		return entity.Context{}, err
+	}
+	renderedAfter, err := s.render(ctx, v, after)
+	if err != nil {
+		return entity.Context{}, err
+	}
+
 	out := entity.Context{
-		Event:  s.clientEvent(ctx, scope, caller, deviceID, history, stored),
-		Before: s.render(ctx, scope, caller, deviceID, history, filter, before),
-		After:  s.render(ctx, scope, caller, deviceID, history, filter, after),
+		Event:  target,
+		Before: renderedBefore,
+		After:  renderedAfter,
 		Start:  entity.Anchor(at).String(),
 		End:    entity.Anchor(at).String(),
 	}
@@ -112,33 +131,101 @@ func (s *srv) Context(ctx context.Context, scope entity.TenantScope, caller, dev
 	return out, nil
 }
 
-func (s *srv) render(ctx context.Context, scope entity.TenantScope, caller, deviceID string,
-	history entity.HistoryFilter, filter entity.RoomEventFilter, scanned []entity.StoredEvent,
-) []entity.ClientEvent {
-	out := make([]entity.ClientEvent, 0, len(scanned))
-	for _, stored := range scanned {
-		if !history.Visible(stored) || !filter.Keeps(stored.Event) {
-			continue
-		}
-		out = append(out, s.clientEvent(ctx, scope, caller, deviceID, history, stored))
-	}
-	return out
+type view struct {
+	scope    entity.TenantScope
+	caller   string
+	deviceID string
+	roomID   string
+	history  entity.HistoryFilter
+	filter   entity.RoomEventFilter
 }
 
-func (s *srv) clientEvent(ctx context.Context, scope entity.TenantScope, caller, deviceID string,
-	history entity.HistoryFilter, stored entity.StoredEvent,
-) entity.ClientEvent {
+type enrichment struct {
+	redactions map[int64]entity.ClientEvent
+}
+
+func (s *srv) render(ctx context.Context, v view, scanned []entity.StoredEvent) ([]entity.ClientEvent, error) {
+	kept := make([]entity.StoredEvent, 0, len(scanned))
+	for _, stored := range scanned {
+		if v.history.Visible(stored) && v.filter.Keeps(stored.Event) {
+			kept = append(kept, stored)
+		}
+	}
+	return s.enriched(ctx, v, kept)
+}
+
+func (s *srv) single(ctx context.Context, v view, stored entity.StoredEvent) (entity.ClientEvent, error) {
+	out, err := s.enriched(ctx, v, []entity.StoredEvent{stored})
+	if err != nil {
+		return entity.ClientEvent{}, err
+	}
+	return out[0], nil
+}
+
+func (s *srv) enriched(ctx context.Context, v view, kept []entity.StoredEvent) ([]entity.ClientEvent, error) {
+	extra, err := s.enrich(ctx, v, kept)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]entity.ClientEvent, 0, len(kept))
+	for _, stored := range kept {
+		out = append(out, s.clientEvent(ctx, v, extra, stored))
+	}
+	return out, nil
+}
+
+func (s *srv) enrich(ctx context.Context, v view, kept []entity.StoredEvent) (enrichment, error) {
+	redactions, err := s.redactions(ctx, v, kept)
+	if err != nil {
+		return enrichment{}, err
+	}
+	return enrichment{redactions: redactions}, nil
+}
+
+func (s *srv) redactions(ctx context.Context, v view, kept []entity.StoredEvent) (map[int64]entity.ClientEvent, error) {
+	var nids []int64
+	for _, stored := range kept {
+		if stored.RedactedByNID != 0 {
+			nids = append(nids, stored.RedactedByNID)
+		}
+	}
+	if len(nids) == 0 {
+		return nil, nil
+	}
+
+	found, err := s.events.Many(ctx, nids)
+	if err != nil {
+		return nil, err
+	}
+	now := s.clock().UTC().UnixMilli()
+	out := make(map[int64]entity.ClientEvent, len(found))
+	for _, stored := range found {
+		if !v.history.Visible(stored) {
+			continue
+		}
+		out[stored.NID] = entity.ClientEvent{
+			Event: stored.Event,
+			Age:   now - stored.Event.OriginServerTS(),
+		}
+	}
+	return out, nil
+}
+
+func (s *srv) clientEvent(ctx context.Context, v view, extra enrichment, stored entity.StoredEvent) entity.ClientEvent {
 	client := entity.ClientEvent{
 		Event:      stored.Event,
 		Age:        s.clock().UTC().UnixMilli() - stored.Event.OriginServerTS(),
-		Membership: history.MembershipAt(entity.PositionOf(stored)),
+		Membership: v.history.MembershipAt(entity.PositionOf(stored)),
 	}
-	if deviceID != "" && stored.Event.Sender() == caller {
+	if v.deviceID != "" && stored.Event.Sender() == v.caller {
 		client.TransactionID, _ = s.events.TransactionFor(ctx, entity.TransactionSender{
-			TenantID: scope.ID(),
-			UserID:   caller,
-			DeviceID: deviceID,
+			TenantID: v.scope.ID(),
+			UserID:   v.caller,
+			DeviceID: v.deviceID,
 		}, stored.Event.ID())
+	}
+	if because, ok := extra.redactions[stored.RedactedByNID]; ok {
+		client.RedactedBecause = &because
 	}
 	return client
 }
