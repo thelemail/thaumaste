@@ -18,8 +18,10 @@ fetch_complement() {
 	fi
 	if [ "$(git -C "$COMPLEMENT_DIR" rev-parse HEAD)" != "$COMPLEMENT_SHA" ]; then
 		git -C "$COMPLEMENT_DIR" fetch -q origin
-		git -C "$COMPLEMENT_DIR" checkout -q "$COMPLEMENT_SHA"
 	fi
+	git -C "$COMPLEMENT_DIR" checkout -q --detach "$COMPLEMENT_SHA"
+	git -C "$COMPLEMENT_DIR" reset -q --hard "$COMPLEMENT_SHA"
+	git -C "$COMPLEMENT_DIR" clean -qfd
 }
 
 build_image() {
