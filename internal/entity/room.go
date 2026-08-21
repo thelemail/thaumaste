@@ -84,6 +84,7 @@ type StoredEvent struct {
 	InstanceName        string
 	StateSnapshotNID    int64
 	Disposition         Disposition
+	RedactedByNID       int64
 }
 
 func (StoredEvent) Validate() error { return nil }

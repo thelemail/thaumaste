@@ -16,6 +16,7 @@ import (
 	"github.com/thelemail/thaumaste/internal/pkg/serialiser"
 	"github.com/thelemail/thaumaste/internal/repository"
 	"github.com/thelemail/thaumaste/internal/repository/event"
+	"github.com/thelemail/thaumaste/internal/repository/relation"
 	"github.com/thelemail/thaumaste/internal/repository/room"
 	"github.com/thelemail/thaumaste/internal/repository/roommember"
 	"github.com/thelemail/thaumaste/internal/repository/signingkey"
@@ -85,7 +86,7 @@ func buildHarness(t *testing.T, wrap func(repository.Transactor) repository.Tran
 	if wrap != nil {
 		tx = wrap(tx)
 	}
-	eventSvc := events.New(room.New(pg, eventRepo), eventRepo, state.New(pg), roommember.New(pg), transaction.New(pg),
+	eventSvc := events.New(room.New(pg, eventRepo), eventRepo, state.New(pg), roommember.New(pg), relation.New(pg), transaction.New(pg),
 		tenantSvc, tx, stream, nil, serialiser.New(), "test", nil, nil)
 
 	return &harness{events: eventSvc, tenants: tenantSvc, stream: stream, db: pg}

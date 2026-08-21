@@ -205,6 +205,10 @@ func (p PowerLevels) CanKick(userID string) bool {
 	return p.UserLevel(userID).AtLeast(Power(p.Kick))
 }
 
+func (p PowerLevels) CanRedact(userID string) bool {
+	return p.UserLevel(userID).AtLeast(Power(p.Redact))
+}
+
 func (p PowerLevels) CanBan(userID string) bool {
 	return p.UserLevel(userID).AtLeast(Power(p.Ban))
 }

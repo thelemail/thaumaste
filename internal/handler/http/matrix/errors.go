@@ -37,6 +37,7 @@ const (
 	codeBadState     errorCode = "M_BAD_STATE"
 	codeCannotGrant  errorCode = "M_UNABLE_TO_GRANT_JOIN"
 	codeTooLarge     errorCode = "M_TOO_LARGE"
+	codeDuplicate    errorCode = "M_DUPLICATE_ANNOTATION"
 )
 
 type errorEnvelope struct {

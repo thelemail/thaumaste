@@ -17,6 +17,7 @@ import (
 	"github.com/thelemail/thaumaste/internal/repository/device"
 	"github.com/thelemail/thaumaste/internal/repository/event"
 	"github.com/thelemail/thaumaste/internal/repository/refreshtoken"
+	"github.com/thelemail/thaumaste/internal/repository/relation"
 	"github.com/thelemail/thaumaste/internal/repository/room"
 	"github.com/thelemail/thaumaste/internal/repository/roommember"
 	"github.com/thelemail/thaumaste/internal/repository/signingkey"
@@ -63,6 +64,7 @@ func InitializeServe(ctx context.Context, cfg config.Config) (*ServeRuntime, fun
 	repositoryRoom := room.New(client, repositoryEvent)
 	repositoryState := state.New(client)
 	roomMember := roommember.New(client)
+	repositoryRelation := relation.New(client)
 	repositoryTransaction := transaction.New(client)
 	stream, err := provideEventStream(ctx, client, server)
 	if err != nil {
@@ -76,7 +78,7 @@ func InitializeServe(ctx context.Context, cfg config.Config) (*ServeRuntime, fun
 		return nil, nil, err
 	}
 	serialiser := provideSerialiser()
-	events := provideEvents(repositoryRoom, repositoryEvent, repositoryState, roomMember, repositoryTransaction, tenants, transactor, stream, valkeyClient, serialiser, server, v)
+	events := provideEvents(repositoryRoom, repositoryEvent, repositoryState, roomMember, repositoryRelation, repositoryTransaction, tenants, transactor, stream, valkeyClient, serialiser, server, v)
 	repositoryAlias := alias.New(client)
 	sendLimits := provideSendLimits(limits)
 	serviceRooms := rooms.New(events, users, repositoryRoom, repositoryAlias, roomMember, transactor, valkeyClient, sendLimits, v)

@@ -58,15 +58,18 @@ var EventTypeWhere = struct {
 
 // EventTypeRels is where relationship names are stored.
 var EventTypeRels = struct {
+	EventTypeNidEventRelations    string
 	EventTypeNidEvents            string
 	EventTypeNidStateBlockEntries string
 }{
+	EventTypeNidEventRelations:    "EventTypeNidEventRelations",
 	EventTypeNidEvents:            "EventTypeNidEvents",
 	EventTypeNidStateBlockEntries: "EventTypeNidStateBlockEntries",
 }
 
 // eventTypeR is where relationships are stored.
 type eventTypeR struct {
+	EventTypeNidEventRelations    EventRelationSlice   `boil:"EventTypeNidEventRelations" json:"EventTypeNidEventRelations" toml:"EventTypeNidEventRelations" yaml:"EventTypeNidEventRelations"`
 	EventTypeNidEvents            EventSlice           `boil:"EventTypeNidEvents" json:"EventTypeNidEvents" toml:"EventTypeNidEvents" yaml:"EventTypeNidEvents"`
 	EventTypeNidStateBlockEntries StateBlockEntrySlice `boil:"EventTypeNidStateBlockEntries" json:"EventTypeNidStateBlockEntries" toml:"EventTypeNidStateBlockEntries" yaml:"EventTypeNidStateBlockEntries"`
 }
@@ -74,6 +77,22 @@ type eventTypeR struct {
 // NewStruct creates a new relationship struct
 func (*eventTypeR) NewStruct() *eventTypeR {
 	return &eventTypeR{}
+}
+
+func (o *EventType) GetEventTypeNidEventRelations() EventRelationSlice {
+	if o == nil {
+		return nil
+	}
+
+	return o.R.GetEventTypeNidEventRelations()
+}
+
+func (r *eventTypeR) GetEventTypeNidEventRelations() EventRelationSlice {
+	if r == nil {
+		return nil
+	}
+
+	return r.EventTypeNidEventRelations
 }
 
 func (o *EventType) GetEventTypeNidEvents() EventSlice {
@@ -424,6 +443,20 @@ func (q eventTypeQuery) Exists(ctx context.Context, exec boil.ContextExecutor) (
 	return count > 0, nil
 }
 
+// EventTypeNidEventRelations retrieves all the event_relation's EventRelations with an executor via event_type_nid column.
+func (o *EventType) EventTypeNidEventRelations(mods ...qm.QueryMod) eventRelationQuery {
+	var queryMods []qm.QueryMod
+	if len(mods) != 0 {
+		queryMods = append(queryMods, mods...)
+	}
+
+	queryMods = append(queryMods,
+		qm.Where("\"event_relations\".\"event_type_nid\"=?", o.EventTypeNid),
+	)
+
+	return EventRelations(queryMods...)
+}
+
 // EventTypeNidEvents retrieves all the event's Events with an executor via event_type_nid column.
 func (o *EventType) EventTypeNidEvents(mods ...qm.QueryMod) eventQuery {
 	var queryMods []qm.QueryMod
@@ -450,6 +483,119 @@ func (o *EventType) EventTypeNidStateBlockEntries(mods ...qm.QueryMod) stateBloc
 	)
 
 	return StateBlockEntries(queryMods...)
+}
+
+// LoadEventTypeNidEventRelations allows an eager lookup of values, cached into the
+// loaded structs of the objects. This is for a 1-M or N-M relationship.
+func (eventTypeL) LoadEventTypeNidEventRelations(ctx context.Context, e boil.ContextExecutor, singular bool, maybeEventType any, mods queries.Applicator) error {
+	var slice []*EventType
+	var object *EventType
+
+	if singular {
+		var ok bool
+		object, ok = maybeEventType.(*EventType)
+		if !ok {
+			object = new(EventType)
+			ok = queries.SetFromEmbeddedStruct(&object, &maybeEventType)
+			if !ok {
+				return errors.New(fmt.Sprintf("failed to set %T from embedded struct %T", object, maybeEventType))
+			}
+		}
+	} else {
+		s, ok := maybeEventType.(*[]*EventType)
+		if ok {
+			slice = *s
+		} else {
+			ok = queries.SetFromEmbeddedStruct(&slice, maybeEventType)
+			if !ok {
+				return errors.New(fmt.Sprintf("failed to set %T from embedded struct %T", slice, maybeEventType))
+			}
+		}
+	}
+
+	args := make(map[any]struct{})
+	if singular {
+		if object.R == nil {
+			object.R = &eventTypeR{}
+		}
+		args[object.EventTypeNid] = struct{}{}
+	} else {
+		for _, obj := range slice {
+			if obj.R == nil {
+				obj.R = &eventTypeR{}
+			}
+			args[obj.EventTypeNid] = struct{}{}
+		}
+	}
+
+	if len(args) == 0 {
+		return nil
+	}
+
+	argsSlice := make([]any, len(args))
+	i := 0
+	for arg := range args {
+		argsSlice[i] = arg
+		i++
+	}
+
+	query := NewQuery(
+		qm.From(`event_relations`),
+		qm.WhereIn(`event_relations.event_type_nid in ?`, argsSlice...),
+	)
+	if mods != nil {
+		mods.Apply(query)
+	}
+
+	results, err := query.QueryContext(ctx, e)
+	if err != nil {
+		return errors.Wrap(err, "failed to eager load event_relations")
+	}
+
+	var resultSlice []*EventRelation
+	if err = queries.Bind(results, &resultSlice); err != nil {
+		return errors.Wrap(err, "failed to bind eager loaded slice event_relations")
+	}
+
+	if err = results.Close(); err != nil {
+		return errors.Wrap(err, "failed to close results in eager load on event_relations")
+	}
+	if err = results.Err(); err != nil {
+		return errors.Wrap(err, "error occurred during iteration of eager loaded relations for event_relations")
+	}
+
+	if len(eventRelationAfterSelectHooks) != 0 {
+		for _, obj := range resultSlice {
+			if err := obj.doAfterSelectHooks(ctx, e); err != nil {
+				return err
+			}
+		}
+	}
+	if singular {
+		object.R.EventTypeNidEventRelations = resultSlice
+		for _, foreign := range resultSlice {
+			if foreign.R == nil {
+				foreign.R = &eventRelationR{}
+			}
+			foreign.R.EventTypeNidEventType = object
+		}
+		return nil
+	}
+
+	for _, foreign := range resultSlice {
+		for _, local := range slice {
+			if local.EventTypeNid == foreign.EventTypeNid {
+				local.R.EventTypeNidEventRelations = append(local.R.EventTypeNidEventRelations, foreign)
+				if foreign.R == nil {
+					foreign.R = &eventRelationR{}
+				}
+				foreign.R.EventTypeNidEventType = local
+				break
+			}
+		}
+	}
+
+	return nil
 }
 
 // LoadEventTypeNidEvents allows an eager lookup of values, cached into the
@@ -675,6 +821,59 @@ func (eventTypeL) LoadEventTypeNidStateBlockEntries(ctx context.Context, e boil.
 		}
 	}
 
+	return nil
+}
+
+// AddEventTypeNidEventRelations adds the given related objects to the existing relationships
+// of the event_type, optionally inserting them as new records.
+// Appends related to o.R.EventTypeNidEventRelations.
+// Sets related.R.EventTypeNidEventType appropriately.
+func (o *EventType) AddEventTypeNidEventRelations(ctx context.Context, exec boil.ContextExecutor, insert bool, related ...*EventRelation) error {
+	var err error
+	for _, rel := range related {
+		if insert {
+			rel.EventTypeNid = o.EventTypeNid
+			if err = rel.Insert(ctx, exec, boil.Infer()); err != nil {
+				return errors.Wrap(err, "failed to insert into foreign table")
+			}
+		} else {
+			updateQuery := fmt.Sprintf(
+				"UPDATE \"event_relations\" SET %s WHERE %s",
+				strmangle.SetParamNames("\"", "\"", 1, []string{"event_type_nid"}),
+				strmangle.WhereClause("\"", "\"", 2, eventRelationPrimaryKeyColumns),
+			)
+			values := []any{o.EventTypeNid, rel.ChildNid}
+
+			if boil.IsDebug(ctx) {
+				writer := boil.DebugWriterFrom(ctx)
+				fmt.Fprintln(writer, updateQuery)
+				fmt.Fprintln(writer, values)
+			}
+			if _, err = exec.ExecContext(ctx, updateQuery, values...); err != nil {
+				return errors.Wrap(err, "failed to update foreign table")
+			}
+
+			rel.EventTypeNid = o.EventTypeNid
+		}
+	}
+
+	if o.R == nil {
+		o.R = &eventTypeR{
+			EventTypeNidEventRelations: related,
+		}
+	} else {
+		o.R.EventTypeNidEventRelations = append(o.R.EventTypeNidEventRelations, related...)
+	}
+
+	for _, rel := range related {
+		if rel.R == nil {
+			rel.R = &eventRelationR{
+				EventTypeNidEventType: o,
+			}
+		} else {
+			rel.R.EventTypeNidEventType = o
+		}
+	}
 	return nil
 }
 

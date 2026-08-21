@@ -211,12 +211,21 @@ func writeRoomError(r *http.Request, w http.ResponseWriter, err error, msg strin
 		writeError(w, http.StatusNotFound, codeNotFound, "Unknown state event")
 	case errors.Is(err, entity.ErrCannotGrantJoin):
 		writeError(w, http.StatusForbidden, codeCannotGrant, "No local user can authorise this join")
+	case errors.Is(err, entity.ErrCannotRedact):
+		writeError(w, http.StatusForbidden, codeForbidden, "You are not permitted to redact that event")
+	case errors.Is(err, entity.ErrRedactionProtected):
+		writeError(w, http.StatusForbidden, codeForbidden, "That event may not be redacted")
+	case errors.Is(err, entity.ErrDuplicateAnnotation):
+		writeError(w, http.StatusBadRequest, codeDuplicate, "An identical annotation already exists")
+	case errors.Is(err, entity.ErrThreadTargetRelated):
+		writeError(w, http.StatusBadRequest, codeUnknown, "A thread cannot start from an event that is itself related")
 	case errors.Is(err, entity.ErrNotBanned), errors.Is(err, entity.ErrNotForgettable):
 		writeError(w, http.StatusBadRequest, codeBadState, "The room is not in a state that allows that")
 	case errors.Is(err, entity.ErrUnknownMembership):
 		writeError(w, http.StatusBadRequest, codeInvalidParam, "Unsupported membership query")
 	case errors.Is(err, entity.ErrBadToken), errors.Is(err, entity.ErrBadDirection),
-		errors.Is(err, entity.ErrBadFilter):
+		errors.Is(err, entity.ErrBadFilter), errors.Is(err, entity.ErrBadInclude),
+		errors.Is(err, entity.ErrRelationTypeUnknown):
 		writeError(w, http.StatusBadRequest, codeInvalidParam, "Invalid pagination request")
 	case errors.Is(err, entity.ErrAliasNotFound):
 		writeError(w, http.StatusNotFound, codeNotFound, "Unknown room alias")

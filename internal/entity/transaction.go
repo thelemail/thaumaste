@@ -11,7 +11,8 @@ const (
 	MaxTransactionIDBytes = 255
 	MaxEndpointBytes      = 64
 
-	EndpointSend = "send"
+	EndpointSend   = "send"
+	EndpointRedact = "redact"
 )
 
 type EventTransaction struct {

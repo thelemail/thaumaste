@@ -6,15 +6,22 @@ import (
 )
 
 type ClientEvent struct {
-	Event         Event
-	Age           int64
-	TransactionID string
-	Membership    string
+	Event           Event
+	Age             int64
+	TransactionID   string
+	Membership      string
+	Relations       *Aggregation
+	RedactedBecause *ClientEvent
 }
 
 func (c ClientEvent) JSON() (json.RawMessage, error) {
 	fields := c.Event.Fields()
 	fields["event_id"] = c.Event.ID()
+	if c.Event.Type() == EventTypeRedaction {
+		if redacts, ok := c.Event.Content()[redactsKey].(string); ok {
+			fields[redactsKey] = redacts
+		}
+	}
 
 	unsigned := map[string]any{"age": c.Age}
 	if c.TransactionID != "" {
@@ -22,6 +29,20 @@ func (c ClientEvent) JSON() (json.RawMessage, error) {
 	}
 	if c.Membership != "" {
 		unsigned["membership"] = c.Membership
+	}
+	relations, err := c.Relations.json()
+	if err != nil {
+		return nil, err
+	}
+	if relations != nil {
+		unsigned["m.relations"] = relations
+	}
+	if c.RedactedBecause != nil {
+		because, err := c.RedactedBecause.JSON()
+		if err != nil {
+			return nil, err
+		}
+		unsigned["redacted_because"] = because
 	}
 	fields["unsigned"] = unsigned
 
