@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/thelemail/thaumaste/internal/entity"
@@ -20,6 +21,28 @@ import (
 const opaqueRoomIDBytes = 10
 
 var opaqueEncoding = base32.StdEncoding.WithPadding(base32.NoPadding)
+
+type positionsKey struct{}
+
+type heldPositions struct {
+	mu  sync.Mutex
+	all []*postgres.Positions
+}
+
+func (h *heldPositions) hold(p *postgres.Positions) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.all = append(h.all, p)
+}
+
+func (h *heldPositions) release() {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	for _, p := range h.all {
+		p.Release()
+	}
+	h.all = nil
+}
 
 type srv struct {
 	rooms      repository.Room
@@ -102,7 +125,7 @@ func (s *srv) CreateRoom(ctx context.Context, scope entity.TenantScope, in entit
 		room    entity.Room
 		written []entity.StoredEvent
 	)
-	err = s.serialiser.Do(ctx, roomID, func(ctx context.Context) error {
+	err = s.write(ctx, roomID, func(ctx context.Context) error {
 		written = nil
 		return s.tx.WithTx(ctx, func(ctx context.Context) error {
 			room, err = s.rooms.Create(ctx, entity.NewRoom{
@@ -215,7 +238,7 @@ func (s *srv) Send(ctx context.Context, scope entity.TenantScope, in entity.NewE
 	}
 
 	var stored entity.StoredEvent
-	err := s.serialiser.Do(ctx, in.RoomID, func(ctx context.Context) error {
+	err := s.write(ctx, in.RoomID, func(ctx context.Context) error {
 		return s.tx.WithTx(ctx, func(ctx context.Context) error {
 			var err error
 			stored, err = s.send(ctx, scope, in)
@@ -292,12 +315,31 @@ func (s *srv) send(ctx context.Context, scope entity.TenantScope, in entity.NewE
 	return stored, nil
 }
 
-func (s *srv) persist(ctx context.Context, scope entity.TenantScope, room entity.Room, e entity.Event, before entity.StateMap) (entity.StoredEvent, error) {
+func (s *srv) write(ctx context.Context, roomID string, fn func(context.Context) error) error {
+	held := &heldPositions{}
+	defer held.release()
+
+	return s.serialiser.Do(context.WithValue(ctx, positionsKey{}, held), roomID, fn)
+}
+
+func (s *srv) nextPosition(ctx context.Context) (int64, error) {
+	held, ok := ctx.Value(positionsKey{}).(*heldPositions)
+	if !ok {
+		return 0, entity.ErrUnorderedWrite
+	}
 	positions, err := s.stream.Next(ctx, 1)
+	if err != nil {
+		return 0, err
+	}
+	held.hold(positions)
+	return positions.IDs[0], nil
+}
+
+func (s *srv) persist(ctx context.Context, scope entity.TenantScope, room entity.Room, e entity.Event, before entity.StateMap) (entity.StoredEvent, error) {
+	position, err := s.nextPosition(ctx)
 	if err != nil {
 		return entity.StoredEvent{}, err
 	}
-	defer positions.Release()
 
 	local, err := s.senderIsLocal(e.Sender(), scope)
 	if err != nil {
@@ -308,7 +350,7 @@ func (s *srv) persist(ctx context.Context, scope entity.TenantScope, room entity
 		RoomNID:             room.NID,
 		Event:               e,
 		SenderIsLocal:       local,
-		StreamOrdering:      positions.IDs[0],
+		StreamOrdering:      position,
 		TopologicalOrdering: e.Depth(),
 		InstanceName:        s.instance,
 		Disposition:         entity.DispositionAccepted,

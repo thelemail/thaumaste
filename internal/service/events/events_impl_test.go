@@ -1,8 +1,10 @@
 package events_test
 
 import (
+	"context"
 	"errors"
 	"slices"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -10,6 +12,7 @@ import (
 	"github.com/thelemail/thaumaste/internal/pkg/keyseal"
 	"github.com/thelemail/thaumaste/internal/pkg/postgres"
 	"github.com/thelemail/thaumaste/internal/pkg/serialiser"
+	"github.com/thelemail/thaumaste/internal/repository"
 	"github.com/thelemail/thaumaste/internal/repository/event"
 	"github.com/thelemail/thaumaste/internal/repository/room"
 	"github.com/thelemail/thaumaste/internal/repository/roommember"
@@ -25,10 +28,40 @@ import (
 type harness struct {
 	events  service.Events
 	tenants service.Tenants
+	stream  *postgres.Stream
 	db      *postgres.Client
 }
 
+type heldTx struct {
+	inner   repository.Transactor
+	armed   *atomic.Bool
+	entered chan struct{}
+	release chan struct{}
+}
+
+func newHeldTx() heldTx {
+	return heldTx{armed: new(atomic.Bool), entered: make(chan struct{}), release: make(chan struct{})}
+}
+
+func (h heldTx) WithTx(ctx context.Context, fn func(context.Context) error) error {
+	return h.inner.WithTx(ctx, func(ctx context.Context) error {
+		if err := fn(ctx); err != nil {
+			return err
+		}
+		if h.armed.CompareAndSwap(true, false) {
+			close(h.entered)
+			<-h.release
+		}
+		return nil
+	})
+}
+
 func newHarness(t *testing.T) *harness {
+	t.Helper()
+	return buildHarness(t, nil)
+}
+
+func buildHarness(t *testing.T, wrap func(repository.Transactor) repository.Transactor) *harness {
 	t.Helper()
 	pg := pgtest.Connect(t, "tenants")
 
@@ -45,10 +78,14 @@ func newHarness(t *testing.T) *harness {
 	if err != nil {
 		t.Fatalf("NewStream: %v", err)
 	}
+	var tx repository.Transactor = pg
+	if wrap != nil {
+		tx = wrap(tx)
+	}
 	eventSvc := events.New(room.New(pg, eventRepo), eventRepo, state.New(pg), roommember.New(pg),
-		tenantSvc, pg, stream, serialiser.New(), "test", nil, nil)
+		tenantSvc, tx, stream, serialiser.New(), "test", nil, nil)
 
-	return &harness{events: eventSvc, tenants: tenantSvc, db: pg}
+	return &harness{events: eventSvc, tenants: tenantSvc, stream: stream, db: pg}
 }
 
 func (h *harness) tenant(t *testing.T, serverName string) entity.Tenant {
@@ -544,5 +581,76 @@ func TestTheClockIsTheOriginServerTimestamp(t *testing.T) {
 	ts := time.UnixMilli(timeline[0].Event.OriginServerTS())
 	if time.Since(ts) > time.Minute || ts.After(time.Now().Add(time.Minute)) {
 		t.Fatalf("origin_server_ts = %s", ts)
+	}
+}
+
+func TestTheWatermarkNeverPassesAnUncommittedEvent(t *testing.T) {
+	held := newHeldTx()
+	h := buildHarness(t, func(inner repository.Transactor) repository.Transactor {
+		held.inner = inner
+		return held
+	})
+
+	of := h.tenant(t, "watermark.example")
+	room, creator, _ := h.room(t, of, entity.RoomVersion11)
+
+	settled := h.stream.Current()
+	held.armed.Store(true)
+
+	done := make(chan error, 1)
+	go func() {
+		_, err := h.events.Send(t.Context(), of.Scope(), entity.NewEvent{
+			RoomID: room.RoomID, Type: entity.EventTypeMessage, Sender: creator,
+			Content: map[string]any{"msgtype": "m.text", "body": "in flight"},
+		})
+		done <- err
+	}()
+
+	select {
+	case <-held.entered:
+	case err := <-done:
+		t.Fatalf("Send finished without holding the transaction: %v", err)
+	case <-time.After(10 * time.Second):
+		t.Fatal("Send never reached the transaction")
+	}
+
+	if got := h.stream.Current(); got != settled {
+		t.Fatalf("watermark = %d, want %d: it moved to a position whose transaction had not committed", got, settled)
+	}
+
+	close(held.release)
+	if err := <-done; err != nil {
+		t.Fatalf("Send: %v", err)
+	}
+
+	if got := h.stream.Current(); got <= settled {
+		t.Fatalf("watermark = %d, want above %d once the write committed", got, settled)
+	}
+}
+
+func TestARefusedSendDoesNotStallTheWatermark(t *testing.T) {
+	h := newHarness(t)
+	of := h.tenant(t, "stall.example")
+	room, creator, _ := h.room(t, of, entity.RoomVersion11)
+
+	_, err := h.events.Send(t.Context(), of.Scope(), entity.NewEvent{
+		RoomID: room.RoomID, Type: entity.EventTypeMessage, Sender: "@stranger:" + of.ServerName,
+		Content: map[string]any{"msgtype": "m.text", "body": "not mine to send"},
+	})
+	if !errors.Is(err, entity.ErrAuthFailed) {
+		t.Fatalf("Send error = %v, want %v", err, entity.ErrAuthFailed)
+	}
+
+	refused := h.stream.Current()
+	stored := h.send(t, of, entity.NewEvent{
+		RoomID: room.RoomID, Type: entity.EventTypeMessage, Sender: creator,
+		Content: map[string]any{"msgtype": "m.text", "body": "mine to send"},
+	})
+
+	if got := h.stream.Current(); got < stored.StreamOrdering {
+		t.Fatalf("watermark = %d, want at least %d: the refused write pinned the stream", got, stored.StreamOrdering)
+	}
+	if stored.StreamOrdering <= refused {
+		t.Fatalf("stream ordering = %d, want above %d", stored.StreamOrdering, refused)
 	}
 }
