@@ -9,6 +9,7 @@ import (
 	"github.com/thelemail/thaumaste/internal/config"
 	"github.com/thelemail/thaumaste/internal/entity"
 	"github.com/thelemail/thaumaste/internal/pkg/keyseal"
+	"github.com/thelemail/thaumaste/internal/pkg/notify"
 	"github.com/thelemail/thaumaste/internal/pkg/postgres"
 	"github.com/thelemail/thaumaste/internal/pkg/serialiser"
 	"github.com/thelemail/thaumaste/internal/pkg/valkey"
@@ -58,7 +59,7 @@ func instance(t *testing.T, name string, cfg config.Valkey) *harness {
 		t.Fatalf("NewStream: %v", err)
 	}
 	eventSvc := events.New(room.New(pg, eventRepo), eventRepo, state.New(pg), roommember.New(pg), relation.New(pg), transaction.New(pg),
-		tenantSvc, pg, stream, locks, serialiser.New(), name, nil, nil)
+		tenantSvc, pg, stream, locks, notify.New(nil, "test"), serialiser.New(), name, nil, nil)
 
 	return &harness{events: eventSvc, tenants: tenantSvc, stream: stream, db: pg}
 }

@@ -35,7 +35,7 @@ func (s *srv) Relations(ctx context.Context, scope entity.TenantScope, caller, d
 		return entity.Relations{}, err
 	}
 
-	v := view{scope: scope, caller: caller, deviceID: deviceID, roomID: in.RoomID, history: history}
+	v := entity.TimelineView{Scope: scope, Caller: caller, DeviceID: deviceID, RoomID: in.RoomID, History: history}
 	limit := entity.PageLimit(in.Limit, 0)
 	query := entity.RelationQuery{
 		ParentIDs: []string{in.EventID},
@@ -71,9 +71,9 @@ func (s *srv) Relations(ctx context.Context, scope entity.TenantScope, caller, d
 	return out, nil
 }
 
-func (s *srv) children(ctx context.Context, v view, query entity.RelationQuery, recurse bool) ([]entity.RelationRef, bool, error) {
+func (s *srv) children(ctx context.Context, v entity.TimelineView, query entity.RelationQuery, recurse bool) ([]entity.RelationRef, bool, error) {
 	if !recurse {
-		found, err := s.events.Relations(ctx, v.roomID, query)
+		found, err := s.events.Relations(ctx, v.RoomID, query)
 		if err != nil {
 			return nil, false, err
 		}
@@ -89,7 +89,7 @@ func (s *srv) children(ctx context.Context, v view, query entity.RelationQuery, 
 		if len(frontier) == 0 {
 			break
 		}
-		found, err := s.events.Relations(ctx, v.roomID, entity.RelationQuery{
+		found, err := s.events.Relations(ctx, v.RoomID, entity.RelationQuery{
 			ParentIDs: frontier,
 			RelType:   query.RelType,
 			EventType: query.EventType,
@@ -143,17 +143,17 @@ func within(at entity.Position, query entity.RelationQuery) bool {
 	return true
 }
 
-func visibleRefs(v view, refs []entity.RelationRef) []entity.RelationRef {
+func visibleRefs(v entity.TimelineView, refs []entity.RelationRef) []entity.RelationRef {
 	out := make([]entity.RelationRef, 0, len(refs))
 	for _, ref := range refs {
-		if v.history.VisibleAt(ref.Position, ref.Disposition) {
+		if v.History.VisibleAt(ref.Position, ref.Disposition) {
 			out = append(out, ref)
 		}
 	}
 	return out
 }
 
-func (s *srv) byRef(ctx context.Context, v view, refs []entity.RelationRef) ([]entity.ClientEvent, error) {
+func (s *srv) byRef(ctx context.Context, v entity.TimelineView, refs []entity.RelationRef) ([]entity.ClientEvent, error) {
 	if len(refs) == 0 {
 		return []entity.ClientEvent{}, nil
 	}
@@ -177,7 +177,7 @@ func (s *srv) byRef(ctx context.Context, v view, refs []entity.RelationRef) ([]e
 			ordered = append(ordered, stored)
 		}
 	}
-	return s.enriched(ctx, v, ordered)
+	return s.timeline.Enriched(ctx, v, ordered)
 }
 
 func (s *srv) Threads(ctx context.Context, scope entity.TenantScope, caller, deviceID string,
@@ -195,7 +195,7 @@ func (s *srv) Threads(ctx context.Context, scope entity.TenantScope, caller, dev
 		return entity.Threads{}, err
 	}
 
-	v := view{scope: scope, caller: caller, deviceID: deviceID, roomID: in.RoomID, history: history}
+	v := entity.TimelineView{Scope: scope, Caller: caller, DeviceID: deviceID, RoomID: in.RoomID, History: history}
 	refs, err := s.events.Relations(ctx, in.RoomID, entity.RelationQuery{RelType: entity.RelThread})
 	if err != nil {
 		return entity.Threads{}, err
@@ -254,7 +254,7 @@ func (s *srv) Threads(ctx context.Context, scope entity.TenantScope, caller, dev
 		}
 	}
 
-	chunk, err := s.enriched(ctx, v, selected)
+	chunk, err := s.timeline.Enriched(ctx, v, selected)
 	if err != nil {
 		return entity.Threads{}, err
 	}

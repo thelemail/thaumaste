@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/thelemail/thaumaste/internal/entity"
+	"github.com/thelemail/thaumaste/internal/pkg/notify"
 	"github.com/thelemail/thaumaste/internal/pkg/postgres"
 	"github.com/thelemail/thaumaste/internal/pkg/serialiser"
 	"github.com/thelemail/thaumaste/internal/pkg/valkey"
@@ -57,6 +58,7 @@ type srv struct {
 	tx         repository.Transactor
 	stream     *postgres.Stream
 	locks      *valkey.Client
+	notifier   *notify.Notifier
 	serialiser *serialiser.Serialiser
 	instance   string
 	clock      func() time.Time
@@ -74,6 +76,7 @@ func New(
 	tx repository.Transactor,
 	stream *postgres.Stream,
 	locks *valkey.Client,
+	notifier *notify.Notifier,
 	gate *serialiser.Serialiser,
 	instance string,
 	clock func() time.Time,
@@ -88,7 +91,7 @@ func New(
 	return &srv{
 		rooms: rooms, events: events, state: state, members: members, relations: relations,
 		txns: txns, tenants: tenants, tx: tx,
-		stream: stream, locks: locks, serialiser: gate, instance: instance, clock: clock, rnd: rnd,
+		stream: stream, locks: locks, notifier: notifier, serialiser: gate, instance: instance, clock: clock, rnd: rnd,
 	}
 }
 
@@ -171,6 +174,7 @@ func (s *srv) CreateRoom(ctx context.Context, scope entity.TenantScope, in entit
 	if err != nil {
 		return entity.Room{}, nil, err
 	}
+	s.announce(ctx, written...)
 	return room, written, nil
 }
 
@@ -253,6 +257,7 @@ func (s *srv) Send(ctx context.Context, scope entity.TenantScope, in entity.NewE
 	if err != nil {
 		return entity.StoredEvent{}, err
 	}
+	s.announce(ctx, stored)
 	return stored, nil
 }
 
@@ -373,6 +378,22 @@ func (s *srv) recordTransaction(ctx context.Context, scope entity.TenantScope, i
 	return s.txns.Record(ctx, record)
 }
 
+func (s *srv) announce(ctx context.Context, written ...entity.StoredEvent) {
+	if s.notifier == nil || len(written) == 0 {
+		return
+	}
+	keys := []string{entity.RoomWakeKey(written[0].Event.RoomID())}
+	for _, stored := range written {
+		if stored.Event.Type() != entity.EventTypeMember {
+			continue
+		}
+		if target, ok := stored.Event.StateKey(); ok {
+			keys = append(keys, entity.UserWakeKey(target))
+		}
+	}
+	s.notifier.Notify(ctx, keys...)
+}
+
 func (s *srv) write(ctx context.Context, roomID string, fn func(context.Context) error) error {
 	held := &heldPositions{}
 	defer held.release()
@@ -469,7 +490,14 @@ func (s *srv) persist(ctx context.Context, scope entity.TenantScope, room entity
 	if err := s.projectRelation(ctx, room, stored); err != nil {
 		return entity.StoredEvent{}, err
 	}
+	if err := s.projectActivity(ctx, room, stored); err != nil {
+		return entity.StoredEvent{}, err
+	}
 	return stored, nil
+}
+
+func (s *srv) projectActivity(ctx context.Context, room entity.Room, stored entity.StoredEvent) error {
+	return s.rooms.SetActivity(ctx, room.NID, stored.StreamOrdering, entity.Bumping(stored.Event.Type()))
 }
 
 func (s *srv) Redact(ctx context.Context, scope entity.TenantScope, in entity.NewRedaction) (entity.StoredEvent, error) {
@@ -486,6 +514,7 @@ func (s *srv) Redact(ctx context.Context, scope entity.TenantScope, in entity.Ne
 	if err != nil {
 		return entity.StoredEvent{}, err
 	}
+	s.announce(ctx, stored)
 	return stored, nil
 }
 
@@ -731,15 +760,8 @@ func (s *srv) Event(ctx context.Context, eventID string) (entity.StoredEvent, er
 	return stored, nil
 }
 
-func (s *srv) TransactionFor(ctx context.Context, sender entity.TransactionSender, eventID string) (string, error) {
-	recorded, err := s.txns.ForEvent(ctx, sender, eventID)
-	if err != nil {
-		if errors.Is(err, repository.ErrTransactionNotFound) {
-			return "", nil
-		}
-		return "", err
-	}
-	return recorded.TxnID, nil
+func (s *srv) TransactionsFor(ctx context.Context, sender entity.TransactionSender, eventIDs []string) (map[string]string, error) {
+	return s.txns.ForEvents(ctx, sender, eventIDs)
 }
 
 func (s *srv) SweepTransactions(ctx context.Context, cutoff time.Time) (int64, error) {

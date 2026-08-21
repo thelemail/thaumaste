@@ -12,6 +12,7 @@ import (
 
 	"github.com/thelemail/thaumaste/internal/entity"
 	"github.com/thelemail/thaumaste/internal/pkg/keyseal"
+	"github.com/thelemail/thaumaste/internal/pkg/notify"
 	"github.com/thelemail/thaumaste/internal/pkg/postgres"
 	"github.com/thelemail/thaumaste/internal/pkg/serialiser"
 	"github.com/thelemail/thaumaste/internal/repository"
@@ -67,7 +68,7 @@ func newHarness(t *testing.T) *harness {
 
 func buildHarness(t *testing.T, wrap func(repository.Transactor) repository.Transactor) *harness {
 	t.Helper()
-	pg := pgtest.Connect(t, "tenants")
+	pg := pgtest.Connect(t, "tenants", "stream_positions")
 
 	sealer, err := keyseal.NewWithKey(make([]byte, keyseal.MasterKeySize))
 	if err != nil {
@@ -87,7 +88,7 @@ func buildHarness(t *testing.T, wrap func(repository.Transactor) repository.Tran
 		tx = wrap(tx)
 	}
 	eventSvc := events.New(room.New(pg, eventRepo), eventRepo, state.New(pg), roommember.New(pg), relation.New(pg), transaction.New(pg),
-		tenantSvc, tx, stream, nil, serialiser.New(), "test", nil, nil)
+		tenantSvc, tx, stream, nil, notify.New(nil, "test"), serialiser.New(), "test", nil, nil)
 
 	return &harness{events: eventSvc, tenants: tenantSvc, stream: stream, db: pg}
 }

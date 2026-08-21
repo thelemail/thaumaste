@@ -56,5 +56,5 @@ func (s *srv) Event(ctx context.Context, scope entity.TenantScope, caller, devic
 	if !history.Visible(stored) {
 		return entity.ClientEvent{}, entity.ErrEventNotFound
 	}
-	return s.single(ctx, view{scope: scope, caller: caller, deviceID: deviceID, roomID: roomID, history: history}, stored)
+	return s.timeline.Single(ctx, entity.TimelineView{Scope: scope, Caller: caller, DeviceID: deviceID, RoomID: roomID, History: history}, stored)
 }
