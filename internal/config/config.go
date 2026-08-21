@@ -21,6 +21,7 @@ type Config struct {
 	Auth     Auth
 	Limits   Limits
 	Sync     Sync
+	Keys     Keys
 	Logger   Logger
 }
 
@@ -134,6 +135,12 @@ type Sync struct {
 	ConnectionTTL   time.Duration `env:"THAUMASTE_SYNC_CONNECTION_TTL"   envDefault:"1h"`
 	SweepEvery      time.Duration `env:"THAUMASTE_SYNC_SWEEP_EVERY"      envDefault:"10m"`
 	MaxRoomsPerSync int           `env:"THAUMASTE_SYNC_MAX_ROOMS"        envDefault:"200"`
+}
+
+type Keys struct {
+	MaxOneTimeKeys  int `env:"THAUMASTE_KEYS_MAX_ONE_TIME"     envDefault:"200"`
+	MaxQueryUsers   int `env:"THAUMASTE_KEYS_MAX_QUERY_USERS"  envDefault:"200"`
+	MaxClaimDevices int `env:"THAUMASTE_KEYS_MAX_CLAIM_DEVICES" envDefault:"200"`
 }
 
 type Logger struct {
