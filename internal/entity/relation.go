@@ -60,15 +60,6 @@ func RelationOf(e Event) (Relation, bool) {
 	return ParseRelation(e.Content())
 }
 
-func Aggregated(relType string) bool {
-	switch relType {
-	case RelReplace, RelThread, RelReference:
-		return true
-	default:
-		return false
-	}
-}
-
 func ValidReplacement(parent, child Event) bool {
 	switch {
 	case parent.RoomID() != child.RoomID():

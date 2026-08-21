@@ -55,14 +55,6 @@ func Redactable(e Event) bool {
 	return e.Type() != EventTypeEncryption
 }
 
-func RedactionTarget(e Event) (string, bool) {
-	if e.Type() != EventTypeRedaction {
-		return "", false
-	}
-	target, ok := e.Content()[redactsKey].(string)
-	return target, ok
-}
-
 type redactionRules struct {
 	topLevel   []string
 	content    map[string][]string
