@@ -171,3 +171,41 @@ func TestAServerWithNoAddressIsAConfigurationError(t *testing.T) {
 		t.Fatalf("New error = %v, want %v", err, valkey.ErrNoAddress)
 	}
 }
+
+func TestWaitingForALockGivesUpRatherThanHangingForever(t *testing.T) {
+	settings := valkeytest.Settings(t)
+	settings.LockValidity = 300 * time.Millisecond
+	valkeytest.Require(t, settings)
+
+	holder, err := valkey.New(t.Context(), settings, limits())
+	if err != nil {
+		t.Fatalf("valkey: %v", err)
+	}
+	t.Cleanup(holder.Close)
+
+	waiter, err := valkey.New(t.Context(), settings, limits())
+	if err != nil {
+		t.Fatalf("valkey: %v", err)
+	}
+	t.Cleanup(waiter.Close)
+
+	_, release, err := holder.Lock(t.Context(), "contended")
+	if err != nil {
+		t.Fatalf("Lock: %v", err)
+	}
+	defer release()
+
+	started := time.Now()
+	_, _, err = waiter.Lock(t.Context(), "contended")
+	waited := time.Since(started)
+
+	if err == nil {
+		t.Fatal("a second caller took a lock that was already held")
+	}
+	if !errors.Is(err, valkey.ErrUnavailable) {
+		t.Fatalf("waiting for a held lock returned %v, want it to read as unavailable", err)
+	}
+	if waited > 5*time.Second {
+		t.Fatalf("waiting for a held lock took %s", waited)
+	}
+}

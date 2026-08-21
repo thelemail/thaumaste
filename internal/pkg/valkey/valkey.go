@@ -17,7 +17,10 @@ import (
 	"github.com/thelemail/thaumaste/internal/config"
 )
 
-const reconnectEvery = 5 * time.Second
+const (
+	reconnectEvery  = 5 * time.Second
+	defaultLockWait = 10 * time.Second
+)
 
 var (
 	ErrUnavailable = errors.New("valkey: unavailable")
@@ -144,19 +147,56 @@ func (c *Client) drop(current *session, err error) error {
 	return fmt.Errorf("%w: %w", ErrUnavailable, err)
 }
 
+type lease struct {
+	held    context.Context
+	release context.CancelFunc
+	err     error
+}
+
 func (c *Client) Lock(ctx context.Context, name string) (context.Context, context.CancelFunc, error) {
 	live := c.live.Load()
 	if live == nil {
 		return nil, nil, ErrUnavailable
 	}
-	held, release, err := live.locker.WithContext(ctx, name)
-	if err != nil {
-		if ctx.Err() != nil {
-			return nil, nil, ctx.Err()
+
+	acquiring, abandon := context.WithCancel(ctx)
+	taken := make(chan lease, 1)
+	go func() {
+		held, release, err := live.locker.WithContext(acquiring, name)
+		taken <- lease{held: held, release: release, err: err}
+	}()
+
+	timer := time.NewTimer(c.waitFor())
+	defer timer.Stop()
+
+	select {
+	case result := <-taken:
+		if result.err != nil {
+			abandon()
+			if ctx.Err() != nil {
+				return nil, nil, ctx.Err()
+			}
+			return nil, nil, c.drop(live, result.err)
 		}
-		return nil, nil, c.drop(live, err)
+		return result.held, func() { result.release(); abandon() }, nil
+	case <-timer.C:
+		abandon()
+		go releaseLate(taken)
+		return nil, nil, fmt.Errorf("%w: %q is held elsewhere", ErrUnavailable, name)
 	}
-	return held, release, nil
+}
+
+func releaseLate(taken <-chan lease) {
+	if result := <-taken; result.err == nil {
+		result.release()
+	}
+}
+
+func (c *Client) waitFor() time.Duration {
+	if c.cfg.LockValidity > 0 {
+		return c.cfg.LockValidity
+	}
+	return defaultLockWait
 }
 
 func (c *Client) Allow(ctx context.Context, key string, limit int, window time.Duration) (Verdict, error) {
