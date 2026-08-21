@@ -24,6 +24,9 @@ var TableNames = struct {
 	StateSnapshotBlocks string
 	StateSnapshots      string
 	StreamPositions     string
+	SyncConnectionRooms string
+	SyncConnections     string
+	SyncStateConfigs    string
 	TenantHosts         string
 	TenantSigningKeys   string
 	Tenants             string
@@ -51,6 +54,9 @@ var TableNames = struct {
 	StateSnapshotBlocks: "state_snapshot_blocks",
 	StateSnapshots:      "state_snapshots",
 	StreamPositions:     "stream_positions",
+	SyncConnectionRooms: "sync_connection_rooms",
+	SyncConnections:     "sync_connections",
+	SyncStateConfigs:    "sync_state_configs",
 	TenantHosts:         "tenant_hosts",
 	TenantSigningKeys:   "tenant_signing_keys",
 	Tenants:             "tenants",

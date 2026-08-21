@@ -31,6 +31,8 @@ type Room struct {
 	CreatedAt      time.Time  `boil:"created_at" json:"created_at" toml:"created_at" yaml:"created_at"`
 	CreateEventNid null.Int64 `boil:"create_event_nid" json:"create_event_nid,omitempty" toml:"create_event_nid" yaml:"create_event_nid,omitempty"`
 	Visibility     string     `boil:"visibility" json:"visibility" toml:"visibility" yaml:"visibility"`
+	LastStream     int64      `boil:"last_stream" json:"last_stream" toml:"last_stream" yaml:"last_stream"`
+	BumpStream     int64      `boil:"bump_stream" json:"bump_stream" toml:"bump_stream" yaml:"bump_stream"`
 
 	R *roomR `boil:"-" json:"-" toml:"-" yaml:"-"`
 	L roomL  `boil:"-" json:"-" toml:"-" yaml:"-"`
@@ -44,6 +46,8 @@ var RoomColumns = struct {
 	CreatedAt      string
 	CreateEventNid string
 	Visibility     string
+	LastStream     string
+	BumpStream     string
 }{
 	RoomNid:        "room_nid",
 	TenantID:       "tenant_id",
@@ -52,6 +56,8 @@ var RoomColumns = struct {
 	CreatedAt:      "created_at",
 	CreateEventNid: "create_event_nid",
 	Visibility:     "visibility",
+	LastStream:     "last_stream",
+	BumpStream:     "bump_stream",
 }
 
 var RoomTableColumns = struct {
@@ -62,6 +68,8 @@ var RoomTableColumns = struct {
 	CreatedAt      string
 	CreateEventNid string
 	Visibility     string
+	LastStream     string
+	BumpStream     string
 }{
 	RoomNid:        "rooms.room_nid",
 	TenantID:       "rooms.tenant_id",
@@ -70,6 +78,8 @@ var RoomTableColumns = struct {
 	CreatedAt:      "rooms.created_at",
 	CreateEventNid: "rooms.create_event_nid",
 	Visibility:     "rooms.visibility",
+	LastStream:     "rooms.last_stream",
+	BumpStream:     "rooms.bump_stream",
 }
 
 // Generated where
@@ -82,6 +92,8 @@ var RoomWhere = struct {
 	CreatedAt      whereHelpertime_Time
 	CreateEventNid whereHelpernull_Int64
 	Visibility     whereHelperstring
+	LastStream     whereHelperint64
+	BumpStream     whereHelperint64
 }{
 	RoomNid:        whereHelperint64{field: "\"rooms\".\"room_nid\""},
 	TenantID:       whereHelperstring{field: "\"rooms\".\"tenant_id\""},
@@ -90,48 +102,53 @@ var RoomWhere = struct {
 	CreatedAt:      whereHelpertime_Time{field: "\"rooms\".\"created_at\""},
 	CreateEventNid: whereHelpernull_Int64{field: "\"rooms\".\"create_event_nid\""},
 	Visibility:     whereHelperstring{field: "\"rooms\".\"visibility\""},
+	LastStream:     whereHelperint64{field: "\"rooms\".\"last_stream\""},
+	BumpStream:     whereHelperint64{field: "\"rooms\".\"bump_stream\""},
 }
 
 // RoomRels is where relationship names are stored.
 var RoomRels = struct {
-	CreateEventNidEvent    string
-	Tenant                 string
-	RoomNidEventAuthEdges  string
-	RoomNidEventPrevEdges  string
-	RoomNidEventRelations  string
-	RoomNidEvents          string
-	RoomNidRoomAliases     string
-	EventNidEvents         string
-	RoomNidRoomMemberships string
-	RoomNidStateBlocks     string
-	RoomNidStateSnapshots  string
+	CreateEventNidEvent        string
+	Tenant                     string
+	RoomNidEventAuthEdges      string
+	RoomNidEventPrevEdges      string
+	RoomNidEventRelations      string
+	RoomNidEvents              string
+	RoomNidRoomAliases         string
+	EventNidEvents             string
+	RoomNidRoomMemberships     string
+	RoomNidStateBlocks         string
+	RoomNidStateSnapshots      string
+	RoomNidSyncConnectionRooms string
 }{
-	CreateEventNidEvent:    "CreateEventNidEvent",
-	Tenant:                 "Tenant",
-	RoomNidEventAuthEdges:  "RoomNidEventAuthEdges",
-	RoomNidEventPrevEdges:  "RoomNidEventPrevEdges",
-	RoomNidEventRelations:  "RoomNidEventRelations",
-	RoomNidEvents:          "RoomNidEvents",
-	RoomNidRoomAliases:     "RoomNidRoomAliases",
-	EventNidEvents:         "EventNidEvents",
-	RoomNidRoomMemberships: "RoomNidRoomMemberships",
-	RoomNidStateBlocks:     "RoomNidStateBlocks",
-	RoomNidStateSnapshots:  "RoomNidStateSnapshots",
+	CreateEventNidEvent:        "CreateEventNidEvent",
+	Tenant:                     "Tenant",
+	RoomNidEventAuthEdges:      "RoomNidEventAuthEdges",
+	RoomNidEventPrevEdges:      "RoomNidEventPrevEdges",
+	RoomNidEventRelations:      "RoomNidEventRelations",
+	RoomNidEvents:              "RoomNidEvents",
+	RoomNidRoomAliases:         "RoomNidRoomAliases",
+	EventNidEvents:             "EventNidEvents",
+	RoomNidRoomMemberships:     "RoomNidRoomMemberships",
+	RoomNidStateBlocks:         "RoomNidStateBlocks",
+	RoomNidStateSnapshots:      "RoomNidStateSnapshots",
+	RoomNidSyncConnectionRooms: "RoomNidSyncConnectionRooms",
 }
 
 // roomR is where relationships are stored.
 type roomR struct {
-	CreateEventNidEvent    *Event              `boil:"CreateEventNidEvent" json:"CreateEventNidEvent" toml:"CreateEventNidEvent" yaml:"CreateEventNidEvent"`
-	Tenant                 *Tenant             `boil:"Tenant" json:"Tenant" toml:"Tenant" yaml:"Tenant"`
-	RoomNidEventAuthEdges  EventAuthEdgeSlice  `boil:"RoomNidEventAuthEdges" json:"RoomNidEventAuthEdges" toml:"RoomNidEventAuthEdges" yaml:"RoomNidEventAuthEdges"`
-	RoomNidEventPrevEdges  EventPrevEdgeSlice  `boil:"RoomNidEventPrevEdges" json:"RoomNidEventPrevEdges" toml:"RoomNidEventPrevEdges" yaml:"RoomNidEventPrevEdges"`
-	RoomNidEventRelations  EventRelationSlice  `boil:"RoomNidEventRelations" json:"RoomNidEventRelations" toml:"RoomNidEventRelations" yaml:"RoomNidEventRelations"`
-	RoomNidEvents          EventSlice          `boil:"RoomNidEvents" json:"RoomNidEvents" toml:"RoomNidEvents" yaml:"RoomNidEvents"`
-	RoomNidRoomAliases     RoomAliasSlice      `boil:"RoomNidRoomAliases" json:"RoomNidRoomAliases" toml:"RoomNidRoomAliases" yaml:"RoomNidRoomAliases"`
-	EventNidEvents         EventSlice          `boil:"EventNidEvents" json:"EventNidEvents" toml:"EventNidEvents" yaml:"EventNidEvents"`
-	RoomNidRoomMemberships RoomMembershipSlice `boil:"RoomNidRoomMemberships" json:"RoomNidRoomMemberships" toml:"RoomNidRoomMemberships" yaml:"RoomNidRoomMemberships"`
-	RoomNidStateBlocks     StateBlockSlice     `boil:"RoomNidStateBlocks" json:"RoomNidStateBlocks" toml:"RoomNidStateBlocks" yaml:"RoomNidStateBlocks"`
-	RoomNidStateSnapshots  StateSnapshotSlice  `boil:"RoomNidStateSnapshots" json:"RoomNidStateSnapshots" toml:"RoomNidStateSnapshots" yaml:"RoomNidStateSnapshots"`
+	CreateEventNidEvent        *Event                  `boil:"CreateEventNidEvent" json:"CreateEventNidEvent" toml:"CreateEventNidEvent" yaml:"CreateEventNidEvent"`
+	Tenant                     *Tenant                 `boil:"Tenant" json:"Tenant" toml:"Tenant" yaml:"Tenant"`
+	RoomNidEventAuthEdges      EventAuthEdgeSlice      `boil:"RoomNidEventAuthEdges" json:"RoomNidEventAuthEdges" toml:"RoomNidEventAuthEdges" yaml:"RoomNidEventAuthEdges"`
+	RoomNidEventPrevEdges      EventPrevEdgeSlice      `boil:"RoomNidEventPrevEdges" json:"RoomNidEventPrevEdges" toml:"RoomNidEventPrevEdges" yaml:"RoomNidEventPrevEdges"`
+	RoomNidEventRelations      EventRelationSlice      `boil:"RoomNidEventRelations" json:"RoomNidEventRelations" toml:"RoomNidEventRelations" yaml:"RoomNidEventRelations"`
+	RoomNidEvents              EventSlice              `boil:"RoomNidEvents" json:"RoomNidEvents" toml:"RoomNidEvents" yaml:"RoomNidEvents"`
+	RoomNidRoomAliases         RoomAliasSlice          `boil:"RoomNidRoomAliases" json:"RoomNidRoomAliases" toml:"RoomNidRoomAliases" yaml:"RoomNidRoomAliases"`
+	EventNidEvents             EventSlice              `boil:"EventNidEvents" json:"EventNidEvents" toml:"EventNidEvents" yaml:"EventNidEvents"`
+	RoomNidRoomMemberships     RoomMembershipSlice     `boil:"RoomNidRoomMemberships" json:"RoomNidRoomMemberships" toml:"RoomNidRoomMemberships" yaml:"RoomNidRoomMemberships"`
+	RoomNidStateBlocks         StateBlockSlice         `boil:"RoomNidStateBlocks" json:"RoomNidStateBlocks" toml:"RoomNidStateBlocks" yaml:"RoomNidStateBlocks"`
+	RoomNidStateSnapshots      StateSnapshotSlice      `boil:"RoomNidStateSnapshots" json:"RoomNidStateSnapshots" toml:"RoomNidStateSnapshots" yaml:"RoomNidStateSnapshots"`
+	RoomNidSyncConnectionRooms SyncConnectionRoomSlice `boil:"RoomNidSyncConnectionRooms" json:"RoomNidSyncConnectionRooms" toml:"RoomNidSyncConnectionRooms" yaml:"RoomNidSyncConnectionRooms"`
 }
 
 // NewStruct creates a new relationship struct
@@ -315,13 +332,29 @@ func (r *roomR) GetRoomNidStateSnapshots() StateSnapshotSlice {
 	return r.RoomNidStateSnapshots
 }
 
+func (o *Room) GetRoomNidSyncConnectionRooms() SyncConnectionRoomSlice {
+	if o == nil {
+		return nil
+	}
+
+	return o.R.GetRoomNidSyncConnectionRooms()
+}
+
+func (r *roomR) GetRoomNidSyncConnectionRooms() SyncConnectionRoomSlice {
+	if r == nil {
+		return nil
+	}
+
+	return r.RoomNidSyncConnectionRooms
+}
+
 // roomL is where Load methods for each relationship are stored.
 type roomL struct{}
 
 var (
-	roomAllColumns            = []string{"room_nid", "tenant_id", "room_id", "room_version", "created_at", "create_event_nid", "visibility"}
+	roomAllColumns            = []string{"room_nid", "tenant_id", "room_id", "room_version", "created_at", "create_event_nid", "visibility", "last_stream", "bump_stream"}
 	roomColumnsWithoutDefault = []string{"tenant_id", "room_id", "room_version"}
-	roomColumnsWithDefault    = []string{"room_nid", "created_at", "create_event_nid", "visibility"}
+	roomColumnsWithDefault    = []string{"room_nid", "created_at", "create_event_nid", "visibility", "last_stream", "bump_stream"}
 	roomPrimaryKeyColumns     = []string{"room_nid"}
 	roomGeneratedColumns      = []string{}
 )
@@ -778,6 +811,20 @@ func (o *Room) RoomNidStateSnapshots(mods ...qm.QueryMod) stateSnapshotQuery {
 	)
 
 	return StateSnapshots(queryMods...)
+}
+
+// RoomNidSyncConnectionRooms retrieves all the sync_connection_room's SyncConnectionRooms with an executor via room_nid column.
+func (o *Room) RoomNidSyncConnectionRooms(mods ...qm.QueryMod) syncConnectionRoomQuery {
+	var queryMods []qm.QueryMod
+	if len(mods) != 0 {
+		queryMods = append(queryMods, mods...)
+	}
+
+	queryMods = append(queryMods,
+		qm.Where("\"sync_connection_rooms\".\"room_nid\"=?", o.RoomNid),
+	)
+
+	return SyncConnectionRooms(queryMods...)
 }
 
 // LoadCreateEventNidEvent allows an eager lookup of values, cached into the
@@ -2058,6 +2105,119 @@ func (roomL) LoadRoomNidStateSnapshots(ctx context.Context, e boil.ContextExecut
 	return nil
 }
 
+// LoadRoomNidSyncConnectionRooms allows an eager lookup of values, cached into the
+// loaded structs of the objects. This is for a 1-M or N-M relationship.
+func (roomL) LoadRoomNidSyncConnectionRooms(ctx context.Context, e boil.ContextExecutor, singular bool, maybeRoom any, mods queries.Applicator) error {
+	var slice []*Room
+	var object *Room
+
+	if singular {
+		var ok bool
+		object, ok = maybeRoom.(*Room)
+		if !ok {
+			object = new(Room)
+			ok = queries.SetFromEmbeddedStruct(&object, &maybeRoom)
+			if !ok {
+				return errors.New(fmt.Sprintf("failed to set %T from embedded struct %T", object, maybeRoom))
+			}
+		}
+	} else {
+		s, ok := maybeRoom.(*[]*Room)
+		if ok {
+			slice = *s
+		} else {
+			ok = queries.SetFromEmbeddedStruct(&slice, maybeRoom)
+			if !ok {
+				return errors.New(fmt.Sprintf("failed to set %T from embedded struct %T", slice, maybeRoom))
+			}
+		}
+	}
+
+	args := make(map[any]struct{})
+	if singular {
+		if object.R == nil {
+			object.R = &roomR{}
+		}
+		args[object.RoomNid] = struct{}{}
+	} else {
+		for _, obj := range slice {
+			if obj.R == nil {
+				obj.R = &roomR{}
+			}
+			args[obj.RoomNid] = struct{}{}
+		}
+	}
+
+	if len(args) == 0 {
+		return nil
+	}
+
+	argsSlice := make([]any, len(args))
+	i := 0
+	for arg := range args {
+		argsSlice[i] = arg
+		i++
+	}
+
+	query := NewQuery(
+		qm.From(`sync_connection_rooms`),
+		qm.WhereIn(`sync_connection_rooms.room_nid in ?`, argsSlice...),
+	)
+	if mods != nil {
+		mods.Apply(query)
+	}
+
+	results, err := query.QueryContext(ctx, e)
+	if err != nil {
+		return errors.Wrap(err, "failed to eager load sync_connection_rooms")
+	}
+
+	var resultSlice []*SyncConnectionRoom
+	if err = queries.Bind(results, &resultSlice); err != nil {
+		return errors.Wrap(err, "failed to bind eager loaded slice sync_connection_rooms")
+	}
+
+	if err = results.Close(); err != nil {
+		return errors.Wrap(err, "failed to close results in eager load on sync_connection_rooms")
+	}
+	if err = results.Err(); err != nil {
+		return errors.Wrap(err, "error occurred during iteration of eager loaded relations for sync_connection_rooms")
+	}
+
+	if len(syncConnectionRoomAfterSelectHooks) != 0 {
+		for _, obj := range resultSlice {
+			if err := obj.doAfterSelectHooks(ctx, e); err != nil {
+				return err
+			}
+		}
+	}
+	if singular {
+		object.R.RoomNidSyncConnectionRooms = resultSlice
+		for _, foreign := range resultSlice {
+			if foreign.R == nil {
+				foreign.R = &syncConnectionRoomR{}
+			}
+			foreign.R.RoomNidRoom = object
+		}
+		return nil
+	}
+
+	for _, foreign := range resultSlice {
+		for _, local := range slice {
+			if local.RoomNid == foreign.RoomNid {
+				local.R.RoomNidSyncConnectionRooms = append(local.R.RoomNidSyncConnectionRooms, foreign)
+				if foreign.R == nil {
+					foreign.R = &syncConnectionRoomR{}
+				}
+				foreign.R.RoomNidRoom = local
+				break
+			}
+		}
+	}
+
+	return nil
+}
+
 // SetCreateEventNidEvent of the room to the related item.
 // Sets o.R.CreateEventNidEvent to related.
 // Adds o to related.R.CreateEventNidRooms.
@@ -2745,6 +2905,59 @@ func (o *Room) AddRoomNidStateSnapshots(ctx context.Context, exec boil.ContextEx
 	for _, rel := range related {
 		if rel.R == nil {
 			rel.R = &stateSnapshotR{
+				RoomNidRoom: o,
+			}
+		} else {
+			rel.R.RoomNidRoom = o
+		}
+	}
+	return nil
+}
+
+// AddRoomNidSyncConnectionRooms adds the given related objects to the existing relationships
+// of the room, optionally inserting them as new records.
+// Appends related to o.R.RoomNidSyncConnectionRooms.
+// Sets related.R.RoomNidRoom appropriately.
+func (o *Room) AddRoomNidSyncConnectionRooms(ctx context.Context, exec boil.ContextExecutor, insert bool, related ...*SyncConnectionRoom) error {
+	var err error
+	for _, rel := range related {
+		if insert {
+			rel.RoomNid = o.RoomNid
+			if err = rel.Insert(ctx, exec, boil.Infer()); err != nil {
+				return errors.Wrap(err, "failed to insert into foreign table")
+			}
+		} else {
+			updateQuery := fmt.Sprintf(
+				"UPDATE \"sync_connection_rooms\" SET %s WHERE %s",
+				strmangle.SetParamNames("\"", "\"", 1, []string{"room_nid"}),
+				strmangle.WhereClause("\"", "\"", 2, syncConnectionRoomPrimaryKeyColumns),
+			)
+			values := []any{o.RoomNid, rel.ConnectionNid, rel.RoomNid, rel.Pending}
+
+			if boil.IsDebug(ctx) {
+				writer := boil.DebugWriterFrom(ctx)
+				fmt.Fprintln(writer, updateQuery)
+				fmt.Fprintln(writer, values)
+			}
+			if _, err = exec.ExecContext(ctx, updateQuery, values...); err != nil {
+				return errors.Wrap(err, "failed to update foreign table")
+			}
+
+			rel.RoomNid = o.RoomNid
+		}
+	}
+
+	if o.R == nil {
+		o.R = &roomR{
+			RoomNidSyncConnectionRooms: related,
+		}
+	} else {
+		o.R.RoomNidSyncConnectionRooms = append(o.R.RoomNidSyncConnectionRooms, related...)
+	}
+
+	for _, rel := range related {
+		if rel.R == nil {
+			rel.R = &syncConnectionRoomR{
 				RoomNidRoom: o,
 			}
 		} else {

@@ -99,6 +99,7 @@ var TenantRels = struct {
 	RoomAliases       string
 	RoomMemberships   string
 	Rooms             string
+	SyncConnections   string
 	TenantHosts       string
 	TenantSigningKeys string
 	UiaSessions       string
@@ -110,6 +111,7 @@ var TenantRels = struct {
 	RoomAliases:       "RoomAliases",
 	RoomMemberships:   "RoomMemberships",
 	Rooms:             "Rooms",
+	SyncConnections:   "SyncConnections",
 	TenantHosts:       "TenantHosts",
 	TenantSigningKeys: "TenantSigningKeys",
 	UiaSessions:       "UiaSessions",
@@ -124,6 +126,7 @@ type tenantR struct {
 	RoomAliases       RoomAliasSlice        `boil:"RoomAliases" json:"RoomAliases" toml:"RoomAliases" yaml:"RoomAliases"`
 	RoomMemberships   RoomMembershipSlice   `boil:"RoomMemberships" json:"RoomMemberships" toml:"RoomMemberships" yaml:"RoomMemberships"`
 	Rooms             RoomSlice             `boil:"Rooms" json:"Rooms" toml:"Rooms" yaml:"Rooms"`
+	SyncConnections   SyncConnectionSlice   `boil:"SyncConnections" json:"SyncConnections" toml:"SyncConnections" yaml:"SyncConnections"`
 	TenantHosts       TenantHostSlice       `boil:"TenantHosts" json:"TenantHosts" toml:"TenantHosts" yaml:"TenantHosts"`
 	TenantSigningKeys TenantSigningKeySlice `boil:"TenantSigningKeys" json:"TenantSigningKeys" toml:"TenantSigningKeys" yaml:"TenantSigningKeys"`
 	UiaSessions       UiaSessionSlice       `boil:"UiaSessions" json:"UiaSessions" toml:"UiaSessions" yaml:"UiaSessions"`
@@ -229,6 +232,22 @@ func (r *tenantR) GetRooms() RoomSlice {
 	}
 
 	return r.Rooms
+}
+
+func (o *Tenant) GetSyncConnections() SyncConnectionSlice {
+	if o == nil {
+		return nil
+	}
+
+	return o.R.GetSyncConnections()
+}
+
+func (r *tenantR) GetSyncConnections() SyncConnectionSlice {
+	if r == nil {
+		return nil
+	}
+
+	return r.SyncConnections
 }
 
 func (o *Tenant) GetTenantHosts() TenantHostSlice {
@@ -693,6 +712,20 @@ func (o *Tenant) Rooms(mods ...qm.QueryMod) roomQuery {
 	)
 
 	return Rooms(queryMods...)
+}
+
+// SyncConnections retrieves all the sync_connection's SyncConnections with an executor.
+func (o *Tenant) SyncConnections(mods ...qm.QueryMod) syncConnectionQuery {
+	var queryMods []qm.QueryMod
+	if len(mods) != 0 {
+		queryMods = append(queryMods, mods...)
+	}
+
+	queryMods = append(queryMods,
+		qm.Where("\"sync_connections\".\"tenant_id\"=?", o.ID),
+	)
+
+	return SyncConnections(queryMods...)
 }
 
 // TenantHosts retrieves all the tenant_host's TenantHosts with an executor.
@@ -1419,6 +1452,119 @@ func (tenantL) LoadRooms(ctx context.Context, e boil.ContextExecutor, singular b
 				local.R.Rooms = append(local.R.Rooms, foreign)
 				if foreign.R == nil {
 					foreign.R = &roomR{}
+				}
+				foreign.R.Tenant = local
+				break
+			}
+		}
+	}
+
+	return nil
+}
+
+// LoadSyncConnections allows an eager lookup of values, cached into the
+// loaded structs of the objects. This is for a 1-M or N-M relationship.
+func (tenantL) LoadSyncConnections(ctx context.Context, e boil.ContextExecutor, singular bool, maybeTenant any, mods queries.Applicator) error {
+	var slice []*Tenant
+	var object *Tenant
+
+	if singular {
+		var ok bool
+		object, ok = maybeTenant.(*Tenant)
+		if !ok {
+			object = new(Tenant)
+			ok = queries.SetFromEmbeddedStruct(&object, &maybeTenant)
+			if !ok {
+				return errors.New(fmt.Sprintf("failed to set %T from embedded struct %T", object, maybeTenant))
+			}
+		}
+	} else {
+		s, ok := maybeTenant.(*[]*Tenant)
+		if ok {
+			slice = *s
+		} else {
+			ok = queries.SetFromEmbeddedStruct(&slice, maybeTenant)
+			if !ok {
+				return errors.New(fmt.Sprintf("failed to set %T from embedded struct %T", slice, maybeTenant))
+			}
+		}
+	}
+
+	args := make(map[any]struct{})
+	if singular {
+		if object.R == nil {
+			object.R = &tenantR{}
+		}
+		args[object.ID] = struct{}{}
+	} else {
+		for _, obj := range slice {
+			if obj.R == nil {
+				obj.R = &tenantR{}
+			}
+			args[obj.ID] = struct{}{}
+		}
+	}
+
+	if len(args) == 0 {
+		return nil
+	}
+
+	argsSlice := make([]any, len(args))
+	i := 0
+	for arg := range args {
+		argsSlice[i] = arg
+		i++
+	}
+
+	query := NewQuery(
+		qm.From(`sync_connections`),
+		qm.WhereIn(`sync_connections.tenant_id in ?`, argsSlice...),
+	)
+	if mods != nil {
+		mods.Apply(query)
+	}
+
+	results, err := query.QueryContext(ctx, e)
+	if err != nil {
+		return errors.Wrap(err, "failed to eager load sync_connections")
+	}
+
+	var resultSlice []*SyncConnection
+	if err = queries.Bind(results, &resultSlice); err != nil {
+		return errors.Wrap(err, "failed to bind eager loaded slice sync_connections")
+	}
+
+	if err = results.Close(); err != nil {
+		return errors.Wrap(err, "failed to close results in eager load on sync_connections")
+	}
+	if err = results.Err(); err != nil {
+		return errors.Wrap(err, "error occurred during iteration of eager loaded relations for sync_connections")
+	}
+
+	if len(syncConnectionAfterSelectHooks) != 0 {
+		for _, obj := range resultSlice {
+			if err := obj.doAfterSelectHooks(ctx, e); err != nil {
+				return err
+			}
+		}
+	}
+	if singular {
+		object.R.SyncConnections = resultSlice
+		for _, foreign := range resultSlice {
+			if foreign.R == nil {
+				foreign.R = &syncConnectionR{}
+			}
+			foreign.R.Tenant = object
+		}
+		return nil
+	}
+
+	for _, foreign := range resultSlice {
+		for _, local := range slice {
+			if local.ID == foreign.TenantID {
+				local.R.SyncConnections = append(local.R.SyncConnections, foreign)
+				if foreign.R == nil {
+					foreign.R = &syncConnectionR{}
 				}
 				foreign.R.Tenant = local
 				break
@@ -2190,6 +2336,59 @@ func (o *Tenant) AddRooms(ctx context.Context, exec boil.ContextExecutor, insert
 	for _, rel := range related {
 		if rel.R == nil {
 			rel.R = &roomR{
+				Tenant: o,
+			}
+		} else {
+			rel.R.Tenant = o
+		}
+	}
+	return nil
+}
+
+// AddSyncConnections adds the given related objects to the existing relationships
+// of the tenant, optionally inserting them as new records.
+// Appends related to o.R.SyncConnections.
+// Sets related.R.Tenant appropriately.
+func (o *Tenant) AddSyncConnections(ctx context.Context, exec boil.ContextExecutor, insert bool, related ...*SyncConnection) error {
+	var err error
+	for _, rel := range related {
+		if insert {
+			rel.TenantID = o.ID
+			if err = rel.Insert(ctx, exec, boil.Infer()); err != nil {
+				return errors.Wrap(err, "failed to insert into foreign table")
+			}
+		} else {
+			updateQuery := fmt.Sprintf(
+				"UPDATE \"sync_connections\" SET %s WHERE %s",
+				strmangle.SetParamNames("\"", "\"", 1, []string{"tenant_id"}),
+				strmangle.WhereClause("\"", "\"", 2, syncConnectionPrimaryKeyColumns),
+			)
+			values := []any{o.ID, rel.ConnectionNid}
+
+			if boil.IsDebug(ctx) {
+				writer := boil.DebugWriterFrom(ctx)
+				fmt.Fprintln(writer, updateQuery)
+				fmt.Fprintln(writer, values)
+			}
+			if _, err = exec.ExecContext(ctx, updateQuery, values...); err != nil {
+				return errors.Wrap(err, "failed to update foreign table")
+			}
+
+			rel.TenantID = o.ID
+		}
+	}
+
+	if o.R == nil {
+		o.R = &tenantR{
+			SyncConnections: related,
+		}
+	} else {
+		o.R.SyncConnections = append(o.R.SyncConnections, related...)
+	}
+
+	for _, rel := range related {
+		if rel.R == nil {
+			rel.R = &syncConnectionR{
 				Tenant: o,
 			}
 		} else {
