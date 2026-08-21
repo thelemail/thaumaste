@@ -2,6 +2,8 @@ package roommember
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"fmt"
 
 	"github.com/aarondl/sqlboiler/v4/boil"
@@ -29,6 +31,7 @@ func (r *repo) Upsert(ctx context.Context, in entity.NewRoomMembership) error {
 		UserID:     in.UserID,
 		Membership: in.Membership,
 		EventNid:   in.EventNID,
+		Forgotten:  in.Forgotten,
 	}
 	err := row.Upsert(ctx, r.db.Querier(ctx), true,
 		[]string{
@@ -36,10 +39,47 @@ func (r *repo) Upsert(ctx context.Context, in entity.NewRoomMembership) error {
 			dbpg.RoomMembershipColumns.RoomNid,
 			dbpg.RoomMembershipColumns.UserID,
 		},
-		boil.Whitelist(dbpg.RoomMembershipColumns.Membership, dbpg.RoomMembershipColumns.EventNid),
+		boil.Whitelist(
+			dbpg.RoomMembershipColumns.Membership,
+			dbpg.RoomMembershipColumns.EventNid,
+			dbpg.RoomMembershipColumns.Forgotten,
+		),
 		boil.Infer())
 	if err != nil {
 		return fmt.Errorf("repository: upsert room membership: %w", err)
+	}
+	return nil
+}
+
+func (r *repo) Get(ctx context.Context, roomNID int64, userID string) (entity.RoomMembership, error) {
+	row, err := dbpg.RoomMemberships(
+		dbpg.RoomMembershipWhere.RoomNid.EQ(roomNID),
+		dbpg.RoomMembershipWhere.UserID.EQ(userID),
+		qm.Load(dbpg.RoomMembershipRels.RoomNidRoom),
+	).One(ctx, r.db.Querier(ctx))
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return entity.RoomMembership{}, repository.ErrMembershipNotFound
+		}
+		return entity.RoomMembership{}, fmt.Errorf("repository: get membership: %w", err)
+	}
+	out, err := toMemberships(dbpg.RoomMembershipSlice{row})
+	if err != nil {
+		return entity.RoomMembership{}, err
+	}
+	return out[0], nil
+}
+
+func (r *repo) SetForgotten(ctx context.Context, roomNID int64, userID string, forgotten bool) error {
+	n, err := dbpg.RoomMemberships(
+		dbpg.RoomMembershipWhere.RoomNid.EQ(roomNID),
+		dbpg.RoomMembershipWhere.UserID.EQ(userID),
+	).UpdateAll(ctx, r.db.Querier(ctx), dbpg.M{dbpg.RoomMembershipColumns.Forgotten: forgotten})
+	if err != nil {
+		return fmt.Errorf("repository: set forgotten: %w", err)
+	}
+	if n == 0 {
+		return repository.ErrMembershipNotFound
 	}
 	return nil
 }
@@ -94,6 +134,7 @@ func toMemberships(rows dbpg.RoomMembershipSlice) ([]entity.RoomMembership, erro
 			UserID:     row.UserID,
 			Membership: row.Membership,
 			EventNID:   row.EventNid,
+			Forgotten:  row.Forgotten,
 		}
 		if row.R != nil && row.R.RoomNidRoom != nil {
 			converted.RoomID = row.R.RoomNidRoom.RoomID

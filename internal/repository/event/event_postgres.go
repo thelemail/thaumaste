@@ -115,6 +115,20 @@ func (r *repo) GetByEventID(ctx context.Context, eventID string) (entity.StoredE
 	return toStoredEvent(row)
 }
 
+func (r *repo) GetByNID(ctx context.Context, eventNID int64) (entity.StoredEvent, error) {
+	row, err := dbpg.Events(
+		dbpg.EventWhere.EventNid.EQ(eventNID),
+		qm.Load(dbpg.EventRels.RoomNidRoom),
+	).One(ctx, r.db.Querier(ctx))
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return entity.StoredEvent{}, repository.ErrEventNotFound
+		}
+		return entity.StoredEvent{}, fmt.Errorf("repository: get event by nid: %w", err)
+	}
+	return toStoredEvent(row)
+}
+
 func (r *repo) GetManyByEventID(ctx context.Context, eventIDs []string) ([]entity.StoredEvent, error) {
 	if len(eventIDs) == 0 {
 		return nil, nil

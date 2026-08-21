@@ -15,6 +15,7 @@ var (
 type Event interface {
 	Insert(ctx context.Context, in entity.NewStoredEvent) (entity.StoredEvent, error)
 	GetByEventID(ctx context.Context, eventID string) (entity.StoredEvent, error)
+	GetByNID(ctx context.Context, eventNID int64) (entity.StoredEvent, error)
 	GetManyByEventID(ctx context.Context, eventIDs []string) ([]entity.StoredEvent, error)
 	ListForRoom(ctx context.Context, roomNID int64) ([]entity.StoredEvent, error)
 	SetDisposition(ctx context.Context, eventNID int64, disposition entity.Disposition) error

@@ -28,6 +28,7 @@ type RoomMembership struct {
 	UserID     string `boil:"user_id" json:"user_id" toml:"user_id" yaml:"user_id"`
 	Membership string `boil:"membership" json:"membership" toml:"membership" yaml:"membership"`
 	EventNid   int64  `boil:"event_nid" json:"event_nid" toml:"event_nid" yaml:"event_nid"`
+	Forgotten  bool   `boil:"forgotten" json:"forgotten" toml:"forgotten" yaml:"forgotten"`
 
 	R *roomMembershipR `boil:"-" json:"-" toml:"-" yaml:"-"`
 	L roomMembershipL  `boil:"-" json:"-" toml:"-" yaml:"-"`
@@ -39,12 +40,14 @@ var RoomMembershipColumns = struct {
 	UserID     string
 	Membership string
 	EventNid   string
+	Forgotten  string
 }{
 	TenantID:   "tenant_id",
 	RoomNid:    "room_nid",
 	UserID:     "user_id",
 	Membership: "membership",
 	EventNid:   "event_nid",
+	Forgotten:  "forgotten",
 }
 
 var RoomMembershipTableColumns = struct {
@@ -53,12 +56,14 @@ var RoomMembershipTableColumns = struct {
 	UserID     string
 	Membership string
 	EventNid   string
+	Forgotten  string
 }{
 	TenantID:   "room_memberships.tenant_id",
 	RoomNid:    "room_memberships.room_nid",
 	UserID:     "room_memberships.user_id",
 	Membership: "room_memberships.membership",
 	EventNid:   "room_memberships.event_nid",
+	Forgotten:  "room_memberships.forgotten",
 }
 
 // Generated where
@@ -69,12 +74,14 @@ var RoomMembershipWhere = struct {
 	UserID     whereHelperstring
 	Membership whereHelperstring
 	EventNid   whereHelperint64
+	Forgotten  whereHelperbool
 }{
 	TenantID:   whereHelperstring{field: "\"room_memberships\".\"tenant_id\""},
 	RoomNid:    whereHelperint64{field: "\"room_memberships\".\"room_nid\""},
 	UserID:     whereHelperstring{field: "\"room_memberships\".\"user_id\""},
 	Membership: whereHelperstring{field: "\"room_memberships\".\"membership\""},
 	EventNid:   whereHelperint64{field: "\"room_memberships\".\"event_nid\""},
+	Forgotten:  whereHelperbool{field: "\"room_memberships\".\"forgotten\""},
 }
 
 // RoomMembershipRels is where relationship names are stored.
@@ -152,9 +159,9 @@ func (r *roomMembershipR) GetTenant() *Tenant {
 type roomMembershipL struct{}
 
 var (
-	roomMembershipAllColumns            = []string{"tenant_id", "room_nid", "user_id", "membership", "event_nid"}
+	roomMembershipAllColumns            = []string{"tenant_id", "room_nid", "user_id", "membership", "event_nid", "forgotten"}
 	roomMembershipColumnsWithoutDefault = []string{"tenant_id", "room_nid", "user_id", "membership", "event_nid"}
-	roomMembershipColumnsWithDefault    = []string{}
+	roomMembershipColumnsWithDefault    = []string{"forgotten"}
 	roomMembershipPrimaryKeyColumns     = []string{"tenant_id", "room_nid", "user_id"}
 	roomMembershipGeneratedColumns      = []string{}
 )
