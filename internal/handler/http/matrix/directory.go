@@ -1,12 +1,14 @@
 package matrix
 
 import (
+	"errors"
 	"net/http"
 	"net/url"
 	"strconv"
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/thelemail/thaumaste/internal/entity"
 	"github.com/thelemail/thaumaste/internal/service"
 )
 
@@ -89,7 +91,7 @@ func (h *Handler) getVisibility(w http.ResponseWriter, r *http.Request) {
 	}
 	visibility, err := h.rooms.Visibility(r.Context(), tenant.Scope(), chi.URLParam(r, "roomID"))
 	if err != nil {
-		writeRoomError(r, w, err, "Could not read the room visibility")
+		writeVisibilityError(r, w, err, "Could not read the room visibility")
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"visibility": visibility})
@@ -106,7 +108,7 @@ func (h *Handler) setVisibility(w http.ResponseWriter, r *http.Request) {
 	}
 	err := h.rooms.SetVisibility(r.Context(), tenant.Scope(), caller.UserID, chi.URLParam(r, "roomID"), in.Visibility)
 	if err != nil {
-		writeRoomError(r, w, err, "Could not set the room visibility")
+		writeVisibilityError(r, w, err, "Could not set the room visibility")
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{})
@@ -166,4 +168,12 @@ func (h *Handler) writePublicRooms(w http.ResponseWriter, r *http.Request, filte
 		"chunk":                     chunk,
 		"total_room_count_estimate": found.TotalRooms,
 	})
+}
+
+func writeVisibilityError(r *http.Request, w http.ResponseWriter, err error, msg string) {
+	if errors.Is(err, entity.ErrRoomNotFound) {
+		writeError(w, http.StatusNotFound, codeNotFound, "Unknown room")
+		return
+	}
+	writeRoomError(r, w, err, msg)
 }

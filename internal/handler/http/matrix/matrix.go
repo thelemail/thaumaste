@@ -94,6 +94,18 @@ func (h *Handler) Mount(r chi.Router) {
 				r.Put("/_matrix/client/v3/rooms/{roomID}/state/{eventType}/", h.setRoomState)
 				r.Put("/_matrix/client/v3/rooms/{roomID}/state/{eventType}/{stateKey}", h.setRoomState)
 				r.Get("/_matrix/client/v3/rooms/{roomID}/joined_members", h.joinedMembers)
+				r.Get("/_matrix/client/v3/rooms/{roomID}/members", h.members)
+
+				r.Post("/_matrix/client/v3/join/{roomIDOrAlias}", h.joinRoom)
+				r.Post("/_matrix/client/v3/knock/{roomIDOrAlias}", h.knockRoom)
+				r.Post("/_matrix/client/v3/rooms/{roomIDOrAlias}/join", h.joinRoom)
+				r.Post("/_matrix/client/v3/rooms/{roomIDOrAlias}/knock", h.knockRoom)
+				r.Post("/_matrix/client/v3/rooms/{roomID}/leave", h.leaveRoom)
+				r.Post("/_matrix/client/v3/rooms/{roomID}/forget", h.forgetRoom)
+				r.Post("/_matrix/client/v3/rooms/{roomID}/invite", h.inviteUser)
+				r.Post("/_matrix/client/v3/rooms/{roomID}/kick", h.kickUser)
+				r.Post("/_matrix/client/v3/rooms/{roomID}/ban", h.banUser)
+				r.Post("/_matrix/client/v3/rooms/{roomID}/unban", h.unbanUser)
 				r.Get("/_matrix/client/v3/rooms/{roomID}/aliases", h.roomAliases)
 
 				r.Get("/_matrix/client/v3/directory/room/{roomAlias}", h.resolveAlias)
