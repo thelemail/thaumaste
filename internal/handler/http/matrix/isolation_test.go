@@ -34,34 +34,30 @@ func tenantOwnedTables(t *testing.T, s *server) []string {
 	return out
 }
 
-// Every table that names a tenant must be reachable by a cascading delete from tenants. Checking
-// this against the live catalogue rather than a hand-kept list is the point: a table added by a
-// later task is covered the moment it exists, without anyone remembering to come back here.
+// Every table that names a tenant must be reachable by a cascading delete from tenants, directly or
+// through a parent that is itself reachable. Checking this against the live catalogue rather than a
+// hand-kept list is the point: a table added by a later task is covered the moment it exists,
+// without anyone remembering to come back here.
 func TestEveryTenantOwnedTableCascadesFromTheTenant(t *testing.T) {
 	s := newServer(t)
 
 	for _, table := range tenantOwnedTables(t, s) {
 		var count int
 		err := s.db.QueryRowContext(t.Context(), `
-			SELECT count(*)
-			FROM information_schema.table_constraints tc
-			JOIN information_schema.key_column_usage kcu
-			  ON kcu.constraint_name = tc.constraint_name
-			JOIN information_schema.referential_constraints rc
-			  ON rc.constraint_name = tc.constraint_name
-			JOIN information_schema.constraint_column_usage ccu
-			  ON ccu.constraint_name = tc.constraint_name
-			WHERE tc.table_schema = 'public'
-			  AND tc.table_name = $1
-			  AND tc.constraint_type = 'FOREIGN KEY'
-			  AND kcu.column_name = 'tenant_id'
-			  AND ccu.table_name = 'tenants'
-			  AND rc.delete_rule = 'CASCADE'`, table).Scan(&count)
+			WITH RECURSIVE covered(oid) AS (
+				SELECT 'tenants'::regclass::oid
+				UNION
+				SELECT fk.conrelid
+				FROM pg_constraint fk
+				JOIN covered ON fk.confrelid = covered.oid
+				WHERE fk.contype = 'f' AND fk.confdeltype = 'c'
+			)
+			SELECT count(*) FROM covered WHERE oid = $1::regclass::oid`, table).Scan(&count)
 		if err != nil {
 			t.Fatalf("check cascade on %s: %v", table, err)
 		}
 		if count == 0 {
-			t.Fatalf("%s.tenant_id does not cascade from tenants, so deleting a tenant would leave it behind", table)
+			t.Fatalf("no cascade reaches %s from tenants, so deleting a tenant would leave it behind", table)
 		}
 	}
 }
@@ -142,6 +138,7 @@ func TestDeletingADomainLeavesNothingOfItBehind(t *testing.T) {
 		t.Fatalf("RotateKey: %v", err)
 	}
 	s.seedRoom(t, doomed)
+	s.seedIdentity(t, doomed)
 
 	tables := s.allTables(t)
 	for _, table := range tables {
@@ -177,6 +174,8 @@ func TestDeletingOneDomainLeavesTheOtherIntact(t *testing.T) {
 	s.token(t, survivor, "@someone:beta.test")
 	s.seedRoom(t, doomed)
 	s.seedRoom(t, survivor)
+	s.seedIdentity(t, doomed)
+	s.seedIdentity(t, survivor)
 
 	if err := s.tenants.Delete(t.Context(), doomed.ID); err != nil {
 		t.Fatalf("Delete: %v", err)

@@ -42,10 +42,42 @@ type server struct {
 	tokens  service.Tokens
 	events  service.Events
 	users   service.Users
-	db      *postgres.Client
+
+	assertionKey ed25519.PrivateKey
+	db           *postgres.Client
 }
 
 func newServer(t *testing.T) *server {
+	t.Helper()
+	return buildServer(t, nil)
+}
+
+// newAssertedServer trusts an external identity provider, so the assertion login path is live.
+func newAssertedServer(t *testing.T) *server {
+	t.Helper()
+	public, private, err := ed25519.GenerateKey(nil)
+	if err != nil {
+		t.Fatalf("GenerateKey: %v", err)
+	}
+	s := buildServer(t, public)
+	s.assertionKey = private
+	return s
+}
+
+func (s *server) assert(t *testing.T, subject, serverName string, ttl time.Duration) string {
+	t.Helper()
+	token, err := signAssertion(s.assertionKey, subject, serverName, time.Now(), ttl)
+	if err != nil {
+		t.Fatalf("signAssertion: %v", err)
+	}
+	return token
+}
+
+func signAssertion(key ed25519.PrivateKey, subject, serverName string, issued time.Time, ttl time.Duration) (string, error) {
+	return users.SignAssertion(key, subject, serverName, "", issued, ttl)
+}
+
+func buildServer(t *testing.T, assertion ed25519.PublicKey) *server {
 	t.Helper()
 
 	pg := pgtest.Connect(t, "tenants")
@@ -75,6 +107,7 @@ func newServer(t *testing.T) *server {
 			AccessTokenTTL: time.Hour, RefreshTokenTTL: time.Hour, SessionTTL: 15 * time.Minute,
 			Argon2Time: 1, Argon2MemoryK: 8 * 1024, Argon2Threads: 1,
 			MaxFailures: 3, FailureWindow: time.Minute, LockFor: time.Minute,
+			AssertionKey: entity.EncodeBase64(assertion), AssertionTTL: 5 * time.Minute,
 		}, nil, nil)
 
 	r := chi.NewRouter()
