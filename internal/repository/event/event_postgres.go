@@ -15,6 +15,7 @@ import (
 	"github.com/thelemail/thaumaste/internal/entity"
 	"github.com/thelemail/thaumaste/internal/pkg/postgres"
 	"github.com/thelemail/thaumaste/internal/repository"
+	"github.com/thelemail/thaumaste/internal/repository/intern"
 )
 
 const uniqueViolation = "23505"
@@ -30,7 +31,7 @@ func New(db *postgres.Client) repository.Event {
 func (r *repo) Insert(ctx context.Context, in entity.NewStoredEvent) (entity.StoredEvent, error) {
 	exec := r.db.Querier(ctx)
 
-	typeNID, err := r.internType(ctx, in.Event.Type())
+	typeNID, err := intern.EventType(ctx, r.db.Querier(ctx), in.Event.Type())
 	if err != nil {
 		return entity.StoredEvent{}, err
 	}
@@ -49,7 +50,7 @@ func (r *repo) Insert(ctx context.Context, in entity.NewStoredEvent) (entity.Sto
 		EventJSON:           in.Event.JSON(),
 	}
 	if stateKey, ok := in.Event.StateKey(); ok {
-		stateKeyNID, err := r.internStateKey(ctx, stateKey)
+		stateKeyNID, err := intern.StateKey(ctx, r.db.Querier(ctx), stateKey)
 		if err != nil {
 			return entity.StoredEvent{}, err
 		}
@@ -205,33 +206,6 @@ func (r *repo) AuthParentsOf(ctx context.Context, eventNID int64) ([]string, err
 		out = append(out, row.ParentID)
 	}
 	return out, nil
-}
-
-const (
-	internTypeSQL = `
-		INSERT INTO event_types (event_type) VALUES ($1)
-		ON CONFLICT (event_type) DO UPDATE SET event_type = EXCLUDED.event_type
-		RETURNING event_type_nid`
-	internStateKeySQL = `
-		INSERT INTO event_state_keys (event_state_key) VALUES ($1)
-		ON CONFLICT (event_state_key) DO UPDATE SET event_state_key = EXCLUDED.event_state_key
-		RETURNING event_state_key_nid`
-)
-
-func (r *repo) internType(ctx context.Context, eventType string) (int64, error) {
-	var nid int64
-	if err := r.db.Querier(ctx).QueryRowContext(ctx, internTypeSQL, eventType).Scan(&nid); err != nil {
-		return 0, fmt.Errorf("repository: intern event type: %w", err)
-	}
-	return nid, nil
-}
-
-func (r *repo) internStateKey(ctx context.Context, stateKey string) (int64, error) {
-	var nid int64
-	if err := r.db.Querier(ctx).QueryRowContext(ctx, internStateKeySQL, stateKey).Scan(&nid); err != nil {
-		return 0, fmt.Errorf("repository: intern state key: %w", err)
-	}
-	return nid, nil
 }
 
 func toStoredEvents(rows dbpg.EventSlice) ([]entity.StoredEvent, error) {

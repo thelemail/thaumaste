@@ -13,6 +13,7 @@ import (
 	"github.com/thelemail/thaumaste/internal/entity"
 	"github.com/thelemail/thaumaste/internal/pkg/postgres"
 	"github.com/thelemail/thaumaste/internal/repository"
+	"github.com/thelemail/thaumaste/internal/repository/intern"
 )
 
 type repo struct {
@@ -84,11 +85,11 @@ func (r *repo) saveBlock(ctx context.Context, roomNID int64, state entity.StateM
 		if err != nil {
 			return 0, fmt.Errorf("repository: state names an unstored event %s: %w", event.ID(), err)
 		}
-		typeNID, err := internedType(ctx, exec, key.Type)
+		typeNID, err := intern.EventType(ctx, exec, key.Type)
 		if err != nil {
 			return 0, err
 		}
-		stateKeyNID, err := internedStateKey(ctx, exec, key.StateKey)
+		stateKeyNID, err := intern.StateKey(ctx, exec, key.StateKey)
 		if err != nil {
 			return 0, err
 		}
@@ -165,31 +166,4 @@ func toStateEntry(entry *dbpg.StateBlockEntry) (entity.StateKey, entity.Event, e
 		Type:     entry.R.EventTypeNidEventType.EventType,
 		StateKey: entry.R.EventStateKeyNidEventStateKey.EventStateKey,
 	}, event, nil
-}
-
-const (
-	internTypeSQL = `
-		INSERT INTO event_types (event_type) VALUES ($1)
-		ON CONFLICT (event_type) DO UPDATE SET event_type = EXCLUDED.event_type
-		RETURNING event_type_nid`
-	internStateKeySQL = `
-		INSERT INTO event_state_keys (event_state_key) VALUES ($1)
-		ON CONFLICT (event_state_key) DO UPDATE SET event_state_key = EXCLUDED.event_state_key
-		RETURNING event_state_key_nid`
-)
-
-func internedType(ctx context.Context, exec postgres.Querier, eventType string) (int64, error) {
-	var nid int64
-	if err := exec.QueryRowContext(ctx, internTypeSQL, eventType).Scan(&nid); err != nil {
-		return 0, fmt.Errorf("repository: intern event type: %w", err)
-	}
-	return nid, nil
-}
-
-func internedStateKey(ctx context.Context, exec postgres.Querier, stateKey string) (int64, error) {
-	var nid int64
-	if err := exec.QueryRowContext(ctx, internStateKeySQL, stateKey).Scan(&nid); err != nil {
-		return 0, fmt.Errorf("repository: intern state key: %w", err)
-	}
-	return nid, nil
 }
