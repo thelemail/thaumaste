@@ -1,18 +1,18 @@
-package canonicaljson_test
+package entity_test
 
 import (
 	"errors"
 	"strings"
 	"testing"
 
-	"github.com/thelemail/thaumaste/internal/pkg/canonicaljson"
+	"github.com/thelemail/thaumaste/internal/entity"
 )
 
 func encode(t *testing.T, in string) string {
 	t.Helper()
-	out, err := canonicaljson.Encode([]byte(in))
+	out, err := entity.CanonicalJSONFrom([]byte(in))
 	if err != nil {
-		t.Fatalf("Encode(%s): %v", in, err)
+		t.Fatalf("CanonicalJSONFrom(%s): %v", in, err)
 	}
 	return string(out)
 }
@@ -32,7 +32,7 @@ func TestSpecExamplesEncodeAsPublished(t *testing.T) {
 
 	for _, c := range cases {
 		if got := encode(t, c.in); got != c.want {
-			t.Fatalf("Encode(%s) = %s, want %s", c.in, got, c.want)
+			t.Fatalf("CanonicalJSONFrom(%s) = %s, want %s", c.in, got, c.want)
 		}
 	}
 }
@@ -53,15 +53,15 @@ func TestKeysSortByCodepointNotByLength(t *testing.T) {
 }
 
 func TestNonIntegerNumbersAreRejected(t *testing.T) {
-	if _, err := canonicaljson.Encode([]byte(`{"a":1.5}`)); !errors.Is(err, canonicaljson.ErrFloat) {
+	if _, err := entity.CanonicalJSONFrom([]byte(`{"a":1.5}`)); !errors.Is(err, entity.ErrCanonicalFloat) {
 		t.Fatalf("error = %v, want ErrFloat", err)
 	}
 }
 
 func TestIntegersOutsideTheSafeRangeAreRejected(t *testing.T) {
 	for _, in := range []string{`{"a":9007199254740992}`, `{"a":-9007199254740992}`} {
-		if _, err := canonicaljson.Encode([]byte(in)); !errors.Is(err, canonicaljson.ErrIntegerRange) {
-			t.Fatalf("Encode(%s) error = %v, want ErrIntegerRange", in, err)
+		if _, err := entity.CanonicalJSONFrom([]byte(in)); !errors.Is(err, entity.ErrCanonicalIntegerRange) {
+			t.Fatalf("CanonicalJSONFrom(%s) error = %v, want ErrIntegerRange", in, err)
 		}
 	}
 }
@@ -99,11 +99,11 @@ func TestEncodingIsStableAcrossRepeatedRuns(t *testing.T) {
 }
 
 func TestMarshalGoesThroughTheSameCanonicalForm(t *testing.T) {
-	got, err := canonicaljson.Marshal(map[string]any{"b": 2, "a": "1"})
+	got, err := entity.CanonicalJSON(map[string]any{"b": 2, "a": "1"})
 	if err != nil {
-		t.Fatalf("Marshal: %v", err)
+		t.Fatalf("CanonicalJSON: %v", err)
 	}
 	if string(got) != `{"a":"1","b":2}` {
-		t.Fatalf("Marshal = %s", got)
+		t.Fatalf("CanonicalJSON = %s", got)
 	}
 }

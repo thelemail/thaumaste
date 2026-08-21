@@ -41,6 +41,16 @@ jobs:
       - run: go vet ./...
       - run: go test ./... -race -count=1
 
+      # The models are the schema's shape in Go. Regenerating them here catches a migration that
+      # landed without a matching `make db-gen`, which would otherwise only surface as a runtime
+      # error against a column the models do not know about.
+      - name: models match the schema
+        run: |
+          go tool goose -dir db/migrations/postgres postgres \
+            "postgres://thaumaste:thaumaste@127.0.0.1:5435/thaumaste?sslmode=disable" up
+          make db-gen
+          git diff --exit-code -- internal/db/postgres
+
   lint:
     runs-on: ubuntu-24.04
     steps:

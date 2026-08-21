@@ -21,6 +21,9 @@ type Config struct {
 }
 
 type Server struct {
+	// InstanceName is recorded on every event this process writes, so a second writer can be
+	// added later without a migration.
+	InstanceName    string        `env:"THAUMASTE_SERVER_INSTANCE_NAME"     envDefault:"default"`
 	Addr            string        `env:"THAUMASTE_SERVER_ADDR"             envDefault:":8008"`
 	ReadTimeout     time.Duration `env:"THAUMASTE_SERVER_READ_TIMEOUT"     envDefault:"15s"`
 	WriteTimeout    time.Duration `env:"THAUMASTE_SERVER_WRITE_TIMEOUT"    envDefault:"30s"`

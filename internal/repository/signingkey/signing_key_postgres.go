@@ -8,8 +8,11 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/aarondl/sqlboiler/v4/boil"
+	"github.com/aarondl/sqlboiler/v4/queries/qm"
 	"github.com/google/uuid"
 
+	dbpg "github.com/thelemail/thaumaste/internal/db/postgres"
 	"github.com/thelemail/thaumaste/internal/entity"
 	"github.com/thelemail/thaumaste/internal/pkg/postgres"
 	"github.com/thelemail/thaumaste/internal/repository"
@@ -23,107 +26,78 @@ func New(db *postgres.Client) repository.SigningKey {
 	return &repo{db: db}
 }
 
-const selectFields = `tenant_id, key_id, public_key, created_at, expired_at`
-
-const insertSQL = `
-INSERT INTO tenant_signing_keys (tenant_id, key_id, public_key, private_key)
-VALUES ($1, $2, $3, $4)
-RETURNING ` + selectFields
-
 func (r *repo) Insert(ctx context.Context, in entity.NewSigningKey) (entity.SigningKey, error) {
-	row := r.db.Querier(ctx).QueryRowContext(ctx, insertSQL,
-		in.TenantID.String(), in.KeyID, []byte(in.PublicKey), in.PrivateKey)
-	k, err := scanSigningKey(row)
-	if err != nil {
+	row := dbpg.TenantSigningKey{
+		TenantID:   in.TenantID.String(),
+		KeyID:      in.KeyID,
+		PublicKey:  in.PublicKey,
+		PrivateKey: in.PrivateKey,
+	}
+	if err := row.Insert(ctx, r.db.Querier(ctx), boil.Infer()); err != nil {
 		return entity.SigningKey{}, fmt.Errorf("repository: insert signing key: %w", err)
 	}
-	return k, nil
+	return toSigningKey(&row)
 }
-
-const activeSQL = `
-SELECT ` + selectFields + `
-FROM tenant_signing_keys
-WHERE tenant_id = $1 AND expired_at IS NULL
-`
 
 func (r *repo) Active(ctx context.Context, scope entity.TenantScope) (entity.SigningKey, error) {
-	row := r.db.Querier(ctx).QueryRowContext(ctx, activeSQL, scope.ID().String())
-	k, err := scanSigningKey(row)
+	row, err := r.activeRow(ctx, scope)
 	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return entity.SigningKey{}, repository.ErrSigningKeyNotFound
-		}
-		return entity.SigningKey{}, fmt.Errorf("repository: get active signing key: %w", err)
+		return entity.SigningKey{}, err
 	}
-	return k, nil
+	return toSigningKey(row)
 }
 
-const activePrivateSQL = `
-SELECT ` + selectFields + `, private_key
-FROM tenant_signing_keys
-WHERE tenant_id = $1 AND expired_at IS NULL
-`
-
 func (r *repo) ActivePrivate(ctx context.Context, scope entity.TenantScope) (entity.SigningKey, []byte, error) {
-	var (
-		tenantStr string
-		keyID     string
-		public    []byte
-		createdAt time.Time
-		expiredAt sql.NullTime
-		private   []byte
-	)
-	err := r.db.Querier(ctx).QueryRowContext(ctx, activePrivateSQL, scope.ID().String()).
-		Scan(&tenantStr, &keyID, &public, &createdAt, &expiredAt, &private)
-	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return entity.SigningKey{}, nil, repository.ErrSigningKeyNotFound
-		}
-		return entity.SigningKey{}, nil, fmt.Errorf("repository: get active signing key: %w", err)
-	}
-	k, err := buildSigningKey(tenantStr, keyID, public, createdAt, expiredAt)
+	row, err := r.activeRow(ctx, scope)
 	if err != nil {
 		return entity.SigningKey{}, nil, err
 	}
-	return k, private, nil
+	key, err := toSigningKey(row)
+	if err != nil {
+		return entity.SigningKey{}, nil, err
+	}
+	return key, row.PrivateKey, nil
 }
 
-const listSQL = `
-SELECT ` + selectFields + `
-FROM tenant_signing_keys
-WHERE tenant_id = $1
-ORDER BY created_at
-`
+func (r *repo) activeRow(ctx context.Context, scope entity.TenantScope) (*dbpg.TenantSigningKey, error) {
+	row, err := dbpg.TenantSigningKeys(
+		dbpg.TenantSigningKeyWhere.TenantID.EQ(scope.ID().String()),
+		dbpg.TenantSigningKeyWhere.ExpiredAt.IsNull(),
+	).One(ctx, r.db.Querier(ctx))
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, repository.ErrSigningKeyNotFound
+		}
+		return nil, fmt.Errorf("repository: get active signing key: %w", err)
+	}
+	return row, nil
+}
 
 func (r *repo) List(ctx context.Context, scope entity.TenantScope) ([]entity.SigningKey, error) {
-	rows, err := r.db.Querier(ctx).QueryContext(ctx, listSQL, scope.ID().String())
+	rows, err := dbpg.TenantSigningKeys(
+		dbpg.TenantSigningKeyWhere.TenantID.EQ(scope.ID().String()),
+		qm.OrderBy(dbpg.TenantSigningKeyColumns.CreatedAt),
+	).All(ctx, r.db.Querier(ctx))
 	if err != nil {
 		return nil, fmt.Errorf("repository: list signing keys: %w", err)
 	}
-	defer func() { _ = rows.Close() }()
-
-	var out []entity.SigningKey
-	for rows.Next() {
-		k, err := scanSigningKey(rows)
+	out := make([]entity.SigningKey, 0, len(rows))
+	for _, row := range rows {
+		converted, err := toSigningKey(row)
 		if err != nil {
-			return nil, fmt.Errorf("repository: scan signing key: %w", err)
+			return nil, err
 		}
-		out = append(out, k)
+		out = append(out, converted)
 	}
-	return out, rows.Err()
+	return out, nil
 }
 
-const expireSQL = `
-UPDATE tenant_signing_keys SET expired_at = $3
-WHERE tenant_id = $1 AND key_id = $2 AND expired_at IS NULL
-`
-
 func (r *repo) Expire(ctx context.Context, scope entity.TenantScope, keyID string, at time.Time) error {
-	res, err := r.db.Querier(ctx).ExecContext(ctx, expireSQL, scope.ID().String(), keyID, at)
-	if err != nil {
-		return fmt.Errorf("repository: expire signing key: %w", err)
-	}
-	n, err := res.RowsAffected()
+	n, err := dbpg.TenantSigningKeys(
+		dbpg.TenantSigningKeyWhere.TenantID.EQ(scope.ID().String()),
+		dbpg.TenantSigningKeyWhere.KeyID.EQ(keyID),
+		dbpg.TenantSigningKeyWhere.ExpiredAt.IsNull(),
+	).UpdateAll(ctx, r.db.Querier(ctx), dbpg.M{dbpg.TenantSigningKeyColumns.ExpiredAt: at})
 	if err != nil {
 		return fmt.Errorf("repository: expire signing key: %w", err)
 	}
@@ -133,42 +107,33 @@ func (r *repo) Expire(ctx context.Context, scope entity.TenantScope, keyID strin
 	return nil
 }
 
-const allSealedSQL = `SELECT tenant_id, key_id, private_key FROM tenant_signing_keys ORDER BY tenant_id, key_id`
-
 func (r *repo) AllSealed(ctx context.Context) ([]entity.SealedSigningKey, error) {
-	rows, err := r.db.Querier(ctx).QueryContext(ctx, allSealedSQL)
+	rows, err := dbpg.TenantSigningKeys(
+		qm.OrderBy(dbpg.TenantSigningKeyColumns.TenantID+", "+dbpg.TenantSigningKeyColumns.KeyID),
+	).All(ctx, r.db.Querier(ctx))
 	if err != nil {
 		return nil, fmt.Errorf("repository: list sealed signing keys: %w", err)
 	}
-	defer func() { _ = rows.Close() }()
-
-	var out []entity.SealedSigningKey
-	for rows.Next() {
-		var (
-			tenantStr string
-			keyID     string
-			private   []byte
-		)
-		if err := rows.Scan(&tenantStr, &keyID, &private); err != nil {
-			return nil, fmt.Errorf("repository: scan sealed signing key: %w", err)
-		}
-		tenantID, err := uuid.Parse(tenantStr)
+	out := make([]entity.SealedSigningKey, 0, len(rows))
+	for _, row := range rows {
+		tenantID, err := uuid.Parse(row.TenantID)
 		if err != nil {
 			return nil, fmt.Errorf("parse signing key tenant id: %w", err)
 		}
-		out = append(out, entity.SealedSigningKey{TenantID: tenantID, KeyID: keyID, PrivateKey: private})
+		out = append(out, entity.SealedSigningKey{
+			TenantID:   tenantID,
+			KeyID:      row.KeyID,
+			PrivateKey: row.PrivateKey,
+		})
 	}
-	return out, rows.Err()
+	return out, nil
 }
 
-const resealSQL = `UPDATE tenant_signing_keys SET private_key = $3 WHERE tenant_id = $1 AND key_id = $2`
-
 func (r *repo) Reseal(ctx context.Context, key entity.SealedSigningKey) error {
-	res, err := r.db.Querier(ctx).ExecContext(ctx, resealSQL, key.TenantID.String(), key.KeyID, key.PrivateKey)
-	if err != nil {
-		return fmt.Errorf("repository: reseal signing key: %w", err)
-	}
-	n, err := res.RowsAffected()
+	n, err := dbpg.TenantSigningKeys(
+		dbpg.TenantSigningKeyWhere.TenantID.EQ(key.TenantID.String()),
+		dbpg.TenantSigningKeyWhere.KeyID.EQ(key.KeyID),
+	).UpdateAll(ctx, r.db.Querier(ctx), dbpg.M{dbpg.TenantSigningKeyColumns.PrivateKey: key.PrivateKey})
 	if err != nil {
 		return fmt.Errorf("repository: reseal signing key: %w", err)
 	}
@@ -178,38 +143,20 @@ func (r *repo) Reseal(ctx context.Context, key entity.SealedSigningKey) error {
 	return nil
 }
 
-type scannableRow interface {
-	Scan(dest ...any) error
-}
-
-func scanSigningKey(row scannableRow) (entity.SigningKey, error) {
-	var (
-		tenantStr string
-		keyID     string
-		public    []byte
-		createdAt time.Time
-		expiredAt sql.NullTime
-	)
-	if err := row.Scan(&tenantStr, &keyID, &public, &createdAt, &expiredAt); err != nil {
-		return entity.SigningKey{}, err
-	}
-	return buildSigningKey(tenantStr, keyID, public, createdAt, expiredAt)
-}
-
-func buildSigningKey(tenantStr, keyID string, public []byte, createdAt time.Time, expiredAt sql.NullTime) (entity.SigningKey, error) {
-	tenantID, err := uuid.Parse(tenantStr)
+func toSigningKey(row *dbpg.TenantSigningKey) (entity.SigningKey, error) {
+	tenantID, err := uuid.Parse(row.TenantID)
 	if err != nil {
 		return entity.SigningKey{}, fmt.Errorf("parse signing key tenant id: %w", err)
 	}
-	k := entity.SigningKey{
+	key := entity.SigningKey{
 		TenantID:  tenantID,
-		KeyID:     keyID,
-		PublicKey: ed25519.PublicKey(public),
-		CreatedAt: createdAt,
+		KeyID:     row.KeyID,
+		PublicKey: ed25519.PublicKey(row.PublicKey),
+		CreatedAt: row.CreatedAt,
 	}
-	if expiredAt.Valid {
-		at := expiredAt.Time
-		k.ExpiredAt = &at
+	if row.ExpiredAt.Valid {
+		at := row.ExpiredAt.Time
+		key.ExpiredAt = &at
 	}
-	return k, nil
+	return key, nil
 }

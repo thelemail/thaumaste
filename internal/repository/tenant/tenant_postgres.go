@@ -5,11 +5,13 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"time"
 
+	"github.com/aarondl/sqlboiler/v4/boil"
+	"github.com/aarondl/sqlboiler/v4/queries/qm"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgconn"
 
+	dbpg "github.com/thelemail/thaumaste/internal/db/postgres"
 	"github.com/thelemail/thaumaste/internal/entity"
 	"github.com/thelemail/thaumaste/internal/pkg/postgres"
 	"github.com/thelemail/thaumaste/internal/repository"
@@ -25,107 +27,84 @@ func New(db *postgres.Client) repository.Tenant {
 	return &repo{db: db}
 }
 
-const selectFields = `
-id, server_name, state, registration_mode, encryption_required, created_at, updated_at
-`
-
-const insertSQL = `
-INSERT INTO tenants (server_name, registration_mode)
-VALUES ($1, $2)
-RETURNING ` + selectFields
-
 func (r *repo) Create(ctx context.Context, in entity.NewTenant) (entity.Tenant, error) {
-	row := r.db.Querier(ctx).QueryRowContext(ctx, insertSQL, in.ServerName, string(in.RegistrationMode))
-	t, err := scanTenant(row)
+	row := dbpg.Tenant{
+		ServerName:       in.ServerName,
+		RegistrationMode: string(in.RegistrationMode),
+	}
+	err := row.Insert(ctx, r.db.Querier(ctx),
+		boil.Whitelist(dbpg.TenantColumns.ServerName, dbpg.TenantColumns.RegistrationMode))
 	if err != nil {
-		if isUniqueViolation(err) {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == uniqueViolation {
 			return entity.Tenant{}, repository.ErrTenantAlreadyExists
 		}
 		return entity.Tenant{}, fmt.Errorf("repository: create tenant: %w", err)
 	}
-	return t, nil
+	return toTenant(&row)
 }
-
-const getByIDSQL = `SELECT ` + selectFields + ` FROM tenants WHERE id = $1`
 
 func (r *repo) GetByID(ctx context.Context, id uuid.UUID) (entity.Tenant, error) {
-	return r.get(ctx, getByIDSQL, id.String())
+	return r.one(ctx, dbpg.TenantWhere.ID.EQ(id.String()))
 }
-
-const getByServerNameSQL = `SELECT ` + selectFields + ` FROM tenants WHERE server_name = $1`
 
 func (r *repo) GetByServerName(ctx context.Context, serverName string) (entity.Tenant, error) {
-	return r.get(ctx, getByServerNameSQL, serverName)
+	return r.one(ctx, dbpg.TenantWhere.ServerName.EQ(serverName))
 }
-
-const getByHostSQL = `
-SELECT tenants.id, tenants.server_name, tenants.state, tenants.registration_mode,
-       tenants.encryption_required, tenants.created_at, tenants.updated_at
-FROM tenants
-JOIN tenant_hosts ON tenant_hosts.tenant_id = tenants.id
-WHERE tenant_hosts.host = $1
-`
 
 func (r *repo) GetByHost(ctx context.Context, host string) (entity.Tenant, error) {
-	return r.get(ctx, getByHostSQL, host)
+	return r.one(ctx,
+		qm.InnerJoin("tenant_hosts th on th.tenant_id = tenants.id"),
+		qm.Where("th.host = ?", host),
+	)
 }
 
-func (r *repo) get(ctx context.Context, query string, arg any) (entity.Tenant, error) {
-	row := r.db.Querier(ctx).QueryRowContext(ctx, query, arg)
-	t, err := scanTenant(row)
+func (r *repo) one(ctx context.Context, mods ...qm.QueryMod) (entity.Tenant, error) {
+	row, err := dbpg.Tenants(mods...).One(ctx, r.db.Querier(ctx))
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return entity.Tenant{}, repository.ErrTenantNotFound
 		}
 		return entity.Tenant{}, fmt.Errorf("repository: get tenant: %w", err)
 	}
-	return t, nil
+	return toTenant(row)
 }
 
-const listSQL = `SELECT ` + selectFields + ` FROM tenants ORDER BY server_name`
-
 func (r *repo) List(ctx context.Context) ([]entity.Tenant, error) {
-	rows, err := r.db.Querier(ctx).QueryContext(ctx, listSQL)
+	rows, err := dbpg.Tenants(qm.OrderBy(dbpg.TenantColumns.ServerName)).All(ctx, r.db.Querier(ctx))
 	if err != nil {
 		return nil, fmt.Errorf("repository: list tenants: %w", err)
 	}
-	defer func() { _ = rows.Close() }()
-
-	var out []entity.Tenant
-	for rows.Next() {
-		t, err := scanTenant(rows)
+	out := make([]entity.Tenant, 0, len(rows))
+	for _, row := range rows {
+		converted, err := toTenant(row)
 		if err != nil {
-			return nil, fmt.Errorf("repository: scan tenant: %w", err)
+			return nil, err
 		}
-		out = append(out, t)
+		out = append(out, converted)
 	}
-	return out, rows.Err()
+	return out, nil
 }
 
-const setStateSQL = `
-UPDATE tenants SET state = $2, updated_at = now() WHERE id = $1
-RETURNING ` + selectFields
-
 func (r *repo) SetState(ctx context.Context, id uuid.UUID, state entity.TenantState) (entity.Tenant, error) {
-	row := r.db.Querier(ctx).QueryRowContext(ctx, setStateSQL, id.String(), string(state))
-	t, err := scanTenant(row)
+	exec := r.db.Querier(ctx)
+	row, err := dbpg.Tenants(dbpg.TenantWhere.ID.EQ(id.String())).One(ctx, exec)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return entity.Tenant{}, repository.ErrTenantNotFound
 		}
+		return entity.Tenant{}, fmt.Errorf("repository: get tenant: %w", err)
+	}
+	row.State = string(state)
+	_, err = row.Update(ctx, exec, boil.Whitelist(dbpg.TenantColumns.State, dbpg.TenantColumns.UpdatedAt))
+	if err != nil {
 		return entity.Tenant{}, fmt.Errorf("repository: set tenant state: %w", err)
 	}
-	return t, nil
+	return toTenant(row)
 }
 
-const deleteSQL = `DELETE FROM tenants WHERE id = $1`
-
 func (r *repo) Delete(ctx context.Context, id uuid.UUID) error {
-	res, err := r.db.Querier(ctx).ExecContext(ctx, deleteSQL, id.String())
-	if err != nil {
-		return fmt.Errorf("repository: delete tenant: %w", err)
-	}
-	n, err := res.RowsAffected()
+	n, err := dbpg.Tenants(dbpg.TenantWhere.ID.EQ(id.String())).DeleteAll(ctx, r.db.Querier(ctx))
 	if err != nil {
 		return fmt.Errorf("repository: delete tenant: %w", err)
 	}
@@ -135,12 +114,11 @@ func (r *repo) Delete(ctx context.Context, id uuid.UUID) error {
 	return nil
 }
 
-const addHostSQL = `INSERT INTO tenant_hosts (host, tenant_id) VALUES ($1, $2)`
-
 func (r *repo) AddHost(ctx context.Context, scope entity.TenantScope, host string) error {
-	_, err := r.db.Querier(ctx).ExecContext(ctx, addHostSQL, host, scope.ID().String())
-	if err != nil {
-		if isUniqueViolation(err) {
+	row := dbpg.TenantHost{Host: host, TenantID: scope.ID().String()}
+	if err := row.Insert(ctx, r.db.Querier(ctx), boil.Infer()); err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == uniqueViolation {
 			return repository.ErrHostAlreadyClaimed
 		}
 		return fmt.Errorf("repository: add tenant host: %w", err)
@@ -148,59 +126,33 @@ func (r *repo) AddHost(ctx context.Context, scope entity.TenantScope, host strin
 	return nil
 }
 
-const listHostsSQL = `SELECT host FROM tenant_hosts WHERE tenant_id = $1 ORDER BY host`
-
 func (r *repo) ListHosts(ctx context.Context, scope entity.TenantScope) ([]string, error) {
-	rows, err := r.db.Querier(ctx).QueryContext(ctx, listHostsSQL, scope.ID().String())
+	rows, err := dbpg.TenantHosts(
+		dbpg.TenantHostWhere.TenantID.EQ(scope.ID().String()),
+		qm.OrderBy(dbpg.TenantHostColumns.Host),
+	).All(ctx, r.db.Querier(ctx))
 	if err != nil {
 		return nil, fmt.Errorf("repository: list tenant hosts: %w", err)
 	}
-	defer func() { _ = rows.Close() }()
-
-	var out []string
-	for rows.Next() {
-		var host string
-		if err := rows.Scan(&host); err != nil {
-			return nil, fmt.Errorf("repository: scan tenant host: %w", err)
-		}
-		out = append(out, host)
+	out := make([]string, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, row.Host)
 	}
-	return out, rows.Err()
+	return out, nil
 }
 
-type scannableRow interface {
-	Scan(dest ...any) error
-}
-
-func scanTenant(row scannableRow) (entity.Tenant, error) {
-	var (
-		idStr     string
-		name      string
-		state     string
-		mode      string
-		encrypted bool
-		createdAt time.Time
-		updatedAt time.Time
-	)
-	if err := row.Scan(&idStr, &name, &state, &mode, &encrypted, &createdAt, &updatedAt); err != nil {
-		return entity.Tenant{}, err
-	}
-	id, err := uuid.Parse(idStr)
+func toTenant(row *dbpg.Tenant) (entity.Tenant, error) {
+	id, err := uuid.Parse(row.ID)
 	if err != nil {
 		return entity.Tenant{}, fmt.Errorf("parse tenant id: %w", err)
 	}
 	return entity.Tenant{
 		ID:                 id,
-		ServerName:         name,
-		State:              entity.TenantState(state),
-		RegistrationMode:   entity.RegistrationMode(mode),
-		EncryptionRequired: encrypted,
-		CreatedAt:          createdAt,
-		UpdatedAt:          updatedAt,
+		ServerName:         row.ServerName,
+		State:              entity.TenantState(row.State),
+		RegistrationMode:   entity.RegistrationMode(row.RegistrationMode),
+		EncryptionRequired: row.EncryptionRequired,
+		CreatedAt:          row.CreatedAt,
+		UpdatedAt:          row.UpdatedAt,
 	}, nil
-}
-
-func isUniqueViolation(err error) bool {
-	var pgErr *pgconn.PgError
-	return errors.As(err, &pgErr) && pgErr.Code == uniqueViolation
 }

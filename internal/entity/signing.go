@@ -1,4 +1,4 @@
-package signing
+package entity
 
 import (
 	"crypto/ed25519"
@@ -7,23 +7,21 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
-
-	"github.com/thelemail/thaumaste/internal/pkg/canonicaljson"
 )
 
-const Algorithm = "ed25519"
+const SigningAlgorithm = "ed25519"
 
 var (
-	ErrNoSignature      = errors.New("signing: object carries no signature from that key")
-	ErrBadSignature     = errors.New("signing: signature does not verify")
-	ErrMalformedKeyID   = errors.New("signing: malformed key id")
-	ErrNotAnObject      = errors.New("signing: value is not a json object")
-	ErrKeyVersionFormat = errors.New("signing: key version must match [a-zA-Z0-9_]+")
+	ErrNoSignature      = errors.New("entity: object carries no signature from that key")
+	ErrBadSignature     = errors.New("entity: signature does not verify")
+	ErrMalformedKeyID   = errors.New("entity: malformed key id")
+	ErrNotAnObject      = errors.New("entity: value is not a json object")
+	ErrKeyVersionFormat = errors.New("entity: key version must match [a-zA-Z0-9_]+")
 )
 
 var keyVersionPattern = regexp.MustCompile(`^[a-zA-Z0-9_]+$`)
 
-var encoding = base64.RawStdEncoding
+var signingEncoding = base64.RawStdEncoding
 
 type KeyID string
 
@@ -31,11 +29,11 @@ func NewKeyID(version string) (KeyID, error) {
 	if !keyVersionPattern.MatchString(version) {
 		return "", fmt.Errorf("%w: %q", ErrKeyVersionFormat, version)
 	}
-	return KeyID(Algorithm + ":" + version), nil
+	return KeyID(SigningAlgorithm + ":" + version), nil
 }
 
 func (k KeyID) Version() (string, error) {
-	prefix := Algorithm + ":"
+	prefix := SigningAlgorithm + ":"
 	if len(k) <= len(prefix) || string(k[:len(prefix)]) != prefix {
 		return "", fmt.Errorf("%w: %q", ErrMalformedKeyID, string(k))
 	}
@@ -46,20 +44,20 @@ func (k KeyID) Version() (string, error) {
 	return version, nil
 }
 
-func EncodeKey(b []byte) string { return encoding.EncodeToString(b) }
+func EncodeBase64(b []byte) string { return signingEncoding.EncodeToString(b) }
 
-func DecodeKey(s string) ([]byte, error) {
-	if b, err := encoding.DecodeString(s); err == nil {
+func DecodeBase64(s string) ([]byte, error) {
+	if b, err := signingEncoding.DecodeString(s); err == nil {
 		return b, nil
 	}
 	b, err := base64.StdEncoding.DecodeString(s)
 	if err != nil {
-		return nil, fmt.Errorf("signing: decode base64: %w", err)
+		return nil, fmt.Errorf("entity: decode base64: %w", err)
 	}
 	return b, nil
 }
 
-func Sign(raw []byte, serverName string, keyID KeyID, key ed25519.PrivateKey) ([]byte, error) {
+func SignJSON(raw []byte, serverName string, keyID KeyID, key ed25519.PrivateKey) ([]byte, error) {
 	object, err := decodeObject(raw)
 	if err != nil {
 		return nil, err
@@ -74,7 +72,7 @@ func Sign(raw []byte, serverName string, keyID KeyID, key ed25519.PrivateKey) ([
 	delete(object, "signatures")
 	delete(object, "unsigned")
 
-	canonical, err := canonicaljson.Marshal(object)
+	canonical, err := CanonicalJSON(object)
 	if err != nil {
 		return nil, err
 	}
@@ -83,7 +81,7 @@ func Sign(raw []byte, serverName string, keyID KeyID, key ed25519.PrivateKey) ([
 	if byServer == nil {
 		byServer = map[string]any{}
 	}
-	byServer[string(keyID)] = encoding.EncodeToString(ed25519.Sign(key, canonical))
+	byServer[string(keyID)] = signingEncoding.EncodeToString(ed25519.Sign(key, canonical))
 	signatures[serverName] = byServer
 
 	object["signatures"] = signatures
@@ -93,12 +91,12 @@ func Sign(raw []byte, serverName string, keyID KeyID, key ed25519.PrivateKey) ([
 
 	out, err := json.Marshal(object)
 	if err != nil {
-		return nil, fmt.Errorf("signing: marshal signed object: %w", err)
+		return nil, fmt.Errorf("entity: marshal signed object: %w", err)
 	}
 	return out, nil
 }
 
-func Verify(raw []byte, serverName string, keyID KeyID, key ed25519.PublicKey) error {
+func VerifyJSON(raw []byte, serverName string, keyID KeyID, key ed25519.PublicKey) error {
 	object, err := decodeObject(raw)
 	if err != nil {
 		return err
@@ -110,7 +108,7 @@ func Verify(raw []byte, serverName string, keyID KeyID, key ed25519.PublicKey) e
 	if encoded == "" {
 		return fmt.Errorf("%w: %s %s", ErrNoSignature, serverName, keyID)
 	}
-	signature, err := DecodeKey(encoded)
+	signature, err := DecodeBase64(encoded)
 	if err != nil {
 		return err
 	}
@@ -118,7 +116,7 @@ func Verify(raw []byte, serverName string, keyID KeyID, key ed25519.PublicKey) e
 	delete(object, "signatures")
 	delete(object, "unsigned")
 
-	canonical, err := canonicaljson.Marshal(object)
+	canonical, err := CanonicalJSON(object)
 	if err != nil {
 		return err
 	}

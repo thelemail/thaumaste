@@ -11,11 +11,16 @@ import (
 	"github.com/thelemail/thaumaste/internal/config"
 	"github.com/thelemail/thaumaste/internal/pkg/keyseal"
 	"github.com/thelemail/thaumaste/internal/pkg/postgres"
+	"github.com/thelemail/thaumaste/internal/pkg/serialiser"
 	"github.com/thelemail/thaumaste/internal/repository"
 	"github.com/thelemail/thaumaste/internal/repository/accesstoken"
+	"github.com/thelemail/thaumaste/internal/repository/event"
+	"github.com/thelemail/thaumaste/internal/repository/room"
 	"github.com/thelemail/thaumaste/internal/repository/signingkey"
+	"github.com/thelemail/thaumaste/internal/repository/state"
 	"github.com/thelemail/thaumaste/internal/repository/tenant"
 	"github.com/thelemail/thaumaste/internal/service"
+	"github.com/thelemail/thaumaste/internal/service/events"
 	"github.com/thelemail/thaumaste/internal/service/tenants"
 	"github.com/thelemail/thaumaste/internal/service/tokens"
 )
@@ -54,6 +59,30 @@ func provideTokens(tokenRepo repository.AccessToken, clock func() time.Time) ser
 	return tokens.New(tokenRepo, clock, nil)
 }
 
+func provideEventStream(ctx context.Context, db *postgres.Client, cfg config.Server) (*postgres.Stream, error) {
+	return postgres.NewStream(ctx, db, postgres.StreamConfig{
+		Name:     "events",
+		Instance: cfg.InstanceName,
+		Sequence: "events_stream_seq",
+	})
+}
+
+func provideSerialiser() *serialiser.Serialiser { return serialiser.New() }
+
+func provideEvents(
+	rooms repository.Room,
+	eventRepo repository.Event,
+	stateRepo repository.State,
+	tenants service.Tenants,
+	tx repository.Transactor,
+	stream *postgres.Stream,
+	gate *serialiser.Serialiser,
+	cfg config.Server,
+	clock func() time.Time,
+) service.Events {
+	return events.New(rooms, eventRepo, stateRepo, tenants, tx, stream, gate, cfg.InstanceName, clock, nil)
+}
+
 var DomainSet = wire.NewSet(
 	provideClock,
 	keyseal.New,
@@ -62,4 +91,10 @@ var DomainSet = wire.NewSet(
 	accesstoken.New,
 	provideTenants,
 	provideTokens,
+	provideEventStream,
+	provideSerialiser,
+	room.New,
+	event.New,
+	state.New,
+	provideEvents,
 )

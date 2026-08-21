@@ -1,4 +1,4 @@
-package signing_test
+package entity_test
 
 import (
 	"crypto/ed25519"
@@ -6,7 +6,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/thelemail/thaumaste/internal/pkg/signing"
+	"github.com/thelemail/thaumaste/internal/entity"
 )
 
 func keypair(t *testing.T, seed byte) (ed25519.PublicKey, ed25519.PrivateKey) {
@@ -23,20 +23,20 @@ func keypair(t *testing.T, seed byte) (ed25519.PublicKey, ed25519.PrivateKey) {
 	return pub, priv
 }
 
-func keyID(t *testing.T, version string) signing.KeyID {
+func keyID(t *testing.T, version string) entity.KeyID {
 	t.Helper()
-	id, err := signing.NewKeyID(version)
+	id, err := entity.NewKeyID(version)
 	if err != nil {
 		t.Fatalf("NewKeyID(%q): %v", version, err)
 	}
 	return id
 }
 
-func sign(t *testing.T, raw string, priv ed25519.PrivateKey, id signing.KeyID) []byte {
+func sign(t *testing.T, raw string, priv ed25519.PrivateKey, id entity.KeyID) []byte {
 	t.Helper()
-	out, err := signing.Sign([]byte(raw), "domain", id, priv)
+	out, err := entity.SignJSON([]byte(raw), "domain", id, priv)
 	if err != nil {
-		t.Fatalf("Sign: %v", err)
+		t.Fatalf("SignJSON: %v", err)
 	}
 	return out
 }
@@ -47,8 +47,8 @@ func TestSignedObjectVerifiesUnderItsOwnKey(t *testing.T) {
 
 	signed := sign(t, `{"b":2,"a":1}`, priv, id)
 
-	if err := signing.Verify(signed, "domain", id, pub); err != nil {
-		t.Fatalf("Verify: %v", err)
+	if err := entity.VerifyJSON(signed, "domain", id, pub); err != nil {
+		t.Fatalf("VerifyJSON: %v", err)
 	}
 }
 
@@ -59,8 +59,8 @@ func TestSignedObjectDoesNotVerifyUnderAnotherKey(t *testing.T) {
 
 	signed := sign(t, `{"a":1}`, priv, id)
 
-	if err := signing.Verify(signed, "domain", id, other); !errors.Is(err, signing.ErrBadSignature) {
-		t.Fatalf("Verify error = %v, want ErrBadSignature", err)
+	if err := entity.VerifyJSON(signed, "domain", id, other); !errors.Is(err, entity.ErrBadSignature) {
+		t.Fatalf("VerifyJSON error = %v, want ErrBadSignature", err)
 	}
 }
 
@@ -80,8 +80,8 @@ func TestSignatureCoversNeitherSignaturesNorUnsigned(t *testing.T) {
 		t.Fatalf("marshal: %v", err)
 	}
 
-	if err := signing.Verify(tampered, "domain", id, pub); err != nil {
-		t.Fatalf("Verify after changing unsigned: %v", err)
+	if err := entity.VerifyJSON(tampered, "domain", id, pub); err != nil {
+		t.Fatalf("VerifyJSON after changing unsigned: %v", err)
 	}
 }
 
@@ -101,8 +101,8 @@ func TestChangingAnySignedFieldBreaksTheSignature(t *testing.T) {
 		t.Fatalf("marshal: %v", err)
 	}
 
-	if err := signing.Verify(tampered, "domain", id, pub); !errors.Is(err, signing.ErrBadSignature) {
-		t.Fatalf("Verify error = %v, want ErrBadSignature", err)
+	if err := entity.VerifyJSON(tampered, "domain", id, pub); !errors.Is(err, entity.ErrBadSignature) {
+		t.Fatalf("VerifyJSON error = %v, want ErrBadSignature", err)
 	}
 }
 
@@ -127,16 +127,16 @@ func TestSigningTwiceKeepsBothSignatures(t *testing.T) {
 	one, two := keyID(t, "one"), keyID(t, "two")
 
 	signed := sign(t, `{"a":1}`, privOne, one)
-	signed, err := signing.Sign(signed, "domain", two, privTwo)
+	signed, err := entity.SignJSON(signed, "domain", two, privTwo)
 	if err != nil {
-		t.Fatalf("Sign: %v", err)
+		t.Fatalf("SignJSON: %v", err)
 	}
 
-	if err := signing.Verify(signed, "domain", one, pubOne); err != nil {
-		t.Fatalf("Verify first key: %v", err)
+	if err := entity.VerifyJSON(signed, "domain", one, pubOne); err != nil {
+		t.Fatalf("VerifyJSON first key: %v", err)
 	}
-	if err := signing.Verify(signed, "domain", two, pubTwo); err != nil {
-		t.Fatalf("Verify second key: %v", err)
+	if err := entity.VerifyJSON(signed, "domain", two, pubTwo); err != nil {
+		t.Fatalf("VerifyJSON second key: %v", err)
 	}
 }
 
@@ -145,12 +145,12 @@ func TestVerifyReportsAMissingSignatureSeparately(t *testing.T) {
 
 	signed := sign(t, `{"a":1}`, priv, keyID(t, "present"))
 
-	err := signing.Verify(signed, "domain", keyID(t, "absent"), pub)
-	if !errors.Is(err, signing.ErrNoSignature) {
-		t.Fatalf("Verify error = %v, want ErrNoSignature", err)
+	err := entity.VerifyJSON(signed, "domain", keyID(t, "absent"), pub)
+	if !errors.Is(err, entity.ErrNoSignature) {
+		t.Fatalf("VerifyJSON error = %v, want ErrNoSignature", err)
 	}
-	if err := signing.Verify(signed, "elsewhere", keyID(t, "present"), pub); !errors.Is(err, signing.ErrNoSignature) {
-		t.Fatalf("Verify for another server error = %v, want ErrNoSignature", err)
+	if err := entity.VerifyJSON(signed, "elsewhere", keyID(t, "present"), pub); !errors.Is(err, entity.ErrNoSignature) {
+		t.Fatalf("VerifyJSON for another server error = %v, want ErrNoSignature", err)
 	}
 }
 
@@ -179,11 +179,11 @@ func TestSignaturesAreUnpaddedBase64(t *testing.T) {
 
 func TestKeyIDsRejectCharactersTheSpecDoesNotAllow(t *testing.T) {
 	for _, version := range []string{"", "a-b", "a:b", "a.b", "a b"} {
-		if _, err := signing.NewKeyID(version); !errors.Is(err, signing.ErrKeyVersionFormat) {
+		if _, err := entity.NewKeyID(version); !errors.Is(err, entity.ErrKeyVersionFormat) {
 			t.Fatalf("NewKeyID(%q) error = %v, want ErrKeyVersionFormat", version, err)
 		}
 	}
-	if _, err := signing.NewKeyID("aZ0_"); err != nil {
+	if _, err := entity.NewKeyID("aZ0_"); err != nil {
 		t.Fatalf("NewKeyID(aZ0_): %v", err)
 	}
 }
@@ -200,22 +200,22 @@ func TestKeyIDRoundTripsThroughItsVersion(t *testing.T) {
 	if version != "abc_123" {
 		t.Fatalf("Version = %s", version)
 	}
-	if _, err := signing.KeyID("rsa:abc").Version(); !errors.Is(err, signing.ErrMalformedKeyID) {
+	if _, err := entity.KeyID("rsa:abc").Version(); !errors.Is(err, entity.ErrMalformedKeyID) {
 		t.Fatalf("Version of a non-ed25519 key id error = %v, want ErrMalformedKeyID", err)
 	}
 }
 
 func TestKeysDecodeWithOrWithoutPadding(t *testing.T) {
 	pub, _ := keypair(t, 10)
-	encoded := signing.EncodeKey(pub)
+	encoded := entity.EncodeBase64(pub)
 
-	unpadded, err := signing.DecodeKey(encoded)
+	unpadded, err := entity.DecodeBase64(encoded)
 	if err != nil {
-		t.Fatalf("DecodeKey unpadded: %v", err)
+		t.Fatalf("DecodeBase64 unpadded: %v", err)
 	}
-	padded, err := signing.DecodeKey(encoded + "=")
+	padded, err := entity.DecodeBase64(encoded + "=")
 	if err != nil {
-		t.Fatalf("DecodeKey padded: %v", err)
+		t.Fatalf("DecodeBase64 padded: %v", err)
 	}
 	if string(unpadded) != string(pub) || string(padded) != string(pub) {
 		t.Fatal("decoded key does not match")
