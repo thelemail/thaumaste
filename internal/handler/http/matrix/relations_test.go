@@ -549,3 +549,75 @@ func TestBundlingAPageCostsTheSameWhateverItsSize(t *testing.T) {
 		t.Fatal("the counter never fired, so this proves nothing")
 	}
 }
+
+func TestARichReplyRoundTripsAndNeverAppearsInRelations(t *testing.T) {
+	s := newServer(t)
+	_, token, _ := s.resident(t, "alpha.test", "alice")
+	roomID := s.createRoom(t, "alpha.test", token, map[string]any{})
+
+	original := s.mustSend(t, "alpha.test", token, roomID, "original", text("that sounds hard"))
+	content := text("That sounds like a great idea!")
+	content["m.relates_to"] = map[string]any{"m.in_reply_to": map[string]any{"event_id": original}}
+	reply := s.mustSend(t, "alpha.test", token, roomID, "reply", content)
+
+	served := s.event(t, "alpha.test", token, roomID, reply)
+	body, _ := served["content"].(map[string]any)
+	relatesTo, _ := body["m.relates_to"].(map[string]any)
+	inReplyTo, _ := relatesTo["m.in_reply_to"].(map[string]any)
+	if inReplyTo["event_id"] != original {
+		t.Fatalf("the reply metadata did not survive the round trip: %v", body)
+	}
+
+	children := s.mustRelations(t, "alpha.test", token, roomID, original, "", "")
+	if len(children.Chunk) != 0 {
+		t.Fatalf("a rich reply showed up in /relations: %v", children.Chunk)
+	}
+	if got := relations(t, s.event(t, "alpha.test", token, roomID, original)); got != nil {
+		t.Fatalf("a rich reply was bundled: %v", got)
+	}
+}
+
+func TestNoRelationEverCrossesADomain(t *testing.T) {
+	s := newServer(t)
+	_, alice, _ := s.resident(t, "alpha.test", "alice")
+	_, mallory, _ := s.resident(t, "beta.test", "mallory")
+
+	roomID := s.createRoom(t, "alpha.test", alice, map[string]any{})
+	root := s.mustSend(t, "alpha.test", alice, roomID, "root", text("root"))
+	s.mustSend(t, "alpha.test", alice, roomID, "reply", threaded(root, "one"))
+
+	theirRoom := s.createRoom(t, "beta.test", mallory, map[string]any{})
+	theirRoot := s.mustSend(t, "beta.test", mallory, theirRoom, "root", text("theirs"))
+	s.mustSend(t, "beta.test", mallory, theirRoom, "reply", threaded(theirRoot, "one"))
+
+	acrossRelations := s.relationsAt(t, "beta.test", mallory, roomID, root, "", "")
+	if acrossRelations.Code != http.StatusNotFound {
+		t.Fatalf("relations across domains = %d: %s", acrossRelations.Code, acrossRelations.Body)
+	}
+	acrossThreads := s.threads(t, "beta.test", mallory, roomID, "")
+	if acrossThreads.Code != http.StatusForbidden {
+		t.Fatalf("threads across domains = %d: %s", acrossThreads.Code, acrossThreads.Body)
+	}
+
+	theirs := s.mustThreads(t, "beta.test", mallory, theirRoom, "")
+	for _, id := range eventIDs(t, theirs.Chunk) {
+		if id == root {
+			t.Fatal("a thread listing named another domain's event")
+		}
+	}
+
+	crossRoom := text("relating into someone else's room")
+	crossRoom["m.relates_to"] = relatesTo(entity.RelThread, root)
+	stray := s.mustSend(t, "beta.test", mallory, theirRoom, "stray", crossRoom)
+
+	fromAlice := s.mustRelations(t, "alpha.test", alice, roomID, root, "", "")
+	for _, id := range eventIDs(t, fromAlice.Chunk) {
+		if id == stray {
+			t.Fatal("an event from another domain was returned as a relation")
+		}
+	}
+	bundled, _ := relations(t, s.event(t, "alpha.test", alice, roomID, root))["m.thread"].(map[string]any)
+	if bundled["count"] != float64(1) {
+		t.Fatalf("a cross-domain child was counted in the bundle: %v", bundled)
+	}
+}

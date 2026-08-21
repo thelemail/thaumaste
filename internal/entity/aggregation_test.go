@@ -1,6 +1,7 @@
 package entity_test
 
 import (
+	"crypto/ed25519"
 	"testing"
 
 	"github.com/thelemail/thaumaste/internal/entity"
@@ -202,5 +203,55 @@ func TestOnlyRelationsWithARelationTypeAreParsed(t *testing.T) {
 	}})
 	if !ok || relation.RelType != entity.RelAnnotation || relation.ParentID != "$parent" || relation.Key != "👍" {
 		t.Fatalf("a well-formed annotation parsed as %+v", relation)
+	}
+}
+
+func TestRedactionKeepsTheEventIdentityAndItsSignature(t *testing.T) {
+	public, private, err := ed25519.GenerateKey(nil)
+	if err != nil {
+		t.Fatalf("GenerateKey: %v", err)
+	}
+	const serverName = "alpha.test"
+	const keyID = entity.KeyID("ed25519:one")
+
+	room := version(t, entity.DefaultRoomVersion)
+	built, err := entity.EventBuilder{
+		Version:        room,
+		RoomID:         "!room:alpha.test",
+		Type:           entity.EventTypeMessage,
+		Sender:         "@alice:alpha.test",
+		Content:        map[string]any{"msgtype": "m.text", "body": "something regrettable"},
+		PrevEvents:     []string{"$parent"},
+		PrevDepth:      1,
+		AuthEvents:     []string{"$create"},
+		OriginServerTS: 1000,
+	}.Build(entity.KeySigner(serverName, keyID, private))
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if err := built.VerifyContentHash(); err != nil {
+		t.Fatalf("the fixture does not verify before redaction: %v", err)
+	}
+
+	raw, err := entity.RedactedJSON(built, room)
+	if err != nil {
+		t.Fatalf("RedactedJSON: %v", err)
+	}
+	redacted, err := entity.NewEventFromJSON(raw, room)
+	if err != nil {
+		t.Fatalf("re-read the redacted event: %v", err)
+	}
+
+	if redacted.ID() != built.ID() {
+		t.Fatalf("redaction changed the event id: %s became %s", built.ID(), redacted.ID())
+	}
+	if err := redacted.VerifySignature(serverName, keyID, public, room); err != nil {
+		t.Fatalf("a redacted event no longer verifies: %v", err)
+	}
+	if err := redacted.VerifyContentHash(); err == nil {
+		t.Fatal("the content hash still matches, so nothing was actually removed")
+	}
+	if len(redacted.Content()) != 0 {
+		t.Fatalf("the redacted content is not empty: %v", redacted.Content())
 	}
 }
