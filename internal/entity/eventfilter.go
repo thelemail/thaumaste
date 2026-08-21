@@ -117,3 +117,26 @@ func globMatches(pattern, value string) bool {
 	}
 	return strings.HasSuffix(value, last) && len(value) >= len(last)
 }
+
+func (f RoomEventFilter) JSON() ([]byte, error) {
+	fields := map[string]any{}
+	if f.Types != nil {
+		fields["types"] = f.Types
+	}
+	if f.NotTypes != nil {
+		fields["not_types"] = f.NotTypes
+	}
+	if f.Senders != nil {
+		fields["senders"] = f.Senders
+	}
+	if f.NotSenders != nil {
+		fields["not_senders"] = f.NotSenders
+	}
+	if f.ContainsURL != nil {
+		fields["contains_url"] = *f.ContainsURL
+	}
+	if f.Limit > 0 {
+		fields["limit"] = f.Limit
+	}
+	return CanonicalJSON(fields)
+}
