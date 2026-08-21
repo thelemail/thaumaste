@@ -3,3 +3,4 @@
 bin/
 .complement/
 complement/output.jsonl
+complement/COVERAGE.md

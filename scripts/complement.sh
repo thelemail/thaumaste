@@ -48,8 +48,7 @@ report() {
 	{
 		echo "# Complement coverage"
 		echo
-		echo "Suite: \`$PACKAGES\` at complement \`${COMPLEMENT_SHA:0:7}\`."
-		echo "Federation tests are not run: this server does not implement federation."
+		echo "Suite: \`$PACKAGES\` at complement \`${COMPLEMENT_SHA:0:7}\`. Federation excluded."
 		echo
 		echo "| tests | pass | fail | skip | passing |"
 		echo "|------:|-----:|-----:|-----:|--------:|"
@@ -63,10 +62,7 @@ report() {
 		echo
 		jq -sr '.[] | select((.Test | contains("/") | not) and .Action == "skip") | "- \(.Test)"' "$OUT/results.jsonl"
 		echo
-		echo "## Why the failures stop where they do"
-		echo
-		echo "Endpoints the suite asked for, most requested first. Whatever sits at the top is what"
-		echo "the rest of the suite is waiting on."
+		echo "## Endpoints requested"
 		echo
 		jq -Rc 'fromjson? // empty' "$OUT/output.jsonl" \
 			| jq -r 'select(.Action == "output" and .Test != null) | .Output' \
@@ -75,7 +71,7 @@ report() {
 			| sort | uniq -c | sort -rn | head -8 \
 			| sed 's/^ *\([0-9]*\) /- \1 x /'
 		echo
-		echo "Most frequent assertion failures:"
+		echo "## Assertion failures"
 		echo
 		jq -Rc 'fromjson? // empty' "$OUT/output.jsonl" \
 			| jq -r 'select(.Action == "output" and .Test != null) | .Output' \
