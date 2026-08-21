@@ -9,6 +9,7 @@ var TableNames = struct {
 	Devices             string
 	EventAuthEdges      string
 	EventPrevEdges      string
+	EventRelations      string
 	EventStateKeys      string
 	EventTransactions   string
 	EventTypes          string
@@ -35,6 +36,7 @@ var TableNames = struct {
 	Devices:             "devices",
 	EventAuthEdges:      "event_auth_edges",
 	EventPrevEdges:      "event_prev_edges",
+	EventRelations:      "event_relations",
 	EventStateKeys:      "event_state_keys",
 	EventTransactions:   "event_transactions",
 	EventTypes:          "event_types",

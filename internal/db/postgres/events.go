@@ -40,6 +40,7 @@ type Event struct {
 	Disposition         string     `boil:"disposition" json:"disposition" toml:"disposition" yaml:"disposition"`
 	EventJSON           []byte     `boil:"event_json" json:"event_json" toml:"event_json" yaml:"event_json"`
 	CreatedAt           time.Time  `boil:"created_at" json:"created_at" toml:"created_at" yaml:"created_at"`
+	RedactedByNid       null.Int64 `boil:"redacted_by_nid" json:"redacted_by_nid,omitempty" toml:"redacted_by_nid" yaml:"redacted_by_nid,omitempty"`
 
 	R *eventR `boil:"-" json:"-" toml:"-" yaml:"-"`
 	L eventL  `boil:"-" json:"-" toml:"-" yaml:"-"`
@@ -62,6 +63,7 @@ var EventColumns = struct {
 	Disposition         string
 	EventJSON           string
 	CreatedAt           string
+	RedactedByNid       string
 }{
 	EventNid:            "event_nid",
 	RoomNid:             "room_nid",
@@ -79,6 +81,7 @@ var EventColumns = struct {
 	Disposition:         "disposition",
 	EventJSON:           "event_json",
 	CreatedAt:           "created_at",
+	RedactedByNid:       "redacted_by_nid",
 }
 
 var EventTableColumns = struct {
@@ -98,6 +101,7 @@ var EventTableColumns = struct {
 	Disposition         string
 	EventJSON           string
 	CreatedAt           string
+	RedactedByNid       string
 }{
 	EventNid:            "events.event_nid",
 	RoomNid:             "events.room_nid",
@@ -115,6 +119,7 @@ var EventTableColumns = struct {
 	Disposition:         "events.disposition",
 	EventJSON:           "events.event_json",
 	CreatedAt:           "events.created_at",
+	RedactedByNid:       "events.redacted_by_nid",
 }
 
 // Generated where
@@ -183,6 +188,7 @@ var EventWhere = struct {
 	Disposition         whereHelperstring
 	EventJSON           whereHelper__byte
 	CreatedAt           whereHelpertime_Time
+	RedactedByNid       whereHelpernull_Int64
 }{
 	EventNid:            whereHelperint64{field: "\"events\".\"event_nid\""},
 	RoomNid:             whereHelperint64{field: "\"events\".\"room_nid\""},
@@ -200,16 +206,20 @@ var EventWhere = struct {
 	Disposition:         whereHelperstring{field: "\"events\".\"disposition\""},
 	EventJSON:           whereHelper__byte{field: "\"events\".\"event_json\""},
 	CreatedAt:           whereHelpertime_Time{field: "\"events\".\"created_at\""},
+	RedactedByNid:       whereHelpernull_Int64{field: "\"events\".\"redacted_by_nid\""},
 }
 
 // EventRels is where relationship names are stored.
 var EventRels = struct {
 	EventStateKeyNidEventStateKey string
 	EventTypeNidEventType         string
+	RedactedByNidEvent            string
 	RoomNidRoom                   string
 	StateSnapshotNidStateSnapshot string
+	ChildNidEventRelation         string
 	ChildNidEventAuthEdges        string
 	ChildNidEventPrevEdges        string
+	RedactedByNidEvents           string
 	RoomNidRooms                  string
 	EventNidRoomMemberships       string
 	CreateEventNidRooms           string
@@ -217,10 +227,13 @@ var EventRels = struct {
 }{
 	EventStateKeyNidEventStateKey: "EventStateKeyNidEventStateKey",
 	EventTypeNidEventType:         "EventTypeNidEventType",
+	RedactedByNidEvent:            "RedactedByNidEvent",
 	RoomNidRoom:                   "RoomNidRoom",
 	StateSnapshotNidStateSnapshot: "StateSnapshotNidStateSnapshot",
+	ChildNidEventRelation:         "ChildNidEventRelation",
 	ChildNidEventAuthEdges:        "ChildNidEventAuthEdges",
 	ChildNidEventPrevEdges:        "ChildNidEventPrevEdges",
+	RedactedByNidEvents:           "RedactedByNidEvents",
 	RoomNidRooms:                  "RoomNidRooms",
 	EventNidRoomMemberships:       "EventNidRoomMemberships",
 	CreateEventNidRooms:           "CreateEventNidRooms",
@@ -231,10 +244,13 @@ var EventRels = struct {
 type eventR struct {
 	EventStateKeyNidEventStateKey *EventStateKey       `boil:"EventStateKeyNidEventStateKey" json:"EventStateKeyNidEventStateKey" toml:"EventStateKeyNidEventStateKey" yaml:"EventStateKeyNidEventStateKey"`
 	EventTypeNidEventType         *EventType           `boil:"EventTypeNidEventType" json:"EventTypeNidEventType" toml:"EventTypeNidEventType" yaml:"EventTypeNidEventType"`
+	RedactedByNidEvent            *Event               `boil:"RedactedByNidEvent" json:"RedactedByNidEvent" toml:"RedactedByNidEvent" yaml:"RedactedByNidEvent"`
 	RoomNidRoom                   *Room                `boil:"RoomNidRoom" json:"RoomNidRoom" toml:"RoomNidRoom" yaml:"RoomNidRoom"`
 	StateSnapshotNidStateSnapshot *StateSnapshot       `boil:"StateSnapshotNidStateSnapshot" json:"StateSnapshotNidStateSnapshot" toml:"StateSnapshotNidStateSnapshot" yaml:"StateSnapshotNidStateSnapshot"`
+	ChildNidEventRelation         *EventRelation       `boil:"ChildNidEventRelation" json:"ChildNidEventRelation" toml:"ChildNidEventRelation" yaml:"ChildNidEventRelation"`
 	ChildNidEventAuthEdges        EventAuthEdgeSlice   `boil:"ChildNidEventAuthEdges" json:"ChildNidEventAuthEdges" toml:"ChildNidEventAuthEdges" yaml:"ChildNidEventAuthEdges"`
 	ChildNidEventPrevEdges        EventPrevEdgeSlice   `boil:"ChildNidEventPrevEdges" json:"ChildNidEventPrevEdges" toml:"ChildNidEventPrevEdges" yaml:"ChildNidEventPrevEdges"`
+	RedactedByNidEvents           EventSlice           `boil:"RedactedByNidEvents" json:"RedactedByNidEvents" toml:"RedactedByNidEvents" yaml:"RedactedByNidEvents"`
 	RoomNidRooms                  RoomSlice            `boil:"RoomNidRooms" json:"RoomNidRooms" toml:"RoomNidRooms" yaml:"RoomNidRooms"`
 	EventNidRoomMemberships       RoomMembershipSlice  `boil:"EventNidRoomMemberships" json:"EventNidRoomMemberships" toml:"EventNidRoomMemberships" yaml:"EventNidRoomMemberships"`
 	CreateEventNidRooms           RoomSlice            `boil:"CreateEventNidRooms" json:"CreateEventNidRooms" toml:"CreateEventNidRooms" yaml:"CreateEventNidRooms"`
@@ -278,6 +294,22 @@ func (r *eventR) GetEventTypeNidEventType() *EventType {
 	return r.EventTypeNidEventType
 }
 
+func (o *Event) GetRedactedByNidEvent() *Event {
+	if o == nil {
+		return nil
+	}
+
+	return o.R.GetRedactedByNidEvent()
+}
+
+func (r *eventR) GetRedactedByNidEvent() *Event {
+	if r == nil {
+		return nil
+	}
+
+	return r.RedactedByNidEvent
+}
+
 func (o *Event) GetRoomNidRoom() *Room {
 	if o == nil {
 		return nil
@@ -310,6 +342,22 @@ func (r *eventR) GetStateSnapshotNidStateSnapshot() *StateSnapshot {
 	return r.StateSnapshotNidStateSnapshot
 }
 
+func (o *Event) GetChildNidEventRelation() *EventRelation {
+	if o == nil {
+		return nil
+	}
+
+	return o.R.GetChildNidEventRelation()
+}
+
+func (r *eventR) GetChildNidEventRelation() *EventRelation {
+	if r == nil {
+		return nil
+	}
+
+	return r.ChildNidEventRelation
+}
+
 func (o *Event) GetChildNidEventAuthEdges() EventAuthEdgeSlice {
 	if o == nil {
 		return nil
@@ -340,6 +388,22 @@ func (r *eventR) GetChildNidEventPrevEdges() EventPrevEdgeSlice {
 	}
 
 	return r.ChildNidEventPrevEdges
+}
+
+func (o *Event) GetRedactedByNidEvents() EventSlice {
+	if o == nil {
+		return nil
+	}
+
+	return o.R.GetRedactedByNidEvents()
+}
+
+func (r *eventR) GetRedactedByNidEvents() EventSlice {
+	if r == nil {
+		return nil
+	}
+
+	return r.RedactedByNidEvents
 }
 
 func (o *Event) GetRoomNidRooms() RoomSlice {
@@ -410,9 +474,9 @@ func (r *eventR) GetEventNidStateBlockEntries() StateBlockEntrySlice {
 type eventL struct{}
 
 var (
-	eventAllColumns            = []string{"event_nid", "room_nid", "event_id", "event_type_nid", "event_state_key_nid", "sender", "sender_is_local", "depth", "stream_ordering", "topological_ordering", "instance_name", "origin_server_ts", "state_snapshot_nid", "disposition", "event_json", "created_at"}
+	eventAllColumns            = []string{"event_nid", "room_nid", "event_id", "event_type_nid", "event_state_key_nid", "sender", "sender_is_local", "depth", "stream_ordering", "topological_ordering", "instance_name", "origin_server_ts", "state_snapshot_nid", "disposition", "event_json", "created_at", "redacted_by_nid"}
 	eventColumnsWithoutDefault = []string{"room_nid", "event_id", "event_type_nid", "sender", "sender_is_local", "depth", "stream_ordering", "topological_ordering", "instance_name", "origin_server_ts", "event_json"}
-	eventColumnsWithDefault    = []string{"event_nid", "event_state_key_nid", "state_snapshot_nid", "disposition", "created_at"}
+	eventColumnsWithDefault    = []string{"event_nid", "event_state_key_nid", "state_snapshot_nid", "disposition", "created_at", "redacted_by_nid"}
 	eventPrimaryKeyColumns     = []string{"event_nid"}
 	eventGeneratedColumns      = []string{}
 )
@@ -744,6 +808,17 @@ func (o *Event) EventTypeNidEventType(mods ...qm.QueryMod) eventTypeQuery {
 	return EventTypes(queryMods...)
 }
 
+// RedactedByNidEvent pointed to by the foreign key.
+func (o *Event) RedactedByNidEvent(mods ...qm.QueryMod) eventQuery {
+	queryMods := []qm.QueryMod{
+		qm.Where("\"event_nid\" = ?", o.RedactedByNid),
+	}
+
+	queryMods = append(queryMods, mods...)
+
+	return Events(queryMods...)
+}
+
 // RoomNidRoom pointed to by the foreign key.
 func (o *Event) RoomNidRoom(mods ...qm.QueryMod) roomQuery {
 	queryMods := []qm.QueryMod{
@@ -764,6 +839,17 @@ func (o *Event) StateSnapshotNidStateSnapshot(mods ...qm.QueryMod) stateSnapshot
 	queryMods = append(queryMods, mods...)
 
 	return StateSnapshots(queryMods...)
+}
+
+// ChildNidEventRelation pointed to by the foreign key.
+func (o *Event) ChildNidEventRelation(mods ...qm.QueryMod) eventRelationQuery {
+	queryMods := []qm.QueryMod{
+		qm.Where("\"child_nid\" = ?", o.EventNid),
+	}
+
+	queryMods = append(queryMods, mods...)
+
+	return EventRelations(queryMods...)
 }
 
 // ChildNidEventAuthEdges retrieves all the event_auth_edge's EventAuthEdges with an executor via child_nid column.
@@ -792,6 +878,20 @@ func (o *Event) ChildNidEventPrevEdges(mods ...qm.QueryMod) eventPrevEdgeQuery {
 	)
 
 	return EventPrevEdges(queryMods...)
+}
+
+// RedactedByNidEvents retrieves all the event's Events with an executor via redacted_by_nid column.
+func (o *Event) RedactedByNidEvents(mods ...qm.QueryMod) eventQuery {
+	var queryMods []qm.QueryMod
+	if len(mods) != 0 {
+		queryMods = append(queryMods, mods...)
+	}
+
+	queryMods = append(queryMods,
+		qm.Where("\"events\".\"redacted_by_nid\"=?", o.EventNid),
+	)
+
+	return Events(queryMods...)
 }
 
 // RoomNidRooms retrieves all the room's Rooms with an executor via room_nid column.
@@ -1095,6 +1195,130 @@ func (eventL) LoadEventTypeNidEventType(ctx context.Context, e boil.ContextExecu
 	return nil
 }
 
+// LoadRedactedByNidEvent allows an eager lookup of values, cached into the
+// loaded structs of the objects. This is for an N-1 relationship.
+func (eventL) LoadRedactedByNidEvent(ctx context.Context, e boil.ContextExecutor, singular bool, maybeEvent any, mods queries.Applicator) error {
+	var slice []*Event
+	var object *Event
+
+	if singular {
+		var ok bool
+		object, ok = maybeEvent.(*Event)
+		if !ok {
+			object = new(Event)
+			ok = queries.SetFromEmbeddedStruct(&object, &maybeEvent)
+			if !ok {
+				return errors.New(fmt.Sprintf("failed to set %T from embedded struct %T", object, maybeEvent))
+			}
+		}
+	} else {
+		s, ok := maybeEvent.(*[]*Event)
+		if ok {
+			slice = *s
+		} else {
+			ok = queries.SetFromEmbeddedStruct(&slice, maybeEvent)
+			if !ok {
+				return errors.New(fmt.Sprintf("failed to set %T from embedded struct %T", slice, maybeEvent))
+			}
+		}
+	}
+
+	args := make(map[any]struct{})
+	if singular {
+		if object.R == nil {
+			object.R = &eventR{}
+		}
+		if !queries.IsNil(object.RedactedByNid) {
+			args[object.RedactedByNid] = struct{}{}
+		}
+
+	} else {
+		for _, obj := range slice {
+			if obj.R == nil {
+				obj.R = &eventR{}
+			}
+
+			if !queries.IsNil(obj.RedactedByNid) {
+				args[obj.RedactedByNid] = struct{}{}
+			}
+
+		}
+	}
+
+	if len(args) == 0 {
+		return nil
+	}
+
+	argsSlice := make([]any, len(args))
+	i := 0
+	for arg := range args {
+		argsSlice[i] = arg
+		i++
+	}
+
+	query := NewQuery(
+		qm.From(`events`),
+		qm.WhereIn(`events.event_nid in ?`, argsSlice...),
+	)
+	if mods != nil {
+		mods.Apply(query)
+	}
+
+	results, err := query.QueryContext(ctx, e)
+	if err != nil {
+		return errors.Wrap(err, "failed to eager load Event")
+	}
+
+	var resultSlice []*Event
+	if err = queries.Bind(results, &resultSlice); err != nil {
+		return errors.Wrap(err, "failed to bind eager loaded slice Event")
+	}
+
+	if err = results.Close(); err != nil {
+		return errors.Wrap(err, "failed to close results of eager load for events")
+	}
+	if err = results.Err(); err != nil {
+		return errors.Wrap(err, "error occurred during iteration of eager loaded relations for events")
+	}
+
+	if len(eventAfterSelectHooks) != 0 {
+		for _, obj := range resultSlice {
+			if err := obj.doAfterSelectHooks(ctx, e); err != nil {
+				return err
+			}
+		}
+	}
+
+	if len(resultSlice) == 0 {
+		return nil
+	}
+
+	if singular {
+		foreign := resultSlice[0]
+		object.R.RedactedByNidEvent = foreign
+		if foreign.R == nil {
+			foreign.R = &eventR{}
+		}
+		foreign.R.RedactedByNidEvents = append(foreign.R.RedactedByNidEvents, object)
+		return nil
+	}
+
+	for _, local := range slice {
+		for _, foreign := range resultSlice {
+			if queries.Equal(local.RedactedByNid, foreign.EventNid) {
+				local.R.RedactedByNidEvent = foreign
+				if foreign.R == nil {
+					foreign.R = &eventR{}
+				}
+				foreign.R.RedactedByNidEvents = append(foreign.R.RedactedByNidEvents, local)
+				break
+			}
+		}
+	}
+
+	return nil
+}
+
 // LoadRoomNidRoom allows an eager lookup of values, cached into the
 // loaded structs of the objects. This is for an N-1 relationship.
 func (eventL) LoadRoomNidRoom(ctx context.Context, e boil.ContextExecutor, singular bool, maybeEvent any, mods queries.Applicator) error {
@@ -1339,6 +1563,123 @@ func (eventL) LoadStateSnapshotNidStateSnapshot(ctx context.Context, e boil.Cont
 	return nil
 }
 
+// LoadChildNidEventRelation allows an eager lookup of values, cached into the
+// loaded structs of the objects. This is for a 1-1 relationship.
+func (eventL) LoadChildNidEventRelation(ctx context.Context, e boil.ContextExecutor, singular bool, maybeEvent any, mods queries.Applicator) error {
+	var slice []*Event
+	var object *Event
+
+	if singular {
+		var ok bool
+		object, ok = maybeEvent.(*Event)
+		if !ok {
+			object = new(Event)
+			ok = queries.SetFromEmbeddedStruct(&object, &maybeEvent)
+			if !ok {
+				return errors.New(fmt.Sprintf("failed to set %T from embedded struct %T", object, maybeEvent))
+			}
+		}
+	} else {
+		s, ok := maybeEvent.(*[]*Event)
+		if ok {
+			slice = *s
+		} else {
+			ok = queries.SetFromEmbeddedStruct(&slice, maybeEvent)
+			if !ok {
+				return errors.New(fmt.Sprintf("failed to set %T from embedded struct %T", slice, maybeEvent))
+			}
+		}
+	}
+
+	args := make(map[any]struct{})
+	if singular {
+		if object.R == nil {
+			object.R = &eventR{}
+		}
+		args[object.EventNid] = struct{}{}
+	} else {
+		for _, obj := range slice {
+			if obj.R == nil {
+				obj.R = &eventR{}
+			}
+
+			args[obj.EventNid] = struct{}{}
+		}
+	}
+
+	if len(args) == 0 {
+		return nil
+	}
+
+	argsSlice := make([]any, len(args))
+	i := 0
+	for arg := range args {
+		argsSlice[i] = arg
+		i++
+	}
+
+	query := NewQuery(
+		qm.From(`event_relations`),
+		qm.WhereIn(`event_relations.child_nid in ?`, argsSlice...),
+	)
+	if mods != nil {
+		mods.Apply(query)
+	}
+
+	results, err := query.QueryContext(ctx, e)
+	if err != nil {
+		return errors.Wrap(err, "failed to eager load EventRelation")
+	}
+
+	var resultSlice []*EventRelation
+	if err = queries.Bind(results, &resultSlice); err != nil {
+		return errors.Wrap(err, "failed to bind eager loaded slice EventRelation")
+	}
+
+	if err = results.Close(); err != nil {
+		return errors.Wrap(err, "failed to close results of eager load for event_relations")
+	}
+	if err = results.Err(); err != nil {
+		return errors.Wrap(err, "error occurred during iteration of eager loaded relations for event_relations")
+	}
+
+	if len(eventRelationAfterSelectHooks) != 0 {
+		for _, obj := range resultSlice {
+			if err := obj.doAfterSelectHooks(ctx, e); err != nil {
+				return err
+			}
+		}
+	}
+
+	if len(resultSlice) == 0 {
+		return nil
+	}
+
+	if singular {
+		foreign := resultSlice[0]
+		object.R.ChildNidEventRelation = foreign
+		if foreign.R == nil {
+			foreign.R = &eventRelationR{}
+		}
+		foreign.R.ChildNidEvent = object
+	}
+
+	for _, local := range slice {
+		for _, foreign := range resultSlice {
+			if local.EventNid == foreign.ChildNid {
+				local.R.ChildNidEventRelation = foreign
+				if foreign.R == nil {
+					foreign.R = &eventRelationR{}
+				}
+				foreign.R.ChildNidEvent = local
+				break
+			}
+		}
+	}
+
+	return nil
+}
+
 // LoadChildNidEventAuthEdges allows an eager lookup of values, cached into the
 // loaded structs of the objects. This is for a 1-M or N-M relationship.
 func (eventL) LoadChildNidEventAuthEdges(ctx context.Context, e boil.ContextExecutor, singular bool, maybeEvent any, mods queries.Applicator) error {
@@ -1557,6 +1898,119 @@ func (eventL) LoadChildNidEventPrevEdges(ctx context.Context, e boil.ContextExec
 					foreign.R = &eventPrevEdgeR{}
 				}
 				foreign.R.ChildNidEvent = local
+				break
+			}
+		}
+	}
+
+	return nil
+}
+
+// LoadRedactedByNidEvents allows an eager lookup of values, cached into the
+// loaded structs of the objects. This is for a 1-M or N-M relationship.
+func (eventL) LoadRedactedByNidEvents(ctx context.Context, e boil.ContextExecutor, singular bool, maybeEvent any, mods queries.Applicator) error {
+	var slice []*Event
+	var object *Event
+
+	if singular {
+		var ok bool
+		object, ok = maybeEvent.(*Event)
+		if !ok {
+			object = new(Event)
+			ok = queries.SetFromEmbeddedStruct(&object, &maybeEvent)
+			if !ok {
+				return errors.New(fmt.Sprintf("failed to set %T from embedded struct %T", object, maybeEvent))
+			}
+		}
+	} else {
+		s, ok := maybeEvent.(*[]*Event)
+		if ok {
+			slice = *s
+		} else {
+			ok = queries.SetFromEmbeddedStruct(&slice, maybeEvent)
+			if !ok {
+				return errors.New(fmt.Sprintf("failed to set %T from embedded struct %T", slice, maybeEvent))
+			}
+		}
+	}
+
+	args := make(map[any]struct{})
+	if singular {
+		if object.R == nil {
+			object.R = &eventR{}
+		}
+		args[object.EventNid] = struct{}{}
+	} else {
+		for _, obj := range slice {
+			if obj.R == nil {
+				obj.R = &eventR{}
+			}
+			args[obj.EventNid] = struct{}{}
+		}
+	}
+
+	if len(args) == 0 {
+		return nil
+	}
+
+	argsSlice := make([]any, len(args))
+	i := 0
+	for arg := range args {
+		argsSlice[i] = arg
+		i++
+	}
+
+	query := NewQuery(
+		qm.From(`events`),
+		qm.WhereIn(`events.redacted_by_nid in ?`, argsSlice...),
+	)
+	if mods != nil {
+		mods.Apply(query)
+	}
+
+	results, err := query.QueryContext(ctx, e)
+	if err != nil {
+		return errors.Wrap(err, "failed to eager load events")
+	}
+
+	var resultSlice []*Event
+	if err = queries.Bind(results, &resultSlice); err != nil {
+		return errors.Wrap(err, "failed to bind eager loaded slice events")
+	}
+
+	if err = results.Close(); err != nil {
+		return errors.Wrap(err, "failed to close results in eager load on events")
+	}
+	if err = results.Err(); err != nil {
+		return errors.Wrap(err, "error occurred during iteration of eager loaded relations for events")
+	}
+
+	if len(eventAfterSelectHooks) != 0 {
+		for _, obj := range resultSlice {
+			if err := obj.doAfterSelectHooks(ctx, e); err != nil {
+				return err
+			}
+		}
+	}
+	if singular {
+		object.R.RedactedByNidEvents = resultSlice
+		for _, foreign := range resultSlice {
+			if foreign.R == nil {
+				foreign.R = &eventR{}
+			}
+			foreign.R.RedactedByNidEvent = object
+		}
+		return nil
+	}
+
+	for _, foreign := range resultSlice {
+		for _, local := range slice {
+			if queries.Equal(local.EventNid, foreign.RedactedByNid) {
+				local.R.RedactedByNidEvents = append(local.R.RedactedByNidEvents, foreign)
+				if foreign.R == nil {
+					foreign.R = &eventR{}
+				}
+				foreign.R.RedactedByNidEvent = local
 				break
 			}
 		}
@@ -2161,6 +2615,86 @@ func (o *Event) SetEventTypeNidEventType(ctx context.Context, exec boil.ContextE
 	return nil
 }
 
+// SetRedactedByNidEvent of the event to the related item.
+// Sets o.R.RedactedByNidEvent to related.
+// Adds o to related.R.RedactedByNidEvents.
+func (o *Event) SetRedactedByNidEvent(ctx context.Context, exec boil.ContextExecutor, insert bool, related *Event) error {
+	var err error
+	if insert {
+		if err = related.Insert(ctx, exec, boil.Infer()); err != nil {
+			return errors.Wrap(err, "failed to insert into foreign table")
+		}
+	}
+
+	updateQuery := fmt.Sprintf(
+		"UPDATE \"events\" SET %s WHERE %s",
+		strmangle.SetParamNames("\"", "\"", 1, []string{"redacted_by_nid"}),
+		strmangle.WhereClause("\"", "\"", 2, eventPrimaryKeyColumns),
+	)
+	values := []any{related.EventNid, o.EventNid}
+
+	if boil.IsDebug(ctx) {
+		writer := boil.DebugWriterFrom(ctx)
+		fmt.Fprintln(writer, updateQuery)
+		fmt.Fprintln(writer, values)
+	}
+	if _, err = exec.ExecContext(ctx, updateQuery, values...); err != nil {
+		return errors.Wrap(err, "failed to update local table")
+	}
+
+	queries.Assign(&o.RedactedByNid, related.EventNid)
+	if o.R == nil {
+		o.R = &eventR{
+			RedactedByNidEvent: related,
+		}
+	} else {
+		o.R.RedactedByNidEvent = related
+	}
+
+	if related.R == nil {
+		related.R = &eventR{
+			RedactedByNidEvents: EventSlice{o},
+		}
+	} else {
+		related.R.RedactedByNidEvents = append(related.R.RedactedByNidEvents, o)
+	}
+
+	return nil
+}
+
+// RemoveRedactedByNidEvent relationship.
+// Sets o.R.RedactedByNidEvent to nil.
+// Removes o from all passed in related items' relationships struct.
+func (o *Event) RemoveRedactedByNidEvent(ctx context.Context, exec boil.ContextExecutor, related *Event) error {
+	var err error
+
+	queries.SetScanner(&o.RedactedByNid, nil)
+	if _, err = o.Update(ctx, exec, boil.Whitelist("redacted_by_nid")); err != nil {
+		return errors.Wrap(err, "failed to update local table")
+	}
+
+	if o.R != nil {
+		o.R.RedactedByNidEvent = nil
+	}
+	if related == nil || related.R == nil {
+		return nil
+	}
+
+	for i, ri := range related.R.RedactedByNidEvents {
+		if queries.Equal(o.RedactedByNid, ri.RedactedByNid) {
+			continue
+		}
+
+		ln := len(related.R.RedactedByNidEvents)
+		if ln > 1 && i < ln-1 {
+			related.R.RedactedByNidEvents[i] = related.R.RedactedByNidEvents[ln-1]
+		}
+		related.R.RedactedByNidEvents = related.R.RedactedByNidEvents[:ln-1]
+		break
+	}
+	return nil
+}
+
 // SetRoomNidRoom of the event to the related item.
 // Sets o.R.RoomNidRoom to related.
 // Adds o to related.R.RoomNidEvents.
@@ -2288,6 +2822,56 @@ func (o *Event) RemoveStateSnapshotNidStateSnapshot(ctx context.Context, exec bo
 	return nil
 }
 
+// SetChildNidEventRelation of the event to the related item.
+// Sets o.R.ChildNidEventRelation to related.
+// Adds o to related.R.ChildNidEvent.
+func (o *Event) SetChildNidEventRelation(ctx context.Context, exec boil.ContextExecutor, insert bool, related *EventRelation) error {
+	var err error
+
+	if insert {
+		related.ChildNid = o.EventNid
+
+		if err = related.Insert(ctx, exec, boil.Infer()); err != nil {
+			return errors.Wrap(err, "failed to insert into foreign table")
+		}
+	} else {
+		updateQuery := fmt.Sprintf(
+			"UPDATE \"event_relations\" SET %s WHERE %s",
+			strmangle.SetParamNames("\"", "\"", 1, []string{"child_nid"}),
+			strmangle.WhereClause("\"", "\"", 2, eventRelationPrimaryKeyColumns),
+		)
+		values := []any{o.EventNid, related.ChildNid}
+
+		if boil.IsDebug(ctx) {
+			writer := boil.DebugWriterFrom(ctx)
+			fmt.Fprintln(writer, updateQuery)
+			fmt.Fprintln(writer, values)
+		}
+		if _, err = exec.ExecContext(ctx, updateQuery, values...); err != nil {
+			return errors.Wrap(err, "failed to update foreign table")
+		}
+
+		related.ChildNid = o.EventNid
+	}
+
+	if o.R == nil {
+		o.R = &eventR{
+			ChildNidEventRelation: related,
+		}
+	} else {
+		o.R.ChildNidEventRelation = related
+	}
+
+	if related.R == nil {
+		related.R = &eventRelationR{
+			ChildNidEvent: o,
+		}
+	} else {
+		related.R.ChildNidEvent = o
+	}
+	return nil
+}
+
 // AddChildNidEventAuthEdges adds the given related objects to the existing relationships
 // of the event, optionally inserting them as new records.
 // Appends related to o.R.ChildNidEventAuthEdges.
@@ -2391,6 +2975,133 @@ func (o *Event) AddChildNidEventPrevEdges(ctx context.Context, exec boil.Context
 			rel.R.ChildNidEvent = o
 		}
 	}
+	return nil
+}
+
+// AddRedactedByNidEvents adds the given related objects to the existing relationships
+// of the event, optionally inserting them as new records.
+// Appends related to o.R.RedactedByNidEvents.
+// Sets related.R.RedactedByNidEvent appropriately.
+func (o *Event) AddRedactedByNidEvents(ctx context.Context, exec boil.ContextExecutor, insert bool, related ...*Event) error {
+	var err error
+	for _, rel := range related {
+		if insert {
+			queries.Assign(&rel.RedactedByNid, o.EventNid)
+			if err = rel.Insert(ctx, exec, boil.Infer()); err != nil {
+				return errors.Wrap(err, "failed to insert into foreign table")
+			}
+		} else {
+			updateQuery := fmt.Sprintf(
+				"UPDATE \"events\" SET %s WHERE %s",
+				strmangle.SetParamNames("\"", "\"", 1, []string{"redacted_by_nid"}),
+				strmangle.WhereClause("\"", "\"", 2, eventPrimaryKeyColumns),
+			)
+			values := []any{o.EventNid, rel.EventNid}
+
+			if boil.IsDebug(ctx) {
+				writer := boil.DebugWriterFrom(ctx)
+				fmt.Fprintln(writer, updateQuery)
+				fmt.Fprintln(writer, values)
+			}
+			if _, err = exec.ExecContext(ctx, updateQuery, values...); err != nil {
+				return errors.Wrap(err, "failed to update foreign table")
+			}
+
+			queries.Assign(&rel.RedactedByNid, o.EventNid)
+		}
+	}
+
+	if o.R == nil {
+		o.R = &eventR{
+			RedactedByNidEvents: related,
+		}
+	} else {
+		o.R.RedactedByNidEvents = append(o.R.RedactedByNidEvents, related...)
+	}
+
+	for _, rel := range related {
+		if rel.R == nil {
+			rel.R = &eventR{
+				RedactedByNidEvent: o,
+			}
+		} else {
+			rel.R.RedactedByNidEvent = o
+		}
+	}
+	return nil
+}
+
+// SetRedactedByNidEvents removes all previously related items of the
+// event replacing them completely with the passed
+// in related items, optionally inserting them as new records.
+// Sets o.R.RedactedByNidEvent's RedactedByNidEvents accordingly.
+// Replaces o.R.RedactedByNidEvents with related.
+// Sets related.R.RedactedByNidEvent's RedactedByNidEvents accordingly.
+func (o *Event) SetRedactedByNidEvents(ctx context.Context, exec boil.ContextExecutor, insert bool, related ...*Event) error {
+	query := "update \"events\" set \"redacted_by_nid\" = null where \"redacted_by_nid\" = $1"
+	values := []any{o.EventNid}
+	if boil.IsDebug(ctx) {
+		writer := boil.DebugWriterFrom(ctx)
+		fmt.Fprintln(writer, query)
+		fmt.Fprintln(writer, values)
+	}
+	_, err := exec.ExecContext(ctx, query, values...)
+	if err != nil {
+		return errors.Wrap(err, "failed to remove relationships before set")
+	}
+
+	if o.R != nil {
+		for _, rel := range o.R.RedactedByNidEvents {
+			queries.SetScanner(&rel.RedactedByNid, nil)
+			if rel.R == nil {
+				continue
+			}
+
+			rel.R.RedactedByNidEvent = nil
+		}
+		o.R.RedactedByNidEvents = nil
+	}
+
+	return o.AddRedactedByNidEvents(ctx, exec, insert, related...)
+}
+
+// RemoveRedactedByNidEvents relationships from objects passed in.
+// Removes related items from R.RedactedByNidEvents (uses pointer comparison, removal does not keep order)
+// Sets related.R.RedactedByNidEvent.
+func (o *Event) RemoveRedactedByNidEvents(ctx context.Context, exec boil.ContextExecutor, related ...*Event) error {
+	if len(related) == 0 {
+		return nil
+	}
+
+	var err error
+	for _, rel := range related {
+		queries.SetScanner(&rel.RedactedByNid, nil)
+		if rel.R != nil {
+			rel.R.RedactedByNidEvent = nil
+		}
+		if _, err = rel.Update(ctx, exec, boil.Whitelist("redacted_by_nid")); err != nil {
+			return err
+		}
+	}
+	if o.R == nil {
+		return nil
+	}
+
+	for _, rel := range related {
+		for i, ri := range o.R.RedactedByNidEvents {
+			if rel != ri {
+				continue
+			}
+
+			ln := len(o.R.RedactedByNidEvents)
+			if ln > 1 && i < ln-1 {
+				o.R.RedactedByNidEvents[i] = o.R.RedactedByNidEvents[ln-1]
+			}
+			o.R.RedactedByNidEvents = o.R.RedactedByNidEvents[:ln-1]
+			break
+		}
+	}
+
 	return nil
 }
 

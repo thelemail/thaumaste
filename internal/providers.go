@@ -22,6 +22,7 @@ import (
 	"github.com/thelemail/thaumaste/internal/repository/device"
 	"github.com/thelemail/thaumaste/internal/repository/event"
 	"github.com/thelemail/thaumaste/internal/repository/refreshtoken"
+	"github.com/thelemail/thaumaste/internal/repository/relation"
 	"github.com/thelemail/thaumaste/internal/repository/room"
 	"github.com/thelemail/thaumaste/internal/repository/roommember"
 	"github.com/thelemail/thaumaste/internal/repository/signingkey"
@@ -123,6 +124,7 @@ func provideEvents(
 	eventRepo repository.Event,
 	stateRepo repository.State,
 	members repository.RoomMember,
+	relations repository.Relation,
 	txns repository.Transaction,
 	tenants service.Tenants,
 	tx repository.Transactor,
@@ -132,7 +134,7 @@ func provideEvents(
 	cfg config.Server,
 	clock func() time.Time,
 ) service.Events {
-	return events.New(rooms, eventRepo, stateRepo, members, txns, tenants, tx, stream, locks, gate,
+	return events.New(rooms, eventRepo, stateRepo, members, relations, txns, tenants, tx, stream, locks, gate,
 		cfg.InstanceName, clock, nil)
 }
 
@@ -160,6 +162,7 @@ var DomainSet = wire.NewSet(
 	event.New,
 	state.New,
 	alias.New,
+	relation.New,
 	roommember.New,
 	transaction.New,
 	provideEvents,

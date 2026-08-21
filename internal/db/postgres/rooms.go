@@ -98,6 +98,7 @@ var RoomRels = struct {
 	Tenant                 string
 	RoomNidEventAuthEdges  string
 	RoomNidEventPrevEdges  string
+	RoomNidEventRelations  string
 	RoomNidEvents          string
 	RoomNidRoomAliases     string
 	EventNidEvents         string
@@ -109,6 +110,7 @@ var RoomRels = struct {
 	Tenant:                 "Tenant",
 	RoomNidEventAuthEdges:  "RoomNidEventAuthEdges",
 	RoomNidEventPrevEdges:  "RoomNidEventPrevEdges",
+	RoomNidEventRelations:  "RoomNidEventRelations",
 	RoomNidEvents:          "RoomNidEvents",
 	RoomNidRoomAliases:     "RoomNidRoomAliases",
 	EventNidEvents:         "EventNidEvents",
@@ -123,6 +125,7 @@ type roomR struct {
 	Tenant                 *Tenant             `boil:"Tenant" json:"Tenant" toml:"Tenant" yaml:"Tenant"`
 	RoomNidEventAuthEdges  EventAuthEdgeSlice  `boil:"RoomNidEventAuthEdges" json:"RoomNidEventAuthEdges" toml:"RoomNidEventAuthEdges" yaml:"RoomNidEventAuthEdges"`
 	RoomNidEventPrevEdges  EventPrevEdgeSlice  `boil:"RoomNidEventPrevEdges" json:"RoomNidEventPrevEdges" toml:"RoomNidEventPrevEdges" yaml:"RoomNidEventPrevEdges"`
+	RoomNidEventRelations  EventRelationSlice  `boil:"RoomNidEventRelations" json:"RoomNidEventRelations" toml:"RoomNidEventRelations" yaml:"RoomNidEventRelations"`
 	RoomNidEvents          EventSlice          `boil:"RoomNidEvents" json:"RoomNidEvents" toml:"RoomNidEvents" yaml:"RoomNidEvents"`
 	RoomNidRoomAliases     RoomAliasSlice      `boil:"RoomNidRoomAliases" json:"RoomNidRoomAliases" toml:"RoomNidRoomAliases" yaml:"RoomNidRoomAliases"`
 	EventNidEvents         EventSlice          `boil:"EventNidEvents" json:"EventNidEvents" toml:"EventNidEvents" yaml:"EventNidEvents"`
@@ -198,6 +201,22 @@ func (r *roomR) GetRoomNidEventPrevEdges() EventPrevEdgeSlice {
 	}
 
 	return r.RoomNidEventPrevEdges
+}
+
+func (o *Room) GetRoomNidEventRelations() EventRelationSlice {
+	if o == nil {
+		return nil
+	}
+
+	return o.R.GetRoomNidEventRelations()
+}
+
+func (r *roomR) GetRoomNidEventRelations() EventRelationSlice {
+	if r == nil {
+		return nil
+	}
+
+	return r.RoomNidEventRelations
 }
 
 func (o *Room) GetRoomNidEvents() EventSlice {
@@ -660,6 +679,20 @@ func (o *Room) RoomNidEventPrevEdges(mods ...qm.QueryMod) eventPrevEdgeQuery {
 	)
 
 	return EventPrevEdges(queryMods...)
+}
+
+// RoomNidEventRelations retrieves all the event_relation's EventRelations with an executor via room_nid column.
+func (o *Room) RoomNidEventRelations(mods ...qm.QueryMod) eventRelationQuery {
+	var queryMods []qm.QueryMod
+	if len(mods) != 0 {
+		queryMods = append(queryMods, mods...)
+	}
+
+	queryMods = append(queryMods,
+		qm.Where("\"event_relations\".\"room_nid\"=?", o.RoomNid),
+	)
+
+	return EventRelations(queryMods...)
 }
 
 // RoomNidEvents retrieves all the event's Events with an executor via room_nid column.
@@ -1217,6 +1250,119 @@ func (roomL) LoadRoomNidEventPrevEdges(ctx context.Context, e boil.ContextExecut
 	return nil
 }
 
+// LoadRoomNidEventRelations allows an eager lookup of values, cached into the
+// loaded structs of the objects. This is for a 1-M or N-M relationship.
+func (roomL) LoadRoomNidEventRelations(ctx context.Context, e boil.ContextExecutor, singular bool, maybeRoom any, mods queries.Applicator) error {
+	var slice []*Room
+	var object *Room
+
+	if singular {
+		var ok bool
+		object, ok = maybeRoom.(*Room)
+		if !ok {
+			object = new(Room)
+			ok = queries.SetFromEmbeddedStruct(&object, &maybeRoom)
+			if !ok {
+				return errors.New(fmt.Sprintf("failed to set %T from embedded struct %T", object, maybeRoom))
+			}
+		}
+	} else {
+		s, ok := maybeRoom.(*[]*Room)
+		if ok {
+			slice = *s
+		} else {
+			ok = queries.SetFromEmbeddedStruct(&slice, maybeRoom)
+			if !ok {
+				return errors.New(fmt.Sprintf("failed to set %T from embedded struct %T", slice, maybeRoom))
+			}
+		}
+	}
+
+	args := make(map[any]struct{})
+	if singular {
+		if object.R == nil {
+			object.R = &roomR{}
+		}
+		args[object.RoomNid] = struct{}{}
+	} else {
+		for _, obj := range slice {
+			if obj.R == nil {
+				obj.R = &roomR{}
+			}
+			args[obj.RoomNid] = struct{}{}
+		}
+	}
+
+	if len(args) == 0 {
+		return nil
+	}
+
+	argsSlice := make([]any, len(args))
+	i := 0
+	for arg := range args {
+		argsSlice[i] = arg
+		i++
+	}
+
+	query := NewQuery(
+		qm.From(`event_relations`),
+		qm.WhereIn(`event_relations.room_nid in ?`, argsSlice...),
+	)
+	if mods != nil {
+		mods.Apply(query)
+	}
+
+	results, err := query.QueryContext(ctx, e)
+	if err != nil {
+		return errors.Wrap(err, "failed to eager load event_relations")
+	}
+
+	var resultSlice []*EventRelation
+	if err = queries.Bind(results, &resultSlice); err != nil {
+		return errors.Wrap(err, "failed to bind eager loaded slice event_relations")
+	}
+
+	if err = results.Close(); err != nil {
+		return errors.Wrap(err, "failed to close results in eager load on event_relations")
+	}
+	if err = results.Err(); err != nil {
+		return errors.Wrap(err, "error occurred during iteration of eager loaded relations for event_relations")
+	}
+
+	if len(eventRelationAfterSelectHooks) != 0 {
+		for _, obj := range resultSlice {
+			if err := obj.doAfterSelectHooks(ctx, e); err != nil {
+				return err
+			}
+		}
+	}
+	if singular {
+		object.R.RoomNidEventRelations = resultSlice
+		for _, foreign := range resultSlice {
+			if foreign.R == nil {
+				foreign.R = &eventRelationR{}
+			}
+			foreign.R.RoomNidRoom = object
+		}
+		return nil
+	}
+
+	for _, foreign := range resultSlice {
+		for _, local := range slice {
+			if local.RoomNid == foreign.RoomNid {
+				local.R.RoomNidEventRelations = append(local.R.RoomNidEventRelations, foreign)
+				if foreign.R == nil {
+					foreign.R = &eventRelationR{}
+				}
+				foreign.R.RoomNidRoom = local
+				break
+			}
+		}
+	}
+
+	return nil
+}
+
 // LoadRoomNidEvents allows an eager lookup of values, cached into the
 // loaded structs of the objects. This is for a 1-M or N-M relationship.
 func (roomL) LoadRoomNidEvents(ctx context.Context, e boil.ContextExecutor, singular bool, maybeRoom any, mods queries.Applicator) error {
@@ -1498,7 +1644,7 @@ func (roomL) LoadEventNidEvents(ctx context.Context, e boil.ContextExecutor, sin
 	}
 
 	query := NewQuery(
-		qm.Select("\"events\".\"event_nid\", \"events\".\"room_nid\", \"events\".\"event_id\", \"events\".\"event_type_nid\", \"events\".\"event_state_key_nid\", \"events\".\"sender\", \"events\".\"sender_is_local\", \"events\".\"depth\", \"events\".\"stream_ordering\", \"events\".\"topological_ordering\", \"events\".\"instance_name\", \"events\".\"origin_server_ts\", \"events\".\"state_snapshot_nid\", \"events\".\"disposition\", \"events\".\"event_json\", \"events\".\"created_at\", \"a\".\"room_nid\""),
+		qm.Select("\"events\".\"event_nid\", \"events\".\"room_nid\", \"events\".\"event_id\", \"events\".\"event_type_nid\", \"events\".\"event_state_key_nid\", \"events\".\"sender\", \"events\".\"sender_is_local\", \"events\".\"depth\", \"events\".\"stream_ordering\", \"events\".\"topological_ordering\", \"events\".\"instance_name\", \"events\".\"origin_server_ts\", \"events\".\"state_snapshot_nid\", \"events\".\"disposition\", \"events\".\"event_json\", \"events\".\"created_at\", \"events\".\"redacted_by_nid\", \"a\".\"room_nid\""),
 		qm.From("\"events\""),
 		qm.InnerJoin("\"room_extremities\" as \"a\" on \"events\".\"event_nid\" = \"a\".\"event_nid\""),
 		qm.WhereIn("\"a\".\"room_nid\" in ?", argsSlice...),
@@ -1519,7 +1665,7 @@ func (roomL) LoadEventNidEvents(ctx context.Context, e boil.ContextExecutor, sin
 		one := new(Event)
 		var localJoinCol int64
 
-		err = results.Scan(&one.EventNid, &one.RoomNid, &one.EventID, &one.EventTypeNid, &one.EventStateKeyNid, &one.Sender, &one.SenderIsLocal, &one.Depth, &one.StreamOrdering, &one.TopologicalOrdering, &one.InstanceName, &one.OriginServerTS, &one.StateSnapshotNid, &one.Disposition, &one.EventJSON, &one.CreatedAt, &localJoinCol)
+		err = results.Scan(&one.EventNid, &one.RoomNid, &one.EventID, &one.EventTypeNid, &one.EventStateKeyNid, &one.Sender, &one.SenderIsLocal, &one.Depth, &one.StreamOrdering, &one.TopologicalOrdering, &one.InstanceName, &one.OriginServerTS, &one.StateSnapshotNid, &one.Disposition, &one.EventJSON, &one.CreatedAt, &one.RedactedByNid, &localJoinCol)
 		if err != nil {
 			return errors.Wrap(err, "failed to scan eager loaded results for events")
 		}
@@ -2136,6 +2282,59 @@ func (o *Room) AddRoomNidEventPrevEdges(ctx context.Context, exec boil.ContextEx
 	for _, rel := range related {
 		if rel.R == nil {
 			rel.R = &eventPrevEdgeR{
+				RoomNidRoom: o,
+			}
+		} else {
+			rel.R.RoomNidRoom = o
+		}
+	}
+	return nil
+}
+
+// AddRoomNidEventRelations adds the given related objects to the existing relationships
+// of the room, optionally inserting them as new records.
+// Appends related to o.R.RoomNidEventRelations.
+// Sets related.R.RoomNidRoom appropriately.
+func (o *Room) AddRoomNidEventRelations(ctx context.Context, exec boil.ContextExecutor, insert bool, related ...*EventRelation) error {
+	var err error
+	for _, rel := range related {
+		if insert {
+			rel.RoomNid = o.RoomNid
+			if err = rel.Insert(ctx, exec, boil.Infer()); err != nil {
+				return errors.Wrap(err, "failed to insert into foreign table")
+			}
+		} else {
+			updateQuery := fmt.Sprintf(
+				"UPDATE \"event_relations\" SET %s WHERE %s",
+				strmangle.SetParamNames("\"", "\"", 1, []string{"room_nid"}),
+				strmangle.WhereClause("\"", "\"", 2, eventRelationPrimaryKeyColumns),
+			)
+			values := []any{o.RoomNid, rel.ChildNid}
+
+			if boil.IsDebug(ctx) {
+				writer := boil.DebugWriterFrom(ctx)
+				fmt.Fprintln(writer, updateQuery)
+				fmt.Fprintln(writer, values)
+			}
+			if _, err = exec.ExecContext(ctx, updateQuery, values...); err != nil {
+				return errors.Wrap(err, "failed to update foreign table")
+			}
+
+			rel.RoomNid = o.RoomNid
+		}
+	}
+
+	if o.R == nil {
+		o.R = &roomR{
+			RoomNidEventRelations: related,
+		}
+	} else {
+		o.R.RoomNidEventRelations = append(o.R.RoomNidEventRelations, related...)
+	}
+
+	for _, rel := range related {
+		if rel.R == nil {
+			rel.R = &eventRelationR{
 				RoomNidRoom: o,
 			}
 		} else {

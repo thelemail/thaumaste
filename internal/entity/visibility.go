@@ -99,6 +99,13 @@ func (f HistoryFilter) allows(visibility, membership string, at Position) bool {
 	}
 }
 
+func (f HistoryFilter) VisibleAt(at Position, disposition Disposition) bool {
+	if !disposition.Deliverable() {
+		return false
+	}
+	return f.allows(f.visibilityBefore(at), f.membershipBefore(at), at)
+}
+
 func (f HistoryFilter) Visible(e StoredEvent) bool {
 	if !e.Disposition.Deliverable() {
 		return false

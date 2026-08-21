@@ -21,7 +21,7 @@ type Event interface {
 	Page(ctx context.Context, roomNID int64, in entity.PageRequest) ([]entity.StoredEvent, error)
 	ListStateOfType(ctx context.Context, roomNID int64, eventType, stateKey string) ([]entity.StoredEvent, error)
 	AtStream(ctx context.Context, roomNID, stream int64) (entity.StoredEvent, error)
-	SetDisposition(ctx context.Context, eventNID int64, disposition entity.Disposition) error
+	Redacted(ctx context.Context, eventNID, redactedByNID int64, eventJSON []byte) error
 	SetStateSnapshot(ctx context.Context, eventNID, snapshotNID int64) error
 	ParentsOf(ctx context.Context, eventNID int64) ([]string, error)
 	AuthParentsOf(ctx context.Context, eventNID int64) ([]string, error)

@@ -26,6 +26,7 @@ import (
 	"github.com/thelemail/thaumaste/internal/repository/device"
 	"github.com/thelemail/thaumaste/internal/repository/event"
 	"github.com/thelemail/thaumaste/internal/repository/refreshtoken"
+	"github.com/thelemail/thaumaste/internal/repository/relation"
 	"github.com/thelemail/thaumaste/internal/repository/room"
 	"github.com/thelemail/thaumaste/internal/repository/roommember"
 	"github.com/thelemail/thaumaste/internal/repository/signingkey"
@@ -125,7 +126,8 @@ func wireServer(t *testing.T, assertion ed25519.PublicKey, pg *postgres.Client,
 	}
 	roomRepo := room.New(pg, eventRepo)
 	memberRepo := roommember.New(pg)
-	eventSvc := events.New(roomRepo, eventRepo, state.New(pg), memberRepo, transaction.New(pg),
+	relationRepo := relation.New(pg)
+	eventSvc := events.New(roomRepo, eventRepo, state.New(pg), memberRepo, relationRepo, transaction.New(pg),
 		tenantSvc, pg, stream, nil, serialiser.New(), "test", nil, nil)
 
 	userSvc := users.New(
@@ -581,6 +583,21 @@ func (s *server) seedRoom(t *testing.T, of entity.Tenant, resident sessionBody) 
 		resident.AccessToken, map[string]any{"msgtype": "m.text", "body": "hello"})
 	if sent.Code != http.StatusOK {
 		t.Fatalf("seed a message = %d: %s", sent.Code, sent.Body)
+	}
+
+	var body struct {
+		EventID string `json:"event_id"`
+	}
+	if err := json.Unmarshal(sent.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode seeded message: %v", err)
+	}
+	reacted := s.do(t, http.MethodPut, of.ServerName,
+		"/_matrix/client/v3/rooms/"+url.PathEscape(created.RoomID)+"/send/m.reaction/seeded-reaction",
+		resident.AccessToken, map[string]any{"m.relates_to": map[string]any{
+			"rel_type": entity.RelAnnotation, "event_id": body.EventID, "key": "\U0001F44D",
+		}})
+	if reacted.Code != http.StatusOK {
+		t.Fatalf("seed a reaction = %d: %s", reacted.Code, reacted.Body)
 	}
 	return created
 }
