@@ -1278,3 +1278,100 @@ func TestNumLiveCountsOnlyWhatArrivedSinceTheLastResponse(t *testing.T) {
 		t.Fatalf("num_live = %d on a timeline made of history, want 0", room6.NumLive)
 	}
 }
+
+func TestWideningRequiredStateSendsTheNewlyMatchedStateWithoutAResync(t *testing.T) {
+	s := newServer(t)
+	tenant, alice, _ := s.resident(t, "alpha.test", "alice")
+	room := s.createRoom(t, tenant.ServerName, alice, map[string]any{
+		"preset": entity.PresetPublicChat, "name": "named", "topic": "a topic",
+	})
+
+	ask := func(include []map[string]any) map[string]any {
+		return map[string]any{
+			"lists": map[string]any{"all": map[string]any{
+				"range": []int{0, 9}, "timeline_limit": 1,
+				"required_state": map[string]any{"include": include},
+			}},
+		}
+	}
+	narrow := ask([]map[string]any{{"type": entity.EventTypeName, "state_key": ""}})
+	wide := ask([]map[string]any{
+		{"type": entity.EventTypeName, "state_key": ""},
+		{"type": entity.EventTypeTopic, "state_key": ""},
+	})
+
+	first := s.syncOnce(t, tenant.ServerName, alice, "", narrow)
+	if got := len(first.Rooms[room].RequiredState); got != 1 {
+		t.Fatalf("the narrow request returned %d state events", got)
+	}
+
+	widened := s.syncOnce(t, tenant.ServerName, alice, first.Pos, wide)
+	after, ok := widened.Rooms[room]
+	if !ok {
+		t.Fatal("widening required_state did not re-send the room")
+	}
+	if after.Initial {
+		t.Fatal("widening required_state forced a full resync of the room")
+	}
+	var types []string
+	for _, raw := range after.RequiredState {
+		var parsed struct {
+			Type string `json:"type"`
+		}
+		if err := json.Unmarshal(raw, &parsed); err != nil {
+			t.Fatalf("decode state: %v", err)
+		}
+		types = append(types, parsed.Type)
+	}
+	if !slicesContains(types, entity.EventTypeTopic) {
+		t.Fatalf("required_state = %v, want the newly matched topic", types)
+	}
+}
+
+func TestASyncTimelineCarriesTheSameBundleAsPagination(t *testing.T) {
+	s := newServer(t)
+	tenant, alice, _ := s.resident(t, "alpha.test", "alice")
+	room := s.createRoom(t, tenant.ServerName, alice, map[string]any{"preset": entity.PresetPublicChat})
+
+	original := s.mustSend(t, tenant.ServerName, alice, room, "1", text("first draft"))
+	s.mustSendType(t, tenant.ServerName, alice, room, entity.EventTypeMessage, "2", map[string]any{
+		"msgtype": "m.text", "body": "* second draft",
+		"m.new_content": map[string]any{"msgtype": "m.text", "body": "second draft"},
+		"m.relates_to":  map[string]any{"rel_type": entity.RelReplace, "event_id": original},
+	})
+
+	body := s.syncOnce(t, tenant.ServerName, alice, "", window(10, 0, 9))
+	fromSync := bundleOf(t, body.Rooms[room].Timeline, original)
+	if fromSync == "" {
+		t.Fatal("a sync timeline carried no m.relations bundle for an edited message")
+	}
+
+	page := s.mustPage(t, tenant.ServerName, alice, room, "dir=b&limit=20")
+	fromMessages := bundleOf(t, page.Chunk, original)
+	if fromSync != fromMessages {
+		t.Fatalf("sync bundled %s, /messages bundled %s", fromSync, fromMessages)
+	}
+}
+
+func bundleOf(t *testing.T, events []json.RawMessage, eventID string) string {
+	t.Helper()
+	for _, raw := range events {
+		var parsed struct {
+			EventID  string `json:"event_id"`
+			Unsigned struct {
+				Relations struct {
+					Replace struct {
+						EventID string `json:"event_id"`
+					} `json:"m.replace"`
+				} `json:"m.relations"`
+			} `json:"unsigned"`
+		}
+		if err := json.Unmarshal(raw, &parsed); err != nil {
+			t.Fatalf("decode event: %v", err)
+		}
+		if parsed.EventID == eventID {
+			return parsed.Unsigned.Relations.Replace.EventID
+		}
+	}
+	return ""
+}
