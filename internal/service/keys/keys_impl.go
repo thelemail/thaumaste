@@ -40,6 +40,9 @@ func (s *srv) Upload(ctx context.Context, scope entity.TenantScope, in entity.Ke
 
 	var counts map[string]int
 	err = s.tx.WithTx(ctx, func(ctx context.Context) error {
+		if err := s.keys.Lock(ctx, scope, in.UserID, in.DeviceID); err != nil {
+			return err
+		}
 		if len(in.DeviceKeys) > 0 {
 			canonical, err := entity.CanonicalJSONFrom(in.DeviceKeys)
 			if err != nil {

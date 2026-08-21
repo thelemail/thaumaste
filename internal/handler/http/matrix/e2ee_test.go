@@ -1027,3 +1027,62 @@ func TestTheKeyStoreScopesEveryReadToOneDomain(t *testing.T) {
 		t.Fatalf("beta.test's one-time key was consumed by another domain")
 	}
 }
+
+func TestConcurrentUploadsOfOneKeyIdentifierDoNotSilentlyDropAKey(t *testing.T) {
+	s := newServer(t)
+	of := s.open(t, "alpha.test")
+	alice := s.register(t, of.ServerName, "alice", "correct horse battery staple")
+	id := newIdentity(t, 27, alice.UserID, alice.DeviceID, 0)
+	s.mustUpload(t, of.ServerName, alice.AccessToken, map[string]any{"device_keys": id.device})
+
+	const attempts = 6
+	name := entity.AlgorithmSignedCurve25519 + ":contested"
+
+	var ready, done sync.WaitGroup
+	start := make(chan struct{})
+	accepted := make(chan string, attempts)
+
+	ready.Add(attempts)
+	for attempt := range attempts {
+		done.Add(1)
+		go func() {
+			defer done.Done()
+			material := fmt.Sprintf("material-%d", attempt)
+			ready.Done()
+			<-start
+			rec := s.upload(t, of.ServerName, alice.AccessToken, map[string]any{
+				"one_time_keys": map[string]any{
+					name: map[string]any{"key": material, "signatures": map[string]any{}},
+				},
+			})
+			if rec.Code == http.StatusOK {
+				accepted <- material
+			}
+		}()
+	}
+	ready.Wait()
+	close(start)
+	done.Wait()
+	close(accepted)
+
+	winners := 0
+	var stored string
+	for material := range accepted {
+		winners++
+		stored = material
+	}
+	if winners != 1 {
+		t.Fatalf("%d of %d conflicting uploads were accepted, want exactly 1", winners, attempts)
+	}
+
+	claimed := s.claimKey(t, of.ServerName, alice.AccessToken, alice.UserID, alice.DeviceID)
+	var handed map[string]struct {
+		Key string `json:"key"`
+	}
+	if err := json.Unmarshal(claimed.OneTimeKeys[alice.UserID][alice.DeviceID], &handed); err != nil {
+		t.Fatalf("decode the claimed key: %v", err)
+	}
+	if handed[name].Key != stored {
+		t.Fatalf("the stored key is %q but the only accepted upload carried %q", handed[name].Key, stored)
+	}
+}

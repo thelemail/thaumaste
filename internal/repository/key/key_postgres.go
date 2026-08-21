@@ -14,6 +14,8 @@ import (
 )
 
 const (
+	lockDeviceKeysSQL = `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`
+
 	upsertDeviceKeySQL = `
 		INSERT INTO device_keys (tenant_id, user_id, device_id, key_json)
 		VALUES ($1, $2, $3, $4)
@@ -72,6 +74,14 @@ type repo struct {
 
 func New(db *postgres.Client) repository.Key {
 	return &repo{db: db}
+}
+
+func (r *repo) Lock(ctx context.Context, scope entity.TenantScope, userID, deviceID string) error {
+	name := scope.ID().String() + "\x1e" + userID + "\x1e" + deviceID
+	if _, err := r.db.Querier(ctx).ExecContext(ctx, lockDeviceKeysSQL, name); err != nil {
+		return fmt.Errorf("repository: lock device keys: %w", err)
+	}
+	return nil
 }
 
 func (r *repo) UpsertDevice(ctx context.Context, in entity.NewDeviceKey) error {

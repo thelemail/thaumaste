@@ -10,6 +10,7 @@ import (
 var ErrKeyNotFound = errors.New("repository: key not found")
 
 type Key interface {
+	Lock(ctx context.Context, scope entity.TenantScope, userID, deviceID string) error
 	UpsertDevice(ctx context.Context, in entity.NewDeviceKey) error
 	ListDevices(ctx context.Context, scope entity.TenantScope, userIDs []string) ([]entity.DeviceKey, error)
 
