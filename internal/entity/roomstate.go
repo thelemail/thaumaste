@@ -213,3 +213,35 @@ func (s StateMap) MembersWith(membership string) []string {
 	slices.Sort(out)
 	return out
 }
+
+func (s StateMap) AllowedRooms() []string {
+	e, ok := s.Get(EventTypeJoinRules, "")
+	if !ok {
+		return nil
+	}
+	entries, _ := e.Content()["allow"].([]any)
+	var out []string
+	for _, item := range entries {
+		entry, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		if kind, _ := entry["type"].(string); kind != MembershipTypeRoom {
+			continue
+		}
+		if roomID, _ := entry["room_id"].(string); roomID != "" && !slices.Contains(out, roomID) {
+			out = append(out, roomID)
+		}
+	}
+	return out
+}
+
+func (s StateMap) Restricted() bool {
+	rule := s.JoinRule()
+	return rule == JoinRuleRestricted || rule == JoinRuleKnockRestricted
+}
+
+func (s StateMap) AcceptsKnocks() bool {
+	rule := s.JoinRule()
+	return rule == JoinRuleKnock || rule == JoinRuleKnockRestricted
+}
