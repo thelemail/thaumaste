@@ -15,10 +15,15 @@ import (
 	"github.com/thelemail/thaumaste/internal/handler/http/matrix"
 	"github.com/thelemail/thaumaste/internal/pkg/keyseal"
 	"github.com/thelemail/thaumaste/internal/pkg/postgres"
+	"github.com/thelemail/thaumaste/internal/pkg/serialiser"
 	"github.com/thelemail/thaumaste/internal/repository/accesstoken"
+	"github.com/thelemail/thaumaste/internal/repository/event"
+	"github.com/thelemail/thaumaste/internal/repository/room"
 	"github.com/thelemail/thaumaste/internal/repository/signingkey"
+	"github.com/thelemail/thaumaste/internal/repository/state"
 	"github.com/thelemail/thaumaste/internal/repository/tenant"
 	"github.com/thelemail/thaumaste/internal/service"
+	"github.com/thelemail/thaumaste/internal/service/events"
 	"github.com/thelemail/thaumaste/internal/service/tenants"
 	"github.com/thelemail/thaumaste/internal/service/tokens"
 	"github.com/thelemail/thaumaste/internal/testutil/pgtest"
@@ -28,6 +33,7 @@ type server struct {
 	router  chi.Router
 	tenants service.Tenants
 	tokens  service.Tokens
+	events  service.Events
 	db      *postgres.Client
 }
 
@@ -44,6 +50,16 @@ func newServer(t *testing.T) *server {
 	tenantSvc := tenants.New(tenant.New(pg), signingkey.New(pg), sealer, pg, nil, nil)
 	tokenSvc := tokens.New(accesstoken.New(pg), nil, nil)
 
+	eventRepo := event.New(pg)
+	stream, err := postgres.NewStream(t.Context(), pg, postgres.StreamConfig{
+		Name: "events", Instance: "test", Sequence: "events_stream_seq",
+	})
+	if err != nil {
+		t.Fatalf("NewStream: %v", err)
+	}
+	eventSvc := events.New(room.New(pg, eventRepo), eventRepo, state.New(pg),
+		tenantSvc, pg, stream, serialiser.New(), "test", nil, nil)
+
 	r := chi.NewRouter()
 	matrix.New(
 		tenantSvc,
@@ -53,7 +69,7 @@ func newServer(t *testing.T) *server {
 		nil,
 	).Mount(r)
 
-	return &server{router: r, tenants: tenantSvc, tokens: tokenSvc, db: pg}
+	return &server{router: r, tenants: tenantSvc, tokens: tokenSvc, events: eventSvc, db: pg}
 }
 
 func (s *server) tenant(t *testing.T, serverName string, hosts ...string) entity.Tenant {
@@ -459,4 +475,35 @@ func TestCapabilitiesReportsRoomVersionTwelveAsDefault(t *testing.T) {
 	if got := body.Capabilities.RoomVersions.Available["12"]; got != "stable" {
 		t.Fatalf("room version 12 = %q, want stable", got)
 	}
+}
+
+// seedRoom puts a whole room on disk: a create event, the creator's join, power levels and a
+// message. It exists so the deletion guard has something in every table to find missing afterwards.
+func (s *server) seedRoom(t *testing.T, of entity.Tenant) entity.Room {
+	t.Helper()
+	creator := "@creator:" + of.ServerName
+
+	created, _, err := s.events.CreateRoom(t.Context(), of.Scope(), entity.NewRoomEvent{
+		Version: entity.DefaultRoomVersion,
+		Creator: creator,
+	})
+	if err != nil {
+		t.Fatalf("CreateRoom: %v", err)
+	}
+
+	empty := ""
+	sends := []entity.NewEvent{
+		{RoomID: created.RoomID, Type: entity.EventTypeMember, StateKey: &creator, Sender: creator,
+			Content: map[string]any{"membership": entity.MembershipJoin}},
+		{RoomID: created.RoomID, Type: entity.EventTypePowerLevels, StateKey: &empty, Sender: creator,
+			Content: map[string]any{"users_default": 0, "state_default": 50}},
+		{RoomID: created.RoomID, Type: entity.EventTypeMessage, Sender: creator,
+			Content: map[string]any{"msgtype": "m.text", "body": "hello"}},
+	}
+	for _, in := range sends {
+		if _, err := s.events.Send(t.Context(), of.Scope(), in); err != nil {
+			t.Fatalf("Send %s: %v", in.Type, err)
+		}
+	}
+	return created
 }

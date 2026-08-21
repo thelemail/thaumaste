@@ -45,7 +45,7 @@ func newRoom(t *testing.T, id entity.RoomVersionID, creator string, additional .
 	if v.CreateCarriesRoomID {
 		b.RoomID = "!seed:" + serverName
 	}
-	create, err := b.Build(serverName, keyID, priv)
+	create, err := b.Build(entity.KeySigner(serverName, keyID, priv))
 	if err != nil {
 		t.Fatalf("build create: %v", err)
 	}
@@ -77,7 +77,7 @@ func (r *room) build(eventType string, stateKey *string, sender string, content 
 		OriginServerTS: r.last.OriginServerTS() + 1,
 	}
 	b.AuthEvents = entity.SelectAuthEvents(b, r.state)
-	e, err := b.Build(serverName, r.keyID, r.key)
+	e, err := b.Build(entity.KeySigner(serverName, r.keyID, r.key))
 	if err != nil {
 		r.t.Fatalf("build %s: %v", eventType, err)
 	}
@@ -539,7 +539,7 @@ func TestARoomIDMustNameItsCreateEventUnderVersionTwelve(t *testing.T) {
 		PrevEvents: []string{create.ID()},
 		PrevDepth:  create.Depth(),
 	}
-	e, err := imposter.Build(serverName, r.keyID, r.key)
+	e, err := imposter.Build(entity.KeySigner(serverName, r.keyID, r.key))
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
@@ -570,7 +570,7 @@ func TestACreateEventDeclaringAnotherVersionIsRefused(t *testing.T) {
 		StateKey: ptr(""),
 		Sender:   "@creator:" + serverName,
 		Content:  map[string]any{"room_version": "11"},
-	}.Build(serverName, keyID, priv)
+	}.Build(entity.KeySigner(serverName, keyID, priv))
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
@@ -598,7 +598,7 @@ func TestARoomThatRefusesFederationRefusesForeignSenders(t *testing.T) {
 		if v.CreateCarriesRoomID {
 			b.RoomID = "!seed:" + serverName
 		}
-		create, err := b.Build(serverName, keyID, priv)
+		create, err := b.Build(entity.KeySigner(serverName, keyID, priv))
 		if err != nil {
 			t.Fatalf("Build: %v", err)
 		}
@@ -617,7 +617,7 @@ func TestARoomThatRefusesFederationRefusesForeignSenders(t *testing.T) {
 			Content:    map[string]any{"membership": entity.MembershipJoin},
 			PrevEvents: []string{create.ID()},
 			PrevDepth:  create.Depth(),
-		}.Build(serverName, keyID, priv)
+		}.Build(entity.KeySigner(serverName, keyID, priv))
 		if err != nil {
 			t.Fatalf("Build: %v", err)
 		}

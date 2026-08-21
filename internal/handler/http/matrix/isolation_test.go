@@ -3,8 +3,6 @@ package matrix_test
 import (
 	"fmt"
 	"testing"
-
-	"github.com/thelemail/thaumaste/internal/entity"
 )
 
 func tenantOwnedTables(t *testing.T, s *server) []string {
@@ -88,21 +86,71 @@ func TestEveryTenantOwnedTableCarriesAnIndexOnTheTenant(t *testing.T) {
 	}
 }
 
+// globalTables are deliberately not tenant-owned. goose keeps its own bookkeeping, stream positions
+// are per writer rather than per domain, and the two interning tables hold shared vocabulary with no
+// content in it. Everything else must be gone once its domain is.
+var globalTables = map[string]bool{
+	"goose_db_version": true,
+	"stream_positions": true,
+	"event_types":      true,
+	"event_state_keys": true,
+}
+
+func (s *server) allTables(t *testing.T) []string {
+	t.Helper()
+	rows, err := s.db.QueryContext(t.Context(), `
+		SELECT table_name FROM information_schema.tables
+		WHERE table_schema = 'public' AND table_type = 'BASE TABLE'
+		ORDER BY table_name`)
+	if err != nil {
+		t.Fatalf("list tables: %v", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	var out []string
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			t.Fatalf("scan table name: %v", err)
+		}
+		if !globalTables[name] {
+			out = append(out, name)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("list tables: %v", err)
+	}
+	return out
+}
+
+func (s *server) rowCount(t *testing.T, table string) int {
+	t.Helper()
+	var count int
+	query := fmt.Sprintf("SELECT count(*) FROM %s", table)
+	if err := s.db.QueryRowContext(t.Context(), query).Scan(&count); err != nil {
+		t.Fatalf("count %s: %v", table, err)
+	}
+	return count
+}
+
+// Deleting a domain must leave nothing of it anywhere, and the check is deliberately not a list of
+// tables anyone has to maintain: after the only tenant goes, every table that is not explicitly
+// global must be empty. A table added by a later task is covered the moment it exists, including
+// ones that reach the tenant through a room rather than carrying a tenant_id of their own.
 func TestDeletingADomainLeavesNothingOfItBehind(t *testing.T) {
 	s := newServer(t)
 	doomed := s.tenant(t, "alpha.test", "matrix.alpha.test")
-	survivor := s.tenant(t, "beta.test")
 
 	s.token(t, doomed, "@someone:alpha.test")
-	s.token(t, survivor, "@someone:beta.test")
 	if _, err := s.tenants.RotateKey(t.Context(), doomed.Scope()); err != nil {
 		t.Fatalf("RotateKey: %v", err)
 	}
+	s.seedRoom(t, doomed)
 
-	tables := tenantOwnedTables(t, s)
+	tables := s.allTables(t)
 	for _, table := range tables {
-		if rows := s.countFor(t, table, doomed); rows == 0 {
-			t.Fatalf("%s holds nothing for the tenant about to be deleted, so this proves nothing", table)
+		if s.rowCount(t, table) == 0 {
+			t.Fatalf("%s is empty before the deletion, so it proves nothing", table)
 		}
 	}
 
@@ -111,11 +159,8 @@ func TestDeletingADomainLeavesNothingOfItBehind(t *testing.T) {
 	}
 
 	for _, table := range tables {
-		if rows := s.countFor(t, table, doomed); rows != 0 {
-			t.Fatalf("%s still holds %d rows for the deleted tenant", table, rows)
-		}
-		if rows := s.countFor(t, table, survivor); rows == 0 {
-			t.Fatalf("deleting one tenant emptied %s for the other", table)
+		if n := s.rowCount(t, table); n != 0 {
+			t.Fatalf("%s still holds %d rows after its domain was deleted", table, n)
 		}
 	}
 
@@ -127,12 +172,23 @@ func TestDeletingADomainLeavesNothingOfItBehind(t *testing.T) {
 	}
 }
 
-func (s *server) countFor(t *testing.T, table string, of entity.Tenant) int {
-	t.Helper()
-	var count int
-	query := fmt.Sprintf("SELECT count(*) FROM %s WHERE tenant_id = $1", table)
-	if err := s.db.QueryRowContext(t.Context(), query, of.ID.String()).Scan(&count); err != nil {
-		t.Fatalf("count %s: %v", table, err)
+func TestDeletingOneDomainLeavesTheOtherIntact(t *testing.T) {
+	s := newServer(t)
+	doomed := s.tenant(t, "alpha.test")
+	survivor := s.tenant(t, "beta.test")
+
+	s.token(t, doomed, "@someone:alpha.test")
+	s.token(t, survivor, "@someone:beta.test")
+	s.seedRoom(t, doomed)
+	s.seedRoom(t, survivor)
+
+	if err := s.tenants.Delete(t.Context(), doomed.ID); err != nil {
+		t.Fatalf("Delete: %v", err)
 	}
-	return count
+
+	for _, table := range s.allTables(t) {
+		if s.rowCount(t, table) == 0 {
+			t.Fatalf("deleting one domain emptied %s for the other", table)
+		}
+	}
 }

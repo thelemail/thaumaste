@@ -27,10 +27,22 @@ type EventBuilder struct {
 	OriginServerTS int64
 }
 
+// Signer attaches a signature to a JSON document, the way SignJSON does. Taking one instead of a
+// private key keeps key material inside whatever holds it, so building an event never requires
+// handing the raw key to the caller.
+type Signer func(document []byte) ([]byte, error)
+
+// KeySigner signs with a key held directly. Production signs through the tenant that owns the key.
+func KeySigner(serverName string, keyID KeyID, key ed25519.PrivateKey) Signer {
+	return func(document []byte) ([]byte, error) {
+		return SignJSON(document, serverName, keyID, key)
+	}
+}
+
 // Build hashes and signs the event, in that order. The signature is taken over the redacted form,
 // which still carries `hashes`, so a redacted copy of this event verifies against the same
 // signature and still proves what the original content hashed to.
-func (b EventBuilder) Build(serverName string, keyID KeyID, key ed25519.PrivateKey) (Event, error) {
+func (b EventBuilder) Build(sign Signer) (Event, error) {
 	if err := b.check(); err != nil {
 		return Event{}, err
 	}
@@ -57,7 +69,7 @@ func (b EventBuilder) Build(serverName string, keyID KeyID, key ed25519.PrivateK
 	}
 	fields["hashes"] = map[string]any{"sha256": signingEncoding.EncodeToString(contentHash[:])}
 
-	signed, err := b.sign(fields, serverName, keyID, key)
+	signed, err := b.attachSignature(fields, sign)
 	if err != nil {
 		return Event{}, err
 	}
@@ -70,13 +82,13 @@ func (b EventBuilder) Build(serverName string, keyID KeyID, key ed25519.PrivateK
 	return NewEventFromJSON(raw, b.Version)
 }
 
-func (b EventBuilder) sign(fields map[string]any, serverName string, keyID KeyID, key ed25519.PrivateKey) (any, error) {
+func (b EventBuilder) attachSignature(fields map[string]any, sign Signer) (any, error) {
 	redacted := Redact(fields, b.Version)
 	raw, err := json.Marshal(redacted)
 	if err != nil {
 		return nil, fmt.Errorf("entity: marshal event for signing: %w", err)
 	}
-	out, err := SignJSON(raw, serverName, keyID, key)
+	out, err := sign(raw)
 	if err != nil {
 		return nil, err
 	}

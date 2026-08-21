@@ -9,7 +9,7 @@ endif
 GOOSE := go tool goose
 MIGRATIONS_DIR := db/migrations/postgres
 
-.PHONY: migrate-create migrate-up migrate-down migrate-status help env infra infra-down infra-reset psql build run gen test lint lint-fix complement complement-all complement-report
+.PHONY: db-gen migrate-create migrate-up migrate-down migrate-status help env infra infra-down infra-reset psql build run gen test lint lint-fix complement complement-all complement-report
 
 help:
 	@printf "%s\n" \
@@ -22,6 +22,7 @@ help:
 	  "build      build the binary into bin/thaumaste" \
 	  "run        run the homeserver" \
 	  "gen        go generate ./..." \
+	  "db-gen     regenerate the sqlboiler models from the live schema" \
 	  "test       go test ./... -race -count=1" \
 	  "lint       golangci-lint run ./..." \
 	  "complement          run the complement allowlist" \
@@ -73,6 +74,9 @@ run:
 
 gen:
 	go generate ./...
+
+db-gen:
+	go tool sqlboiler psql -c sqlboiler.toml
 
 test:
 	go test ./... -race -count=1

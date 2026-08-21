@@ -22,6 +22,8 @@ linters:
           severity: error
 
   exclusions:
+    paths:
+      - internal/db/postgres
     rules:
       - linters: [forbidigo]
         path-except: ^internal/service/

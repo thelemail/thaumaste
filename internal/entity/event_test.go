@@ -56,7 +56,7 @@ func buildCreate(t *testing.T, v entity.RoomVersion) (entity.Event, ed25519.Publ
 	if v.CreateCarriesRoomID {
 		b.RoomID = "!opaque:" + serverName
 	}
-	created, err := b.Build(serverName, keyID, priv)
+	created, err := b.Build(entity.KeySigner(serverName, keyID, priv))
 	if err != nil {
 		t.Fatalf("Build create: %v", err)
 	}
@@ -210,7 +210,7 @@ func TestARedactedEventStillVerifiesUnderTheOriginalSignature(t *testing.T) {
 		PrevDepth:      created.Depth(),
 		AuthEvents:     []string{},
 		OriginServerTS: 2000,
-	}.Build(serverName, keyID, priv)
+	}.Build(entity.KeySigner(serverName, keyID, priv))
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
@@ -258,7 +258,7 @@ func TestDepthFollowsTheParentAndSaturates(t *testing.T) {
 			Content:    map[string]any{},
 			PrevEvents: []string{created.ID()},
 			PrevDepth:  prevDepth,
-		}.Build(serverName, keyID, priv)
+		}.Build(entity.KeySigner(serverName, keyID, priv))
 		if err != nil {
 			t.Fatalf("Build: %v", err)
 		}
@@ -287,7 +287,7 @@ func TestAForkIsRefusedRatherThanFolded(t *testing.T) {
 			Type:       entity.EventTypeMessage,
 			Sender:     "@a:" + serverName,
 			PrevEvents: prev,
-		}.Build(serverName, keyID, priv)
+		}.Build(entity.KeySigner(serverName, keyID, priv))
 		if !errors.Is(err, entity.ErrForkedDAG) {
 			t.Fatalf("Build with %d prev_events error = %v, want ErrForkedDAG", len(prev), err)
 		}
@@ -305,7 +305,7 @@ func TestAnEventOverTheSizeLimitIsRefused(t *testing.T) {
 		Sender:     "@a:" + serverName,
 		Content:    map[string]any{"body": strings.Repeat("x", entity.MaxEventBytes)},
 		PrevEvents: []string{"$parent"},
-	}.Build(serverName, keyID, priv)
+	}.Build(entity.KeySigner(serverName, keyID, priv))
 
 	if !errors.Is(err, entity.ErrEventTooLarge) {
 		t.Fatalf("error = %v, want ErrEventTooLarge", err)
@@ -326,7 +326,7 @@ func TestFieldLimitsAreMeasuredInBytesNotRunes(t *testing.T) {
 		StateKey:   ptr(long),
 		Sender:     "@a:" + serverName,
 		PrevEvents: []string{"$parent"},
-	}.Build(serverName, keyID, priv)
+	}.Build(entity.KeySigner(serverName, keyID, priv))
 
 	if !errors.Is(err, entity.ErrEventFieldTooLong) {
 		t.Fatalf("error = %v, want ErrEventFieldTooLong", err)
