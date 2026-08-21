@@ -285,3 +285,45 @@ func placeholders[T any](args []any, values []T) ([]any, []string) {
 	}
 	return args, slots
 }
+
+const sharedWithSQL = `
+	SELECT DISTINCT other.user_id
+	  FROM room_memberships mine
+	  JOIN room_memberships other ON other.room_nid = mine.room_nid
+	 WHERE mine.tenant_id = $1
+	   AND mine.user_id = $2
+	   AND mine.membership IN ('join', 'invite')
+	   AND other.tenant_id = $1
+	   AND other.membership IN ('join', 'invite')
+	   AND other.user_id IN (%s)`
+
+func (r *repo) SharedWith(ctx context.Context, scope entity.TenantScope, caller string, userIDs []string) ([]string, error) {
+	if len(userIDs) == 0 {
+		return nil, nil
+	}
+	args := []any{scope.ID().String(), caller}
+	slots := make([]string, 0, len(userIDs))
+	for _, userID := range userIDs {
+		args = append(args, userID)
+		slots = append(slots, "$"+strconv.Itoa(len(args)))
+	}
+	rows, err := r.db.Querier(ctx).QueryContext(ctx,
+		fmt.Sprintf(sharedWithSQL, strings.Join(slots, ", ")), args...)
+	if err != nil {
+		return nil, fmt.Errorf("repository: list shared users: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	var out []string
+	for rows.Next() {
+		var userID string
+		if err := rows.Scan(&userID); err != nil {
+			return nil, fmt.Errorf("repository: scan shared user: %w", err)
+		}
+		out = append(out, userID)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("repository: list shared users: %w", err)
+	}
+	return out, nil
+}

@@ -20,4 +20,5 @@ type RoomMember interface {
 	ListForSync(ctx context.Context, scope entity.TenantScope, userID string) ([]entity.SyncRoom, error)
 	ListForRooms(ctx context.Context, roomNIDs []int64, userIDs []string) ([]entity.RoomMembership, error)
 	Heroes(ctx context.Context, roomNIDs []int64, exclude string, limit int) (map[int64][]entity.RoomMembership, error)
+	SharedWith(ctx context.Context, scope entity.TenantScope, caller string, userIDs []string) ([]string, error)
 }
