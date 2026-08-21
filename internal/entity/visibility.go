@@ -33,8 +33,8 @@ func NewHistoryFilter(caller string, visibility, memberships []StoredEvent) Hist
 		f.memberships = append(f.memberships, membershipChange{at: PositionOf(e), value: value})
 	}
 
-	slices.SortFunc(f.visibility, func(a, b visibilityChange) int { return comparePositions(a.at, b.at) })
-	slices.SortFunc(f.memberships, func(a, b membershipChange) int { return comparePositions(a.at, b.at) })
+	slices.SortFunc(f.visibility, func(a, b visibilityChange) int { return ComparePositions(a.at, b.at) })
+	slices.SortFunc(f.memberships, func(a, b membershipChange) int { return ComparePositions(a.at, b.at) })
 	return f
 }
 
@@ -42,7 +42,7 @@ func PositionOf(e StoredEvent) Position {
 	return Position{Topological: e.TopologicalOrdering, Stream: e.StreamOrdering}
 }
 
-func comparePositions(a, b Position) int {
+func ComparePositions(a, b Position) int {
 	switch {
 	case a.Before(b):
 		return -1

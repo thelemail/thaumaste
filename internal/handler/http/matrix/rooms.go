@@ -224,7 +224,8 @@ func writeRoomError(r *http.Request, w http.ResponseWriter, err error, msg strin
 	case errors.Is(err, entity.ErrUnknownMembership):
 		writeError(w, http.StatusBadRequest, codeInvalidParam, "Unsupported membership query")
 	case errors.Is(err, entity.ErrBadToken), errors.Is(err, entity.ErrBadDirection),
-		errors.Is(err, entity.ErrBadFilter):
+		errors.Is(err, entity.ErrBadFilter), errors.Is(err, entity.ErrBadInclude),
+		errors.Is(err, entity.ErrRelationTypeUnknown):
 		writeError(w, http.StatusBadRequest, codeInvalidParam, "Invalid pagination request")
 	case errors.Is(err, entity.ErrAliasNotFound):
 		writeError(w, http.StatusNotFound, codeNotFound, "Unknown room alias")

@@ -133,7 +133,7 @@ func PlanBundle(parent StoredEvent, caller string, refs []RelationRef) BundlePla
 		plan.ThreadLatest = latest.ChildNID
 	}
 
-	slices.SortFunc(references, func(a, b RelationRef) int { return comparePositions(a.Position, b.Position) })
+	slices.SortFunc(references, func(a, b RelationRef) int { return ComparePositions(a.Position, b.Position) })
 	for _, ref := range references[:min(len(references), MaxReferenceChunk)] {
 		plan.Reference = append(plan.Reference, ref.EventID)
 	}

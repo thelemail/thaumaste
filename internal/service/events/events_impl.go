@@ -758,6 +758,10 @@ func (s *srv) Many(ctx context.Context, eventNIDs []int64) ([]entity.StoredEvent
 	return s.events.GetManyByNID(ctx, eventNIDs)
 }
 
+func (s *srv) ManyByID(ctx context.Context, eventIDs []string) ([]entity.StoredEvent, error) {
+	return s.events.GetManyByEventID(ctx, eventIDs)
+}
+
 func (s *srv) Page(ctx context.Context, roomID string, in entity.PageRequest) ([]entity.StoredEvent, error) {
 	room, err := s.Room(ctx, roomID)
 	if err != nil {

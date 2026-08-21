@@ -95,3 +95,71 @@ func PageLimit(requested *int, fromFilter int) int {
 }
 
 func (r MessagesRequest) Backwards() bool { return r.Direction == DirectionBackward }
+
+const (
+	ThreadsAll          = "all"
+	ThreadsParticipated = "participated"
+
+	RecursionDepth = 3
+)
+
+var ErrBadInclude = errors.New("entity: include must be all or participated")
+
+type RelationsRequest struct {
+	RoomID    string
+	EventID   string
+	RelType   string
+	EventType string
+	Direction string
+	From      string
+	To        string
+	Limit     *int
+	Recurse   bool
+}
+
+type Relations struct {
+	Chunk     []ClientEvent
+	NextBatch string
+	PrevBatch string
+	Depth     *int
+}
+
+type ThreadsRequest struct {
+	RoomID  string
+	Include string
+	From    string
+	Limit   *int
+}
+
+type Threads struct {
+	Chunk     []ClientEvent
+	NextBatch string
+}
+
+func (r RelationsRequest) Validate() error {
+	if r.Direction != DirectionBackward && r.Direction != DirectionForward {
+		return fmt.Errorf("%w: %q", ErrBadDirection, r.Direction)
+	}
+	if r.RoomID == "" || len(r.RoomID) > MaxRoomIDBytes {
+		return ErrRoomNotFound
+	}
+	if r.EventID == "" || len(r.EventID) > MaxEventIDBytes {
+		return ErrEventNotFound
+	}
+	if len(r.RelType) > MaxRelationTypeBytes || len(r.EventType) > MaxEventTypeSize {
+		return ErrRelationTypeUnknown
+	}
+	return nil
+}
+
+func (r RelationsRequest) Backwards() bool { return r.Direction == DirectionBackward }
+
+func (r ThreadsRequest) Validate() error {
+	if r.RoomID == "" || len(r.RoomID) > MaxRoomIDBytes {
+		return ErrRoomNotFound
+	}
+	if r.Include != ThreadsAll && r.Include != ThreadsParticipated {
+		return fmt.Errorf("%w: %q", ErrBadInclude, r.Include)
+	}
+	return nil
+}
