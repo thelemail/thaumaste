@@ -174,6 +174,41 @@ func (c *Client) Allow(ctx context.Context, key string, limit int, window time.D
 	return Verdict{Allowed: result.Allowed, ResetAt: time.UnixMilli(result.ResetAtMs).UTC()}, nil
 }
 
+func (c *Client) Publish(ctx context.Context, channel, message string) error {
+	live := c.live.Load()
+	if live == nil {
+		return ErrUnavailable
+	}
+	if err := live.conn.Do(ctx, live.conn.B().Publish().Channel(channel).Message(message).Build()).Error(); err != nil {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		return c.drop(live, err)
+	}
+	return nil
+}
+
+func (c *Client) Subscribe(ctx context.Context, channel string, deliver func(string)) error {
+	live := c.live.Load()
+	if live == nil {
+		return ErrUnavailable
+	}
+	dedicated, cancel := live.conn.Dedicate()
+	defer cancel()
+
+	go func() {
+		<-ctx.Done()
+		cancel()
+	}()
+
+	err := dedicated.Receive(ctx, dedicated.B().Subscribe().Channel(channel).Build(),
+		func(message valkey.PubSubMessage) { deliver(message.Message) })
+	if err != nil && ctx.Err() == nil {
+		return c.drop(live, err)
+	}
+	return ctx.Err()
+}
+
 func (c *Client) Ping(ctx context.Context) error {
 	live := c.live.Load()
 	if live == nil {
