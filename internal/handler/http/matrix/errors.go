@@ -119,7 +119,11 @@ func readJSON(w http.ResponseWriter, r *http.Request, out any) bool {
 		return false
 	}
 	if err := json.Unmarshal(raw, out); err != nil {
-		writeError(w, http.StatusBadRequest, codeNotJSON, "Request body is not valid JSON")
+		if !json.Valid(raw) {
+			writeError(w, http.StatusBadRequest, codeNotJSON, "Request body is not valid JSON")
+			return false
+		}
+		writeError(w, http.StatusBadRequest, codeBadJSON, "Request body is not a JSON object")
 		return false
 	}
 	return true

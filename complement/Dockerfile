@@ -19,7 +19,7 @@ FROM alpine:3.21 AS runtime
 
 ENV PGDATA=/var/lib/thaumaste/pgdata
 
-RUN apk add --no-cache postgresql17 valkey su-exec ca-certificates \
+RUN apk add --no-cache postgresql17 valkey valkey-cli su-exec ca-certificates \
  && mkdir -p "$PGDATA" /run/postgresql \
  && chown -R postgres:postgres "$PGDATA" /run/postgresql
 

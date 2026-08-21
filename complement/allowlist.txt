@@ -16,3 +16,10 @@ TestRequestEncodingFails
 TestRoomAlias
 TestPublicRooms
 TestCannotKickNonPresentUser
+
+TestSendMessageWithTxn
+TestTxnIdempotency
+TestTxnIdempotencyScopedToDevice
+TestTxnInEvent
+TestEvent
+TestJson
