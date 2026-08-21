@@ -22,6 +22,7 @@ import (
 	"github.com/thelemail/thaumaste/internal/repository/signingkey"
 	"github.com/thelemail/thaumaste/internal/repository/state"
 	"github.com/thelemail/thaumaste/internal/repository/tenant"
+	"github.com/thelemail/thaumaste/internal/repository/transaction"
 	"github.com/thelemail/thaumaste/internal/repository/user"
 	"github.com/thelemail/thaumaste/internal/service"
 	"github.com/thelemail/thaumaste/internal/service/rooms"
@@ -32,6 +33,7 @@ import (
 func InitializeServe(ctx context.Context, cfg config.Config) (*ServeRuntime, func(), error) {
 	server := provideServerConfig(cfg)
 	signing := provideSigningConfig(cfg)
+	limits := provideLimitsConfig(cfg)
 	postgres := providePostgresConfig(cfg)
 	client, cleanup, err := providePostgres(ctx, postgres)
 	if err != nil {
@@ -61,17 +63,26 @@ func InitializeServe(ctx context.Context, cfg config.Config) (*ServeRuntime, fun
 	repositoryRoom := room.New(client, repositoryEvent)
 	repositoryState := state.New(client)
 	roomMember := roommember.New(client)
+	repositoryTransaction := transaction.New(client)
 	stream, err := provideEventStream(ctx, client, server)
 	if err != nil {
 		cleanup()
 		return nil, nil, err
 	}
+	valkey := provideValkeyConfig(cfg)
+	valkeyClient, cleanup2, err := provideValkey(ctx, valkey, limits)
+	if err != nil {
+		cleanup()
+		return nil, nil, err
+	}
 	serialiser := provideSerialiser()
-	events := provideEvents(repositoryRoom, repositoryEvent, repositoryState, roomMember, tenants, transactor, stream, serialiser, server, v)
+	events := provideEvents(repositoryRoom, repositoryEvent, repositoryState, roomMember, repositoryTransaction, tenants, transactor, stream, valkeyClient, serialiser, server, v)
 	repositoryAlias := alias.New(client)
-	serviceRooms := rooms.New(events, users, repositoryRoom, repositoryAlias, roomMember, transactor)
-	serveRuntime := provideServeRuntime(server, signing, client, tenants, tokens, users, serviceRooms, v)
+	sendLimits := provideSendLimits(limits)
+	serviceRooms := rooms.New(events, users, repositoryRoom, repositoryAlias, roomMember, transactor, valkeyClient, sendLimits, v)
+	serveRuntime := provideServeRuntime(server, signing, limits, client, tenants, tokens, users, serviceRooms, events, v)
 	return serveRuntime, func() {
+		cleanup2()
 		cleanup()
 	}, nil
 }

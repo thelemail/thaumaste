@@ -2,6 +2,9 @@
 
 su-exec postgres pg_ctl -D "$PGDATA" -w -o "-c listen_addresses=127.0.0.1" start
 
+valkey-server --bind 127.0.0.1 --save '' --appendonly no --daemonize yes
+until valkey-cli ping >/dev/null 2>&1; do sleep 0.1; done
+
 /usr/local/bin/thaumaste migrate up || exit 1
 /usr/local/bin/thaumaste tenant ensure "$SERVER_NAME" localhost 127.0.0.1 || exit 1
 /usr/local/bin/thaumaste tenant registration "$SERVER_NAME" open || exit 1
@@ -18,6 +21,7 @@ while [ "$code" -gt 128 ] && kill -0 "$server" 2>/dev/null; do
 	code=$?
 done
 
+valkey-cli shutdown nosave 2>/dev/null
 su-exec postgres pg_ctl -D "$PGDATA" -w -m fast stop
 
 exit "$code"

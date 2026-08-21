@@ -9,9 +9,11 @@ import (
 	"github.com/google/wire"
 
 	"github.com/thelemail/thaumaste/internal/config"
+	"github.com/thelemail/thaumaste/internal/entity"
 	"github.com/thelemail/thaumaste/internal/pkg/keyseal"
 	"github.com/thelemail/thaumaste/internal/pkg/postgres"
 	"github.com/thelemail/thaumaste/internal/pkg/serialiser"
+	"github.com/thelemail/thaumaste/internal/pkg/valkey"
 	"github.com/thelemail/thaumaste/internal/repository"
 	"github.com/thelemail/thaumaste/internal/repository/accesstoken"
 	"github.com/thelemail/thaumaste/internal/repository/alias"
@@ -25,6 +27,7 @@ import (
 	"github.com/thelemail/thaumaste/internal/repository/signingkey"
 	"github.com/thelemail/thaumaste/internal/repository/state"
 	"github.com/thelemail/thaumaste/internal/repository/tenant"
+	"github.com/thelemail/thaumaste/internal/repository/transaction"
 	"github.com/thelemail/thaumaste/internal/repository/uiasession"
 	"github.com/thelemail/thaumaste/internal/repository/user"
 	"github.com/thelemail/thaumaste/internal/service"
@@ -38,8 +41,11 @@ import (
 func provideServerConfig(c config.Config) config.Server     { return c.Server }
 func providePostgresConfig(c config.Config) config.Postgres { return c.Postgres }
 func provideSigningConfig(c config.Config) config.Signing   { return c.Signing }
+func provideValkeyConfig(c config.Config) config.Valkey     { return c.Valkey }
+func provideLimitsConfig(c config.Config) config.Limits     { return c.Limits }
 
-var ConfigSet = wire.NewSet(provideServerConfig, providePostgresConfig, provideSigningConfig, provideAuthConfig)
+var ConfigSet = wire.NewSet(provideServerConfig, providePostgresConfig, provideSigningConfig,
+	provideValkeyConfig, provideLimitsConfig, provideAuthConfig)
 
 func providePostgres(ctx context.Context, cfg config.Postgres) (*postgres.Client, func(), error) {
 	pg, err := postgres.New(ctx, cfg)
@@ -52,6 +58,16 @@ func providePostgres(ctx context.Context, cfg config.Postgres) (*postgres.Client
 func provideTransactor(pg *postgres.Client) repository.Transactor { return pg }
 
 var PostgresSet = wire.NewSet(providePostgres, provideTransactor)
+
+func provideValkey(ctx context.Context, cfg config.Valkey, limits config.Limits) (*valkey.Client, func(), error) {
+	client, err := valkey.New(ctx, cfg, limits)
+	if err != nil {
+		return nil, nil, err
+	}
+	return client, client.Close, nil
+}
+
+var ValkeySet = wire.NewSet(provideValkey)
 
 func provideClock() func() time.Time { return time.Now }
 
@@ -107,17 +123,30 @@ func provideEvents(
 	eventRepo repository.Event,
 	stateRepo repository.State,
 	members repository.RoomMember,
+	txns repository.Transaction,
 	tenants service.Tenants,
 	tx repository.Transactor,
 	stream *postgres.Stream,
+	locks *valkey.Client,
 	gate *serialiser.Serialiser,
 	cfg config.Server,
 	clock func() time.Time,
 ) service.Events {
-	return events.New(rooms, eventRepo, stateRepo, members, tenants, tx, stream, gate, cfg.InstanceName, clock, nil)
+	return events.New(rooms, eventRepo, stateRepo, members, txns, tenants, tx, stream, locks, gate,
+		cfg.InstanceName, clock, nil)
+}
+
+func provideSendLimits(cfg config.Limits) entity.SendLimits {
+	return entity.SendLimits{
+		PerUser:   cfg.SendPerUser,
+		PerRoom:   cfg.SendPerRoom,
+		PerTenant: cfg.SendPerTenant,
+		Window:    cfg.SendWindow,
+	}
 }
 
 var DomainSet = wire.NewSet(
+	provideSendLimits,
 	provideClock,
 	keyseal.New,
 	tenant.New,
@@ -132,6 +161,7 @@ var DomainSet = wire.NewSet(
 	state.New,
 	alias.New,
 	roommember.New,
+	transaction.New,
 	provideEvents,
 	rooms.New,
 	user.New,

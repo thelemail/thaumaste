@@ -19,7 +19,10 @@ import (
 	"github.com/thelemail/thaumaste/internal/repository"
 )
 
-const uniqueViolation = "23505"
+const (
+	uniqueViolation = "23505"
+	lockRoomSQL     = `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`
+)
 
 type repo struct {
 	db     *postgres.Client
@@ -28,6 +31,13 @@ type repo struct {
 
 func New(db *postgres.Client, events repository.Event) repository.Room {
 	return &repo{db: db, events: events}
+}
+
+func (r *repo) Lock(ctx context.Context, roomID string) error {
+	if _, err := r.db.Querier(ctx).ExecContext(ctx, lockRoomSQL, roomID); err != nil {
+		return fmt.Errorf("repository: lock room: %w", err)
+	}
+	return nil
 }
 
 func (r *repo) Create(ctx context.Context, in entity.NewRoom) (entity.Room, error) {

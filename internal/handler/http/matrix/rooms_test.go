@@ -183,7 +183,7 @@ func TestAFailedLinkRollsTheWholeRoomBack(t *testing.T) {
 			"content":   map[string]any{"name": strings.Repeat("x", entity.MaxEventBytes)},
 		}},
 	})
-	if rec.Code != http.StatusBadRequest || errcode(t, rec) != "M_BAD_JSON" {
+	if rec.Code != http.StatusRequestEntityTooLarge || errcode(t, rec) != "M_TOO_LARGE" {
 		t.Fatalf("an oversized state event = %d %s", rec.Code, rec.Body)
 	}
 

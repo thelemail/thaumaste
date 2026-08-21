@@ -722,12 +722,12 @@ func TestAMalformedBodyIsNotJSON(t *testing.T) {
 	}
 }
 
-func (s *server) seedIdentity(t *testing.T, of entity.Tenant) {
+func (s *server) seedIdentity(t *testing.T, of entity.Tenant) sessionBody {
 	t.Helper()
 	if _, err := s.tenants.SetRegistration(t.Context(), of.ID, entity.RegistrationOpen); err != nil {
 		t.Fatalf("SetRegistration: %v", err)
 	}
-	s.register(t, of.ServerName, "resident", goodPassword)
+	resident := s.register(t, of.ServerName, "resident", goodPassword)
 
 	refreshed := s.do(t, http.MethodPost, of.ServerName, "/_matrix/client/v3/login", "", map[string]any{
 		"type":          entity.LoginTypePassword,
@@ -753,4 +753,5 @@ func (s *server) seedIdentity(t *testing.T, of entity.Tenant) {
 	if abandoned.Code != http.StatusUnauthorized {
 		t.Fatalf("abandoned challenge = %d, want 401: %s", abandoned.Code, abandoned.Body)
 	}
+	return resident
 }

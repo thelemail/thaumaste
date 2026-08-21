@@ -2,7 +2,6 @@ package matrix
 
 import (
 	"context"
-	"encoding/json"
 	"net/http"
 	"net/url"
 
@@ -153,9 +152,10 @@ func (h *Handler) members(w http.ResponseWriter, r *http.Request) {
 		writeRoomError(r, w, err, "Could not list the members")
 		return
 	}
-	chunk := make([]json.RawMessage, 0, len(found))
-	for _, e := range found {
-		chunk = append(chunk, e.JSON())
+	chunk, err := entity.ClientEvents(found, h.clock().UTC().UnixMilli())
+	if err != nil {
+		writeInternal(r.Context(), w, "Could not render the members", err)
+		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"chunk": chunk})
 }

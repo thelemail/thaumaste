@@ -12,6 +12,25 @@ var (
 	ErrLockedOut   = errors.New("entity: too many failed attempts")
 )
 
+type RateLimited struct {
+	RetryAfter time.Duration
+}
+
+func (RateLimited) Error() string { return ErrRateLimited.Error() }
+
+func (RateLimited) Unwrap() error { return ErrRateLimited }
+
+type SendLimits struct {
+	PerUser   int
+	PerRoom   int
+	PerTenant int
+	Window    time.Duration
+}
+
+func (l SendLimits) Enabled() bool {
+	return l.Window > 0 && (l.PerUser > 0 || l.PerRoom > 0 || l.PerTenant > 0)
+}
+
 type AttemptKind string
 
 const (

@@ -3,6 +3,7 @@ package internal
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"net/http"
 	"time"
 
@@ -20,7 +21,11 @@ import (
 type ServeRuntime struct {
 	srv             *http.Server
 	db              *postgres.Client
+	events          service.Events
 	shutdownTimeout time.Duration
+	sweepEvery      time.Duration
+	retain          time.Duration
+	clock           func() time.Time
 }
 
 func (r *ServeRuntime) Name() string { return "serve" }
@@ -29,7 +34,33 @@ func (r *ServeRuntime) Ready(ctx context.Context) error {
 	return r.db.PingContext(ctx)
 }
 
+func (r *ServeRuntime) sweep(ctx context.Context) {
+	if r.sweepEvery <= 0 || r.retain <= 0 {
+		return
+	}
+	ticker := time.NewTicker(r.sweepEvery)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
+		deleted, err := r.events.SweepTransactions(ctx, r.clock().UTC().Add(-r.retain))
+		if err != nil {
+			slog.ErrorContext(ctx, "could not sweep spent transactions", "error", err)
+			continue
+		}
+		if deleted > 0 {
+			slog.InfoContext(ctx, "swept spent transactions", "deleted", deleted)
+		}
+	}
+}
+
 func (r *ServeRuntime) Run(ctx context.Context) error {
+	go r.sweep(ctx)
+
 	errCh := make(chan error, 1)
 	go func() {
 		if err := r.srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
@@ -52,11 +83,13 @@ var _ runtime.Service = (*ServeRuntime)(nil)
 func provideServeRuntime(
 	cfg config.Server,
 	sign config.Signing,
+	limits config.Limits,
 	db *postgres.Client,
 	tenants service.Tenants,
 	tokens service.Tokens,
 	users service.Users,
 	rooms service.Rooms,
+	events service.Events,
 	clock func() time.Time,
 ) *ServeRuntime {
 	router := chi.NewRouter()
@@ -75,7 +108,11 @@ func provideServeRuntime(
 			WriteTimeout: cfg.WriteTimeout,
 		},
 		db:              db,
+		events:          events,
 		shutdownTimeout: cfg.ShutdownTimeout,
+		sweepEvery:      limits.TxnSweepEvery,
+		retain:          limits.TxnRetention,
+		clock:           clock,
 	}
 }
 

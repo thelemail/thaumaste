@@ -7,12 +7,15 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/thelemail/thaumaste/internal/entity"
 	"github.com/thelemail/thaumaste/internal/pkg/postgres"
 	"github.com/thelemail/thaumaste/internal/pkg/serialiser"
+	"github.com/thelemail/thaumaste/internal/pkg/valkey"
 	"github.com/thelemail/thaumaste/internal/repository"
 	"github.com/thelemail/thaumaste/internal/service"
 )
@@ -21,14 +24,38 @@ const opaqueRoomIDBytes = 10
 
 var opaqueEncoding = base32.StdEncoding.WithPadding(base32.NoPadding)
 
+type positionsKey struct{}
+
+type heldPositions struct {
+	mu  sync.Mutex
+	all []*postgres.Positions
+}
+
+func (h *heldPositions) hold(p *postgres.Positions) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.all = append(h.all, p)
+}
+
+func (h *heldPositions) release() {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	for _, p := range h.all {
+		p.Release()
+	}
+	h.all = nil
+}
+
 type srv struct {
 	rooms      repository.Room
 	events     repository.Event
 	state      repository.State
 	members    repository.RoomMember
+	txns       repository.Transaction
 	tenants    service.Tenants
 	tx         repository.Transactor
 	stream     *postgres.Stream
+	locks      *valkey.Client
 	serialiser *serialiser.Serialiser
 	instance   string
 	clock      func() time.Time
@@ -40,9 +67,11 @@ func New(
 	events repository.Event,
 	state repository.State,
 	members repository.RoomMember,
+	txns repository.Transaction,
 	tenants service.Tenants,
 	tx repository.Transactor,
 	stream *postgres.Stream,
+	locks *valkey.Client,
 	gate *serialiser.Serialiser,
 	instance string,
 	clock func() time.Time,
@@ -55,8 +84,8 @@ func New(
 		rnd = rand.Reader
 	}
 	return &srv{
-		rooms: rooms, events: events, state: state, members: members, tenants: tenants, tx: tx,
-		stream: stream, serialiser: gate, instance: instance, clock: clock, rnd: rnd,
+		rooms: rooms, events: events, state: state, members: members, txns: txns, tenants: tenants, tx: tx,
+		stream: stream, locks: locks, serialiser: gate, instance: instance, clock: clock, rnd: rnd,
 	}
 }
 
@@ -102,41 +131,39 @@ func (s *srv) CreateRoom(ctx context.Context, scope entity.TenantScope, in entit
 		room    entity.Room
 		written []entity.StoredEvent
 	)
-	err = s.serialiser.Do(ctx, roomID, func(ctx context.Context) error {
+	err = s.write(ctx, roomID, func(ctx context.Context) error {
 		written = nil
-		return s.tx.WithTx(ctx, func(ctx context.Context) error {
-			room, err = s.rooms.Create(ctx, entity.NewRoom{
-				TenantID: scope.ID(),
-				RoomID:   roomID,
-				Version:  version.ID,
-			})
+		room, err = s.rooms.Create(ctx, entity.NewRoom{
+			TenantID: scope.ID(),
+			RoomID:   roomID,
+			Version:  version.ID,
+		})
+		if err != nil {
+			if errors.Is(err, repository.ErrRoomAlreadyExists) {
+				return entity.ErrRoomAlreadyExists
+			}
+			return err
+		}
+		stored, err := s.persist(ctx, scope, room, create, entity.StateMap{})
+		if err != nil {
+			return err
+		}
+		if err := s.rooms.SetCreateEvent(ctx, room.NID, stored.NID); err != nil {
+			return err
+		}
+		if err := s.rooms.ReplaceExtremities(ctx, room.NID, []int64{stored.NID}); err != nil {
+			return err
+		}
+		written = append(written, stored)
+
+		for _, next := range creationChain(in, roomID, version) {
+			stored, err := s.send(ctx, scope, next)
 			if err != nil {
-				if errors.Is(err, repository.ErrRoomAlreadyExists) {
-					return entity.ErrRoomAlreadyExists
-				}
-				return err
-			}
-			stored, err := s.persist(ctx, scope, room, create, entity.StateMap{})
-			if err != nil {
-				return err
-			}
-			if err := s.rooms.SetCreateEvent(ctx, room.NID, stored.NID); err != nil {
-				return err
-			}
-			if err := s.rooms.ReplaceExtremities(ctx, room.NID, []int64{stored.NID}); err != nil {
 				return err
 			}
 			written = append(written, stored)
-
-			for _, next := range creationChain(in, roomID, version) {
-				stored, err := s.send(ctx, scope, next)
-				if err != nil {
-					return err
-				}
-				written = append(written, stored)
-			}
-			return nil
-		})
+		}
+		return nil
 	})
 	if err != nil {
 		return entity.Room{}, nil, err
@@ -215,12 +242,10 @@ func (s *srv) Send(ctx context.Context, scope entity.TenantScope, in entity.NewE
 	}
 
 	var stored entity.StoredEvent
-	err := s.serialiser.Do(ctx, in.RoomID, func(ctx context.Context) error {
-		return s.tx.WithTx(ctx, func(ctx context.Context) error {
-			var err error
-			stored, err = s.send(ctx, scope, in)
-			return err
-		})
+	err := s.write(ctx, in.RoomID, func(ctx context.Context) error {
+		var err error
+		stored, err = s.send(ctx, scope, in)
+		return err
 	})
 	if err != nil {
 		return entity.StoredEvent{}, err
@@ -233,6 +258,9 @@ func (s *srv) send(ctx context.Context, scope entity.TenantScope, in entity.NewE
 		if err := entity.ValidateStateContent(in.Type, in.Content); err != nil {
 			return entity.StoredEvent{}, err
 		}
+	}
+	if replayed, ok, err := s.replay(ctx, scope, in); err != nil || ok {
+		return replayed, err
 	}
 
 	room, version, err := s.roomAndVersion(ctx, in.RoomID)
@@ -289,15 +317,110 @@ func (s *srv) send(ctx context.Context, scope entity.TenantScope, in entity.NewE
 	if err := s.rooms.ReplaceExtremities(ctx, room.NID, []int64{stored.NID}); err != nil {
 		return entity.StoredEvent{}, err
 	}
+	if err := s.recordTransaction(ctx, scope, in, stored.Event.ID()); err != nil {
+		return entity.StoredEvent{}, err
+	}
 	return stored, nil
 }
 
-func (s *srv) persist(ctx context.Context, scope entity.TenantScope, room entity.Room, e entity.Event, before entity.StateMap) (entity.StoredEvent, error) {
+func (s *srv) transactionFor(scope entity.TenantScope, in entity.NewEvent, eventID string) entity.NewEventTransaction {
+	return entity.NewEventTransaction{
+		TenantID: scope.ID(),
+		UserID:   in.Sender,
+		DeviceID: in.Txn.DeviceID,
+		Endpoint: in.Txn.Endpoint,
+		RoomID:   in.RoomID,
+		TxnID:    in.Txn.TxnID,
+		EventID:  eventID,
+	}
+}
+
+func (s *srv) replay(ctx context.Context, scope entity.TenantScope, in entity.NewEvent) (entity.StoredEvent, bool, error) {
+	if in.Txn == nil {
+		return entity.StoredEvent{}, false, nil
+	}
+	recorded, err := s.txns.Get(ctx, s.transactionFor(scope, in, "").Key())
+	if err != nil {
+		if errors.Is(err, repository.ErrTransactionNotFound) {
+			return entity.StoredEvent{}, false, nil
+		}
+		return entity.StoredEvent{}, false, err
+	}
+	stored, err := s.events.GetByEventID(ctx, recorded.EventID)
+	if err != nil {
+		if errors.Is(err, repository.ErrEventNotFound) {
+			return entity.StoredEvent{}, false, entity.ErrEventNotFound
+		}
+		return entity.StoredEvent{}, false, err
+	}
+	return stored, true, nil
+}
+
+func (s *srv) recordTransaction(ctx context.Context, scope entity.TenantScope, in entity.NewEvent, eventID string) error {
+	if in.Txn == nil {
+		return nil
+	}
+	record := s.transactionFor(scope, in, eventID)
+	if err := record.Validate(); err != nil {
+		return err
+	}
+	return s.txns.Record(ctx, record)
+}
+
+func (s *srv) write(ctx context.Context, roomID string, fn func(context.Context) error) error {
+	held := &heldPositions{}
+	defer held.release()
+
+	return s.serialiser.Do(context.WithValue(ctx, positionsKey{}, held), roomID, func(ctx context.Context) error {
+		ctx, released, err := s.lease(ctx, roomID)
+		if err != nil {
+			return err
+		}
+		defer released()
+
+		return s.tx.WithTx(ctx, func(ctx context.Context) error {
+			if err := s.rooms.Lock(ctx, roomID); err != nil {
+				return err
+			}
+			return fn(ctx)
+		})
+	})
+}
+
+func (s *srv) lease(ctx context.Context, roomID string) (context.Context, func(), error) {
+	if s.locks == nil {
+		return ctx, func() {}, nil
+	}
+	held, release, err := s.locks.Lock(ctx, roomID)
+	switch {
+	case err == nil:
+		return held, release, nil
+	case errors.Is(err, valkey.ErrUnavailable):
+		slog.WarnContext(ctx, "writing without the shared room lease", "room_id", roomID, "error", err)
+		return ctx, func() {}, nil
+	default:
+		return nil, nil, err
+	}
+}
+
+func (s *srv) nextPosition(ctx context.Context) (int64, error) {
+	held, ok := ctx.Value(positionsKey{}).(*heldPositions)
+	if !ok {
+		return 0, entity.ErrUnorderedWrite
+	}
 	positions, err := s.stream.Next(ctx, 1)
+	if err != nil {
+		return 0, err
+	}
+	held.hold(positions)
+	return positions.IDs[0], nil
+}
+
+func (s *srv) persist(ctx context.Context, scope entity.TenantScope, room entity.Room, e entity.Event, before entity.StateMap) (entity.StoredEvent, error) {
+	position, err := s.nextPosition(ctx)
 	if err != nil {
 		return entity.StoredEvent{}, err
 	}
-	defer positions.Release()
 
 	local, err := s.senderIsLocal(e.Sender(), scope)
 	if err != nil {
@@ -308,7 +431,7 @@ func (s *srv) persist(ctx context.Context, scope entity.TenantScope, room entity
 		RoomNID:             room.NID,
 		Event:               e,
 		SenderIsLocal:       local,
-		StreamOrdering:      positions.IDs[0],
+		StreamOrdering:      position,
 		TopologicalOrdering: e.Depth(),
 		InstanceName:        s.instance,
 		Disposition:         entity.DispositionAccepted,
@@ -467,4 +590,30 @@ func (s *srv) opaque() (string, error) {
 		return "", fmt.Errorf("events: room id: %w", err)
 	}
 	return strings.ToLower(opaqueEncoding.EncodeToString(raw)), nil
+}
+
+func (s *srv) Event(ctx context.Context, eventID string) (entity.StoredEvent, error) {
+	stored, err := s.events.GetByEventID(ctx, eventID)
+	if err != nil {
+		if errors.Is(err, repository.ErrEventNotFound) {
+			return entity.StoredEvent{}, entity.ErrEventNotFound
+		}
+		return entity.StoredEvent{}, err
+	}
+	return stored, nil
+}
+
+func (s *srv) TransactionFor(ctx context.Context, sender entity.TransactionSender, eventID string) (string, error) {
+	recorded, err := s.txns.ForEvent(ctx, sender, eventID)
+	if err != nil {
+		if errors.Is(err, repository.ErrTransactionNotFound) {
+			return "", nil
+		}
+		return "", err
+	}
+	return recorded.TxnID, nil
+}
+
+func (s *srv) SweepTransactions(ctx context.Context, cutoff time.Time) (int64, error) {
+	return s.txns.DeleteBefore(ctx, cutoff)
 }

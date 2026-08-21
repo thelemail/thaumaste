@@ -93,6 +93,8 @@ func (h *Handler) Mount(r chi.Router) {
 				r.Put("/_matrix/client/v3/rooms/{roomID}/state/{eventType}", h.setRoomState)
 				r.Put("/_matrix/client/v3/rooms/{roomID}/state/{eventType}/", h.setRoomState)
 				r.Put("/_matrix/client/v3/rooms/{roomID}/state/{eventType}/{stateKey}", h.setRoomState)
+				r.Put("/_matrix/client/v3/rooms/{roomID}/send/{eventType}/{txnID}", h.sendMessage)
+				r.Get("/_matrix/client/v3/rooms/{roomID}/event/{eventID}", h.roomEvent)
 				r.Get("/_matrix/client/v3/rooms/{roomID}/joined_members", h.joinedMembers)
 				r.Get("/_matrix/client/v3/rooms/{roomID}/members", h.members)
 

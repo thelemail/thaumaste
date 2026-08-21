@@ -11,6 +11,7 @@ import (
 )
 
 var (
+	ErrUnorderedWrite    = errors.New("entity: event written outside the stream order")
 	ErrRoomNotFound      = errors.New("entity: room not found")
 	ErrRoomAlreadyExists = errors.New("entity: room already exists")
 	ErrEventNotFound     = errors.New("entity: event not found")
@@ -116,12 +117,19 @@ func (n NewStoredEvent) Validate() error {
 	return nil
 }
 
+type TransactionRef struct {
+	DeviceID string
+	Endpoint string
+	TxnID    string
+}
+
 type NewEvent struct {
 	RoomID   string
 	Type     string
 	StateKey *string
 	Sender   string
 	Content  map[string]any
+	Txn      *TransactionRef
 }
 
 func (n NewEvent) Validate() error {
