@@ -31,6 +31,10 @@ func (r *repo) Insert(ctx context.Context, in entity.NewAccessToken) (entity.Acc
 		TenantID:  in.TenantID.String(),
 		TokenHash: in.TokenHash,
 		UserID:    in.UserID,
+		DeviceID:  in.DeviceID,
+	}
+	if in.RefreshTokenID != nil {
+		row.RefreshTokenID = null.StringFrom(in.RefreshTokenID.String())
 	}
 	if in.ExpiresAt != nil {
 		row.ExpiresAt = null.TimeFrom(*in.ExpiresAt)
@@ -98,6 +102,19 @@ func (r *repo) RevokeForUser(ctx context.Context, scope entity.TenantScope, user
 	return n, nil
 }
 
+func (r *repo) RevokeForDevice(ctx context.Context, scope entity.TenantScope, userID, deviceID string, at time.Time) (int64, error) {
+	n, err := dbpg.AccessTokens(
+		dbpg.AccessTokenWhere.TenantID.EQ(scope.ID().String()),
+		dbpg.AccessTokenWhere.UserID.EQ(userID),
+		dbpg.AccessTokenWhere.DeviceID.EQ(deviceID),
+		dbpg.AccessTokenWhere.RevokedAt.IsNull(),
+	).UpdateAll(ctx, r.db.Querier(ctx), dbpg.M{dbpg.AccessTokenColumns.RevokedAt: at})
+	if err != nil {
+		return 0, fmt.Errorf("repository: revoke device tokens: %w", err)
+	}
+	return n, nil
+}
+
 func toAccessToken(row *dbpg.AccessToken) (entity.AccessToken, error) {
 	id, err := uuid.Parse(row.ID)
 	if err != nil {
@@ -111,6 +128,7 @@ func toAccessToken(row *dbpg.AccessToken) (entity.AccessToken, error) {
 		ID:        id,
 		TenantID:  tenantID,
 		UserID:    row.UserID,
+		DeviceID:  row.DeviceID,
 		CreatedAt: row.CreatedAt,
 	}
 	if row.ExpiresAt.Valid {

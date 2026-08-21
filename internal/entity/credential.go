@@ -105,7 +105,7 @@ func NewCredential(userID, password string, params Argon2Params, rnd io.Reader) 
 		Algorithm: CredentialAlgorithmArgon2id,
 		Params:    params.String(),
 		Salt:      salt,
-		Hash:      argon2.IDKey([]byte(password), salt, params.Time, params.Memory, params.Threads, credentialKeyBytes),
+		Hash:      HashPassword(password, salt, params),
 	}, nil
 }
 
@@ -132,6 +132,12 @@ func (c Credential) NeedsRehash(target Argon2Params) bool {
 		return true
 	}
 	return !params.AtLeast(target)
+}
+
+// HashPassword is the raw derivation, exposed so a caller can spend the same work on a user that
+// does not exist as it would on one that does.
+func HashPassword(password string, salt []byte, params Argon2Params) []byte {
+	return argon2.IDKey([]byte(password), salt, params.Time, params.Memory, params.Threads, credentialKeyBytes)
 }
 
 func CheckPasswordStrength(password string) error {

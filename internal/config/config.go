@@ -17,6 +17,7 @@ type Config struct {
 	Health   Health
 	Postgres Postgres
 	Signing  Signing
+	Auth     Auth
 	Logger   Logger
 }
 
@@ -88,6 +89,25 @@ type Signing struct {
 	MasterKey     string        `env:"THAUMASTE_SIGNING_MASTER_KEY,required,unset"`
 	NextMasterKey string        `env:"THAUMASTE_SIGNING_NEXT_MASTER_KEY,unset"`
 	KeyValidity   time.Duration `env:"THAUMASTE_SIGNING_KEY_VALIDITY"           envDefault:"24h"`
+}
+
+type Auth struct {
+	AccessTokenTTL  time.Duration `env:"THAUMASTE_AUTH_ACCESS_TOKEN_TTL"  envDefault:"1h"`
+	RefreshTokenTTL time.Duration `env:"THAUMASTE_AUTH_REFRESH_TOKEN_TTL" envDefault:"720h"`
+	SessionTTL      time.Duration `env:"THAUMASTE_AUTH_SESSION_TTL"       envDefault:"15m"`
+
+	Argon2Time    uint32 `env:"THAUMASTE_AUTH_ARGON2_TIME"    envDefault:"3"`
+	Argon2MemoryK uint32 `env:"THAUMASTE_AUTH_ARGON2_MEMORY"  envDefault:"65536"`
+	Argon2Threads uint8  `env:"THAUMASTE_AUTH_ARGON2_THREADS" envDefault:"4"`
+
+	MaxFailures   int           `env:"THAUMASTE_AUTH_MAX_FAILURES"   envDefault:"10"`
+	FailureWindow time.Duration `env:"THAUMASTE_AUTH_FAILURE_WINDOW" envDefault:"15m"`
+	LockFor       time.Duration `env:"THAUMASTE_AUTH_LOCK_FOR"       envDefault:"15m"`
+
+	// AssertionKey is the public half of the key an external identity provider signs with. Empty
+	// disables that provider, which is the standalone deployment.
+	AssertionKey string        `env:"THAUMASTE_AUTH_ASSERTION_KEY"`
+	AssertionTTL time.Duration `env:"THAUMASTE_AUTH_ASSERTION_TTL" envDefault:"5m"`
 }
 
 type Logger struct {

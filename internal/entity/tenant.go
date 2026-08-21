@@ -40,14 +40,15 @@ func (s TenantState) Valid() bool {
 type RegistrationMode string
 
 const (
-	RegistrationClosed RegistrationMode = "closed"
-	RegistrationInvite RegistrationMode = "invite"
-	RegistrationOpen   RegistrationMode = "open"
+	RegistrationClosed   RegistrationMode = "closed"
+	RegistrationInvite   RegistrationMode = "invite"
+	RegistrationOpen     RegistrationMode = "open"
+	RegistrationExternal RegistrationMode = "external"
 )
 
 func (m RegistrationMode) Valid() bool {
 	switch m {
-	case RegistrationClosed, RegistrationInvite, RegistrationOpen:
+	case RegistrationClosed, RegistrationInvite, RegistrationOpen, RegistrationExternal:
 		return true
 	default:
 		return false
@@ -103,7 +104,7 @@ func (n NewTenant) Validate() error {
 		return err
 	}
 	if !n.RegistrationMode.Valid() {
-		return validation.Errors{"registrationMode": errors.New("must be closed, invite or open")}
+		return validation.Errors{"registrationMode": errors.New("must be closed, invite, open or external")}
 	}
 	return nil
 }

@@ -36,6 +36,10 @@ func New(tokens repository.AccessToken, clock func() time.Time, rnd io.Reader) s
 }
 
 func (s *srv) Mint(ctx context.Context, scope entity.TenantScope, userID string, ttl time.Duration) (string, entity.AccessToken, error) {
+	return s.MintForDevice(ctx, scope, userID, "", ttl, nil)
+}
+
+func (s *srv) MintForDevice(ctx context.Context, scope entity.TenantScope, userID, deviceID string, ttl time.Duration, refreshTokenID *uuid.UUID) (string, entity.AccessToken, error) {
 	raw := make([]byte, secretBytes)
 	if _, err := io.ReadFull(s.rnd, raw); err != nil {
 		return "", entity.AccessToken{}, fmt.Errorf("tokens: generate secret: %w", err)
@@ -43,9 +47,11 @@ func (s *srv) Mint(ctx context.Context, scope entity.TenantScope, userID string,
 	secret := base64.RawURLEncoding.EncodeToString(raw)
 
 	in := entity.NewAccessToken{
-		TenantID:  scope.ID(),
-		UserID:    userID,
-		TokenHash: hash(secret),
+		TenantID:       scope.ID(),
+		UserID:         userID,
+		DeviceID:       deviceID,
+		TokenHash:      hash(secret),
+		RefreshTokenID: refreshTokenID,
 	}
 	if ttl > 0 {
 		at := s.clock().UTC().Add(ttl)
@@ -91,6 +97,10 @@ func (s *srv) Revoke(ctx context.Context, id uuid.UUID) error {
 
 func (s *srv) RevokeForUser(ctx context.Context, scope entity.TenantScope, userID string) (int64, error) {
 	return s.tokens.RevokeForUser(ctx, scope, userID, s.clock().UTC())
+}
+
+func (s *srv) RevokeForDevice(ctx context.Context, scope entity.TenantScope, userID, deviceID string) (int64, error) {
+	return s.tokens.RevokeForDevice(ctx, scope, userID, deviceID, s.clock().UTC())
 }
 
 func hash(token string) []byte {
