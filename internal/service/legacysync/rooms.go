@@ -9,11 +9,10 @@ import (
 	"github.com/thelemail/thaumaste/internal/entity"
 )
 
-const maxTimelineScan = 500
-
 type roomDelivery struct {
 	room     entity.SyncRoom
 	initial  bool
+	fresh    bool
 	since    int64
 	ceiling  int64
 	history  entity.HistoryFilter
@@ -53,10 +52,13 @@ func (s *srv) rooms(ctx context.Context, sess *session, out *entity.LegacySyncRe
 		}
 		entry := &roomDelivery{room: room, since: sess.since.Events, initial: sess.initial,
 			ceiling: sess.upTo.Events}
-		fresh := membershipAt[room.RoomNID] > sess.since.Events
+		fresh := !sess.initial && membershipAt[room.RoomNID] > sess.since.Events
 
 		switch room.Membership {
 		case entity.MembershipJoin:
+			if fresh {
+				entry.fresh, entry.since = true, 0
+			}
 			joined = append(joined, entry)
 		case entity.MembershipInvite:
 			if sess.initial || sess.request.FullState || fresh {
@@ -190,18 +192,17 @@ func (s *srv) gatherTimelines(ctx context.Context, sess *session, entries []*roo
 	limit := sess.request.TimelineLimit()
 	filter := sess.request.Filter.Timeline()
 
-	scan := limit + 1
-	if !filter.Trivial() {
-		scan = maxTimelineScan
-	}
-	fetched, err := s.stores.Events.Since(ctx, windows, sess.upTo.Events, scan)
+	fetched, err := s.stores.Events.Since(ctx, windows, sess.upTo.Events, limit+1)
 	if err != nil {
 		return err
 	}
 
 	for _, entry := range entries {
 		raw := fetched[entry.room.RoomNID]
-		entry.limited = len(raw) >= scan
+		if len(raw) > limit {
+			entry.limited = true
+			raw = raw[len(raw)-limit:]
+		}
 		kept := make([]entity.StoredEvent, 0, len(raw))
 		for _, stored := range raw {
 			if stored.StreamOrdering > entry.ceiling {
@@ -210,10 +211,6 @@ func (s *srv) gatherTimelines(ctx context.Context, sess *session, entries []*roo
 			if filter.Keeps(stored.Event) {
 				kept = append(kept, stored)
 			}
-		}
-		if len(kept) > limit {
-			entry.limited = true
-			kept = kept[len(kept)-limit:]
 		}
 		entry.timeline = kept
 	}
@@ -224,22 +221,41 @@ func (s *srv) gatherState(ctx context.Context, sess *session, entries []*roomDel
 	nids []int64, windows []entity.RoomWindow,
 ) error {
 	full := sess.initial || sess.request.FullState
-	if full {
+	var whole, delta []*roomDelivery
+	for _, entry := range entries {
+		if full || entry.fresh {
+			whole = append(whole, entry)
+			continue
+		}
+		delta = append(delta, entry)
+	}
+
+	if len(whole) > 0 {
+		nids := make([]int64, 0, len(whole))
+		for _, entry := range whole {
+			nids = append(nids, entry.room.RoomNID)
+		}
 		state, err := s.stores.Events.LatestState(ctx, nids, nil)
 		if err != nil {
 			return err
 		}
-		for _, entry := range entries {
+		for _, entry := range whole {
 			entry.state = state[entry.room.RoomNID]
 		}
+	}
+	if len(delta) == 0 {
 		return nil
 	}
 
+	windows = windows[:0]
+	for _, entry := range delta {
+		windows = append(windows, entity.RoomWindow{RoomNID: entry.room.RoomNID, After: entry.since})
+	}
 	state, err := s.stores.Events.StateSince(ctx, windows, sess.upTo.Events)
 	if err != nil {
 		return err
 	}
-	for _, entry := range entries {
+	for _, entry := range delta {
 		entry.state = slices.DeleteFunc(state[entry.room.RoomNID],
 			func(stored entity.StoredEvent) bool { return stored.StreamOrdering > entry.ceiling })
 	}
@@ -413,7 +429,7 @@ func timelineSenders(caller string, timeline []entity.StoredEvent) []string {
 func (s *srv) summarise(ctx context.Context, sess *session, entry *roomDelivery,
 	room *entity.LegacyRoom,
 ) error {
-	if !entry.initial {
+	if !entry.initial && !entry.fresh {
 		return nil
 	}
 	counts, err := s.stores.Members.CountForRooms(ctx, []int64{entry.room.RoomNID})
