@@ -15,11 +15,29 @@ import (
 	"github.com/thelemail/thaumaste/internal/service"
 )
 
+type Stores struct {
+	ToDevice    repository.ToDevice
+	DeviceLists repository.DeviceList
+	AccountData repository.AccountData
+	Receipts    repository.Receipt
+	Typing      repository.Typing
+	Keys        repository.Key
+}
+
+type Streams struct {
+	ToDevice    *postgres.Stream
+	DeviceLists *postgres.Stream
+	AccountData *postgres.Stream
+	Receipts    *postgres.Stream
+}
+
 type srv struct {
 	connections repository.Connection
 	members     repository.RoomMember
 	events      repository.Event
 	timeline    service.Timeline
+	stores      Stores
+	streams     Streams
 	tx          repository.Transactor
 	stream      *postgres.Stream
 	notifier    *notify.Notifier
@@ -33,6 +51,8 @@ func New(
 	members repository.RoomMember,
 	events repository.Event,
 	timeline service.Timeline,
+	stores Stores,
+	streams Streams,
 	tx repository.Transactor,
 	stream *postgres.Stream,
 	notifier *notify.Notifier,
@@ -44,7 +64,8 @@ func New(
 		clock = time.Now
 	}
 	return &srv{connections: connections, members: members, events: events, timeline: timeline,
-		tx: tx, stream: stream, notifier: notifier, gate: gate, cfg: cfg, clock: clock}
+		stores: stores, streams: streams, tx: tx, stream: stream, notifier: notifier,
+		gate: gate, cfg: cfg, clock: clock}
 }
 
 type session struct {
@@ -52,9 +73,11 @@ type session struct {
 	caller     string
 	deviceID   string
 	request    entity.SyncRequest
+	wanted     entity.SyncExtensionRequest
 	connection entity.Connection
 	known      map[int64]entity.RoomStatus
 	ceiling    int64
+	ceilings   entity.SyncCursors
 }
 
 func (s *srv) Sync(ctx context.Context, scope entity.TenantScope, caller, deviceID string, in entity.SyncRequest) (entity.SyncResult, error) {
@@ -80,7 +103,11 @@ func (s *srv) SweepConnections(ctx context.Context, cutoff time.Time) (int64, er
 }
 
 func (s *srv) run(ctx context.Context, scope entity.TenantScope, caller, deviceID string, in entity.SyncRequest) (entity.SyncResult, error) {
-	sess := session{scope: scope, caller: caller, deviceID: deviceID, request: in}
+	wanted, err := entity.ParseSyncExtensions(in.Extensions)
+	if err != nil {
+		return entity.SyncResult{}, err
+	}
+	sess := session{scope: scope, caller: caller, deviceID: deviceID, request: in, wanted: wanted}
 
 	connection, initial, err := s.resolve(ctx, scope, caller, deviceID, in)
 	if err != nil {
@@ -94,10 +121,11 @@ func (s *srv) run(ctx context.Context, scope entity.TenantScope, caller, deviceI
 		if err != nil {
 			return entity.SyncResult{}, err
 		}
-		if initial || len(result.Rooms) > 0 {
+		if initial || len(result.Rooms) > 0 || result.Extensions.Carries() {
 			return s.commit(ctx, &sess, result, staged)
 		}
 		if !s.clock().Before(deadline) {
+			result.Extensions = s.quiet(&sess)
 			result.Pos = sess.connection.Position(sess.connection.Confirmed)
 			return result, s.connections.Touch(ctx, sess.connection.NID, s.clock().UTC())
 		}
@@ -124,8 +152,15 @@ func (s *srv) attempt(ctx context.Context, sess *session) (entity.SyncResult, []
 		if sess.ceiling, err = s.stream.Published(ctx); err != nil {
 			return err
 		}
+		if err := s.ceilings(ctx, sess); err != nil {
+			return err
+		}
 
 		result, staged, err = s.build(ctx, sess)
+		if err != nil {
+			return err
+		}
+		result.Extensions, err = s.extensions(ctx, sess, &result)
 		return err
 	})
 	return result, staged, err
@@ -133,7 +168,7 @@ func (s *srv) attempt(ctx context.Context, sess *session) (entity.SyncResult, []
 
 func (s *srv) commit(ctx context.Context, sess *session, result entity.SyncResult, staged []entity.NewRoomStatus) (entity.SyncResult, error) {
 	generation := sess.connection.Confirmed + 1
-	if err := s.connections.Stage(ctx, sess.connection.NID, generation, sess.ceiling, staged); err != nil {
+	if err := s.connections.Stage(ctx, sess.connection.NID, generation, sess.ceilings, staged); err != nil {
 		return entity.SyncResult{}, err
 	}
 	result.Pos = sess.connection.Position(generation)
@@ -141,7 +176,7 @@ func (s *srv) commit(ctx context.Context, sess *session, result entity.SyncResul
 }
 
 func (s *srv) park(ctx context.Context, sess *session, deadline time.Time) error {
-	keys := []string{entity.UserWakeKey(sess.caller)}
+	keys := []string{entity.UserWakeKey(sess.caller), entity.DeviceWakeKey(sess.caller, sess.deviceID)}
 	rooms, err := s.members.ListForSync(ctx, sess.scope, sess.caller)
 	if err != nil {
 		return err
@@ -178,8 +213,10 @@ func (s *srv) resolve(ctx context.Context, scope entity.TenantScope, caller, dev
 		}
 		connection.Confirmed = 0
 		connection.ConfirmedStream = 0
+		connection.ConfirmedCursors = entity.SyncCursors{}
 		connection.Pending = nil
 		connection.PendingStream = nil
+		connection.PendingCursors = entity.SyncCursors{}
 		return connection, true, nil
 	}
 
@@ -200,13 +237,15 @@ func (s *srv) resolve(ctx context.Context, scope entity.TenantScope, caller, dev
 
 	switch {
 	case connection.Pending != nil && *connection.Pending == position.Generation:
-		if err := s.connections.Acknowledge(ctx, connection.NID, position.Generation, *connection.PendingStream); err != nil {
+		if err := s.connections.Acknowledge(ctx, connection.NID, position.Generation, connection.PendingCursors); err != nil {
 			return entity.Connection{}, false, err
 		}
 		connection.Confirmed = position.Generation
 		connection.ConfirmedStream = *connection.PendingStream
+		connection.ConfirmedCursors = connection.PendingCursors
 		connection.Pending = nil
 		connection.PendingStream = nil
+		connection.PendingCursors = entity.SyncCursors{}
 	case connection.Confirmed == position.Generation:
 		if err := s.connections.Discard(ctx, connection.NID); err != nil {
 			return entity.Connection{}, false, err

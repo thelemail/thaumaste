@@ -89,3 +89,40 @@ func (r *repo) Get(ctx context.Context, scope entity.TenantScope, userID string,
 	}
 	return entity.AccountData{Type: dataType, Content: content, StreamID: stream}, nil
 }
+
+const sinceAccountDataSQL = `
+	SELECT '' AS room_id, type, content, stream_id
+	  FROM account_data
+	 WHERE tenant_id = $1 AND user_id = $2 AND stream_id > $3
+	UNION ALL
+	SELECT r.room_id, d.type, d.content, d.stream_id
+	  FROM room_account_data d
+	  JOIN rooms r ON r.room_nid = d.room_nid
+	 WHERE d.tenant_id = $1 AND d.user_id = $2 AND d.stream_id > $3
+	 ORDER BY stream_id`
+
+func (r *repo) Since(ctx context.Context, scope entity.TenantScope, userID string,
+	after int64,
+) ([]entity.AccountData, error) {
+	rows, err := r.db.Querier(ctx).QueryContext(ctx, sinceAccountDataSQL,
+		scope.ID().String(), userID, after)
+	if err != nil {
+		return nil, fmt.Errorf("repository: read account data: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	var out []entity.AccountData
+	for rows.Next() {
+		var found entity.AccountData
+		var content []byte
+		if err := rows.Scan(&found.RoomID, &found.Type, &content, &found.StreamID); err != nil {
+			return nil, fmt.Errorf("repository: scan account data: %w", err)
+		}
+		found.Content = content
+		out = append(out, found)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("repository: read account data: %w", err)
+	}
+	return out, nil
+}

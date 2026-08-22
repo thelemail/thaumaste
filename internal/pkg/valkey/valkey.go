@@ -319,6 +319,43 @@ func (c *Client) SortedTrim(ctx context.Context, key string, upTo int64) error {
 	return nil
 }
 
+func (c *Client) Increment(ctx context.Context, key string, ttl time.Duration) (int64, error) {
+	live := c.live.Load()
+	if live == nil {
+		return 0, ErrUnavailable
+	}
+	results := live.conn.DoMulti(ctx,
+		live.conn.B().Incr().Key(key).Build(),
+		live.conn.B().Pexpire().Key(key).Milliseconds(ttl.Milliseconds()).Build(),
+	)
+	next, err := results[0].AsInt64()
+	if err != nil {
+		if ctx.Err() != nil {
+			return 0, ctx.Err()
+		}
+		return 0, c.drop(live, err)
+	}
+	return next, nil
+}
+
+func (c *Client) Counter(ctx context.Context, key string) (int64, error) {
+	live := c.live.Load()
+	if live == nil {
+		return 0, ErrUnavailable
+	}
+	value, err := live.conn.Do(ctx, live.conn.B().Get().Key(key).Build()).AsInt64()
+	if err != nil {
+		if valkey.IsValkeyNil(err) {
+			return 0, nil
+		}
+		if ctx.Err() != nil {
+			return 0, ctx.Err()
+		}
+		return 0, c.drop(live, err)
+	}
+	return value, nil
+}
+
 func (c *Client) Ping(ctx context.Context) error {
 	live := c.live.Load()
 	if live == nil {

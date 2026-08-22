@@ -7,17 +7,29 @@ import (
 	"github.com/google/uuid"
 )
 
+type SyncCursors struct {
+	Events      int64
+	AccountData int64
+	Receipts    int64
+	DeviceLists int64
+	Typing      int64
+}
+
+func (SyncCursors) Validate() error { return nil }
+
 type Connection struct {
-	NID             int64
-	TenantID        uuid.UUID
-	UserID          string
-	DeviceID        string
-	ConnID          string
-	Confirmed       int64
-	ConfirmedStream int64
-	Pending         *int64
-	PendingStream   *int64
-	LastSeenAt      time.Time
+	NID              int64
+	TenantID         uuid.UUID
+	UserID           string
+	DeviceID         string
+	ConnID           string
+	Confirmed        int64
+	ConfirmedStream  int64
+	ConfirmedCursors SyncCursors
+	Pending          *int64
+	PendingStream    *int64
+	PendingCursors   SyncCursors
+	LastSeenAt       time.Time
 }
 
 func (Connection) Validate() error { return nil }

@@ -24,100 +24,156 @@ import (
 
 // SyncConnection is an object representing the database table.
 type SyncConnection struct {
-	ConnectionNid   int64      `boil:"connection_nid" json:"connection_nid" toml:"connection_nid" yaml:"connection_nid"`
-	TenantID        string     `boil:"tenant_id" json:"tenant_id" toml:"tenant_id" yaml:"tenant_id"`
-	UserID          string     `boil:"user_id" json:"user_id" toml:"user_id" yaml:"user_id"`
-	DeviceID        string     `boil:"device_id" json:"device_id" toml:"device_id" yaml:"device_id"`
-	ConnID          string     `boil:"conn_id" json:"conn_id" toml:"conn_id" yaml:"conn_id"`
-	Confirmed       int64      `boil:"confirmed" json:"confirmed" toml:"confirmed" yaml:"confirmed"`
-	ConfirmedStream int64      `boil:"confirmed_stream" json:"confirmed_stream" toml:"confirmed_stream" yaml:"confirmed_stream"`
-	Pending         null.Int64 `boil:"pending" json:"pending,omitempty" toml:"pending" yaml:"pending,omitempty"`
-	PendingStream   null.Int64 `boil:"pending_stream" json:"pending_stream,omitempty" toml:"pending_stream" yaml:"pending_stream,omitempty"`
-	CreatedAt       time.Time  `boil:"created_at" json:"created_at" toml:"created_at" yaml:"created_at"`
-	LastSeenAt      time.Time  `boil:"last_seen_at" json:"last_seen_at" toml:"last_seen_at" yaml:"last_seen_at"`
+	ConnectionNid        int64      `boil:"connection_nid" json:"connection_nid" toml:"connection_nid" yaml:"connection_nid"`
+	TenantID             string     `boil:"tenant_id" json:"tenant_id" toml:"tenant_id" yaml:"tenant_id"`
+	UserID               string     `boil:"user_id" json:"user_id" toml:"user_id" yaml:"user_id"`
+	DeviceID             string     `boil:"device_id" json:"device_id" toml:"device_id" yaml:"device_id"`
+	ConnID               string     `boil:"conn_id" json:"conn_id" toml:"conn_id" yaml:"conn_id"`
+	Confirmed            int64      `boil:"confirmed" json:"confirmed" toml:"confirmed" yaml:"confirmed"`
+	ConfirmedStream      int64      `boil:"confirmed_stream" json:"confirmed_stream" toml:"confirmed_stream" yaml:"confirmed_stream"`
+	Pending              null.Int64 `boil:"pending" json:"pending,omitempty" toml:"pending" yaml:"pending,omitempty"`
+	PendingStream        null.Int64 `boil:"pending_stream" json:"pending_stream,omitempty" toml:"pending_stream" yaml:"pending_stream,omitempty"`
+	CreatedAt            time.Time  `boil:"created_at" json:"created_at" toml:"created_at" yaml:"created_at"`
+	LastSeenAt           time.Time  `boil:"last_seen_at" json:"last_seen_at" toml:"last_seen_at" yaml:"last_seen_at"`
+	ConfirmedAccountData int64      `boil:"confirmed_account_data" json:"confirmed_account_data" toml:"confirmed_account_data" yaml:"confirmed_account_data"`
+	PendingAccountData   null.Int64 `boil:"pending_account_data" json:"pending_account_data,omitempty" toml:"pending_account_data" yaml:"pending_account_data,omitempty"`
+	ConfirmedReceipts    int64      `boil:"confirmed_receipts" json:"confirmed_receipts" toml:"confirmed_receipts" yaml:"confirmed_receipts"`
+	PendingReceipts      null.Int64 `boil:"pending_receipts" json:"pending_receipts,omitempty" toml:"pending_receipts" yaml:"pending_receipts,omitempty"`
+	ConfirmedDeviceLists int64      `boil:"confirmed_device_lists" json:"confirmed_device_lists" toml:"confirmed_device_lists" yaml:"confirmed_device_lists"`
+	PendingDeviceLists   null.Int64 `boil:"pending_device_lists" json:"pending_device_lists,omitempty" toml:"pending_device_lists" yaml:"pending_device_lists,omitempty"`
+	ConfirmedTyping      int64      `boil:"confirmed_typing" json:"confirmed_typing" toml:"confirmed_typing" yaml:"confirmed_typing"`
+	PendingTyping        null.Int64 `boil:"pending_typing" json:"pending_typing,omitempty" toml:"pending_typing" yaml:"pending_typing,omitempty"`
 
 	R *syncConnectionR `boil:"-" json:"-" toml:"-" yaml:"-"`
 	L syncConnectionL  `boil:"-" json:"-" toml:"-" yaml:"-"`
 }
 
 var SyncConnectionColumns = struct {
-	ConnectionNid   string
-	TenantID        string
-	UserID          string
-	DeviceID        string
-	ConnID          string
-	Confirmed       string
-	ConfirmedStream string
-	Pending         string
-	PendingStream   string
-	CreatedAt       string
-	LastSeenAt      string
+	ConnectionNid        string
+	TenantID             string
+	UserID               string
+	DeviceID             string
+	ConnID               string
+	Confirmed            string
+	ConfirmedStream      string
+	Pending              string
+	PendingStream        string
+	CreatedAt            string
+	LastSeenAt           string
+	ConfirmedAccountData string
+	PendingAccountData   string
+	ConfirmedReceipts    string
+	PendingReceipts      string
+	ConfirmedDeviceLists string
+	PendingDeviceLists   string
+	ConfirmedTyping      string
+	PendingTyping        string
 }{
-	ConnectionNid:   "connection_nid",
-	TenantID:        "tenant_id",
-	UserID:          "user_id",
-	DeviceID:        "device_id",
-	ConnID:          "conn_id",
-	Confirmed:       "confirmed",
-	ConfirmedStream: "confirmed_stream",
-	Pending:         "pending",
-	PendingStream:   "pending_stream",
-	CreatedAt:       "created_at",
-	LastSeenAt:      "last_seen_at",
+	ConnectionNid:        "connection_nid",
+	TenantID:             "tenant_id",
+	UserID:               "user_id",
+	DeviceID:             "device_id",
+	ConnID:               "conn_id",
+	Confirmed:            "confirmed",
+	ConfirmedStream:      "confirmed_stream",
+	Pending:              "pending",
+	PendingStream:        "pending_stream",
+	CreatedAt:            "created_at",
+	LastSeenAt:           "last_seen_at",
+	ConfirmedAccountData: "confirmed_account_data",
+	PendingAccountData:   "pending_account_data",
+	ConfirmedReceipts:    "confirmed_receipts",
+	PendingReceipts:      "pending_receipts",
+	ConfirmedDeviceLists: "confirmed_device_lists",
+	PendingDeviceLists:   "pending_device_lists",
+	ConfirmedTyping:      "confirmed_typing",
+	PendingTyping:        "pending_typing",
 }
 
 var SyncConnectionTableColumns = struct {
-	ConnectionNid   string
-	TenantID        string
-	UserID          string
-	DeviceID        string
-	ConnID          string
-	Confirmed       string
-	ConfirmedStream string
-	Pending         string
-	PendingStream   string
-	CreatedAt       string
-	LastSeenAt      string
+	ConnectionNid        string
+	TenantID             string
+	UserID               string
+	DeviceID             string
+	ConnID               string
+	Confirmed            string
+	ConfirmedStream      string
+	Pending              string
+	PendingStream        string
+	CreatedAt            string
+	LastSeenAt           string
+	ConfirmedAccountData string
+	PendingAccountData   string
+	ConfirmedReceipts    string
+	PendingReceipts      string
+	ConfirmedDeviceLists string
+	PendingDeviceLists   string
+	ConfirmedTyping      string
+	PendingTyping        string
 }{
-	ConnectionNid:   "sync_connections.connection_nid",
-	TenantID:        "sync_connections.tenant_id",
-	UserID:          "sync_connections.user_id",
-	DeviceID:        "sync_connections.device_id",
-	ConnID:          "sync_connections.conn_id",
-	Confirmed:       "sync_connections.confirmed",
-	ConfirmedStream: "sync_connections.confirmed_stream",
-	Pending:         "sync_connections.pending",
-	PendingStream:   "sync_connections.pending_stream",
-	CreatedAt:       "sync_connections.created_at",
-	LastSeenAt:      "sync_connections.last_seen_at",
+	ConnectionNid:        "sync_connections.connection_nid",
+	TenantID:             "sync_connections.tenant_id",
+	UserID:               "sync_connections.user_id",
+	DeviceID:             "sync_connections.device_id",
+	ConnID:               "sync_connections.conn_id",
+	Confirmed:            "sync_connections.confirmed",
+	ConfirmedStream:      "sync_connections.confirmed_stream",
+	Pending:              "sync_connections.pending",
+	PendingStream:        "sync_connections.pending_stream",
+	CreatedAt:            "sync_connections.created_at",
+	LastSeenAt:           "sync_connections.last_seen_at",
+	ConfirmedAccountData: "sync_connections.confirmed_account_data",
+	PendingAccountData:   "sync_connections.pending_account_data",
+	ConfirmedReceipts:    "sync_connections.confirmed_receipts",
+	PendingReceipts:      "sync_connections.pending_receipts",
+	ConfirmedDeviceLists: "sync_connections.confirmed_device_lists",
+	PendingDeviceLists:   "sync_connections.pending_device_lists",
+	ConfirmedTyping:      "sync_connections.confirmed_typing",
+	PendingTyping:        "sync_connections.pending_typing",
 }
 
 // Generated where
 
 var SyncConnectionWhere = struct {
-	ConnectionNid   whereHelperint64
-	TenantID        whereHelperstring
-	UserID          whereHelperstring
-	DeviceID        whereHelperstring
-	ConnID          whereHelperstring
-	Confirmed       whereHelperint64
-	ConfirmedStream whereHelperint64
-	Pending         whereHelpernull_Int64
-	PendingStream   whereHelpernull_Int64
-	CreatedAt       whereHelpertime_Time
-	LastSeenAt      whereHelpertime_Time
+	ConnectionNid        whereHelperint64
+	TenantID             whereHelperstring
+	UserID               whereHelperstring
+	DeviceID             whereHelperstring
+	ConnID               whereHelperstring
+	Confirmed            whereHelperint64
+	ConfirmedStream      whereHelperint64
+	Pending              whereHelpernull_Int64
+	PendingStream        whereHelpernull_Int64
+	CreatedAt            whereHelpertime_Time
+	LastSeenAt           whereHelpertime_Time
+	ConfirmedAccountData whereHelperint64
+	PendingAccountData   whereHelpernull_Int64
+	ConfirmedReceipts    whereHelperint64
+	PendingReceipts      whereHelpernull_Int64
+	ConfirmedDeviceLists whereHelperint64
+	PendingDeviceLists   whereHelpernull_Int64
+	ConfirmedTyping      whereHelperint64
+	PendingTyping        whereHelpernull_Int64
 }{
-	ConnectionNid:   whereHelperint64{field: "\"sync_connections\".\"connection_nid\""},
-	TenantID:        whereHelperstring{field: "\"sync_connections\".\"tenant_id\""},
-	UserID:          whereHelperstring{field: "\"sync_connections\".\"user_id\""},
-	DeviceID:        whereHelperstring{field: "\"sync_connections\".\"device_id\""},
-	ConnID:          whereHelperstring{field: "\"sync_connections\".\"conn_id\""},
-	Confirmed:       whereHelperint64{field: "\"sync_connections\".\"confirmed\""},
-	ConfirmedStream: whereHelperint64{field: "\"sync_connections\".\"confirmed_stream\""},
-	Pending:         whereHelpernull_Int64{field: "\"sync_connections\".\"pending\""},
-	PendingStream:   whereHelpernull_Int64{field: "\"sync_connections\".\"pending_stream\""},
-	CreatedAt:       whereHelpertime_Time{field: "\"sync_connections\".\"created_at\""},
-	LastSeenAt:      whereHelpertime_Time{field: "\"sync_connections\".\"last_seen_at\""},
+	ConnectionNid:        whereHelperint64{field: "\"sync_connections\".\"connection_nid\""},
+	TenantID:             whereHelperstring{field: "\"sync_connections\".\"tenant_id\""},
+	UserID:               whereHelperstring{field: "\"sync_connections\".\"user_id\""},
+	DeviceID:             whereHelperstring{field: "\"sync_connections\".\"device_id\""},
+	ConnID:               whereHelperstring{field: "\"sync_connections\".\"conn_id\""},
+	Confirmed:            whereHelperint64{field: "\"sync_connections\".\"confirmed\""},
+	ConfirmedStream:      whereHelperint64{field: "\"sync_connections\".\"confirmed_stream\""},
+	Pending:              whereHelpernull_Int64{field: "\"sync_connections\".\"pending\""},
+	PendingStream:        whereHelpernull_Int64{field: "\"sync_connections\".\"pending_stream\""},
+	CreatedAt:            whereHelpertime_Time{field: "\"sync_connections\".\"created_at\""},
+	LastSeenAt:           whereHelpertime_Time{field: "\"sync_connections\".\"last_seen_at\""},
+	ConfirmedAccountData: whereHelperint64{field: "\"sync_connections\".\"confirmed_account_data\""},
+	PendingAccountData:   whereHelpernull_Int64{field: "\"sync_connections\".\"pending_account_data\""},
+	ConfirmedReceipts:    whereHelperint64{field: "\"sync_connections\".\"confirmed_receipts\""},
+	PendingReceipts:      whereHelpernull_Int64{field: "\"sync_connections\".\"pending_receipts\""},
+	ConfirmedDeviceLists: whereHelperint64{field: "\"sync_connections\".\"confirmed_device_lists\""},
+	PendingDeviceLists:   whereHelpernull_Int64{field: "\"sync_connections\".\"pending_device_lists\""},
+	ConfirmedTyping:      whereHelperint64{field: "\"sync_connections\".\"confirmed_typing\""},
+	PendingTyping:        whereHelpernull_Int64{field: "\"sync_connections\".\"pending_typing\""},
 }
 
 // SyncConnectionRels is where relationship names are stored.
@@ -176,9 +232,9 @@ func (r *syncConnectionR) GetConnectionNidSyncConnectionRooms() SyncConnectionRo
 type syncConnectionL struct{}
 
 var (
-	syncConnectionAllColumns            = []string{"connection_nid", "tenant_id", "user_id", "device_id", "conn_id", "confirmed", "confirmed_stream", "pending", "pending_stream", "created_at", "last_seen_at"}
+	syncConnectionAllColumns            = []string{"connection_nid", "tenant_id", "user_id", "device_id", "conn_id", "confirmed", "confirmed_stream", "pending", "pending_stream", "created_at", "last_seen_at", "confirmed_account_data", "pending_account_data", "confirmed_receipts", "pending_receipts", "confirmed_device_lists", "pending_device_lists", "confirmed_typing", "pending_typing"}
 	syncConnectionColumnsWithoutDefault = []string{"tenant_id", "user_id", "device_id", "conn_id"}
-	syncConnectionColumnsWithDefault    = []string{"connection_nid", "confirmed", "confirmed_stream", "pending", "pending_stream", "created_at", "last_seen_at"}
+	syncConnectionColumnsWithDefault    = []string{"connection_nid", "confirmed", "confirmed_stream", "pending", "pending_stream", "created_at", "last_seen_at", "confirmed_account_data", "pending_account_data", "confirmed_receipts", "pending_receipts", "confirmed_device_lists", "pending_device_lists", "confirmed_typing", "pending_typing"}
 	syncConnectionPrimaryKeyColumns     = []string{"connection_nid"}
 	syncConnectionGeneratedColumns      = []string{}
 )

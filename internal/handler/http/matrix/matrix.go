@@ -21,6 +21,8 @@ type Handler struct {
 	receipts     service.Receipts
 	typing       service.Typing
 	presence     service.Presence
+	toDevice     service.ToDevice
+	deviceLists  service.DeviceLists
 	filters      service.Filters
 	directory    service.Directory
 	publicScheme string
@@ -39,6 +41,8 @@ func New(
 	receipts service.Receipts,
 	typing service.Typing,
 	presence service.Presence,
+	toDevice service.ToDevice,
+	deviceLists service.DeviceLists,
 	filters service.Filters,
 	directory service.Directory,
 	srv config.Server,
@@ -59,6 +63,8 @@ func New(
 		receipts:     receipts,
 		typing:       typing,
 		presence:     presence,
+		toDevice:     toDevice,
+		deviceLists:  deviceLists,
 		filters:      filters,
 		directory:    directory,
 		publicScheme: srv.PublicScheme,
@@ -126,6 +132,8 @@ func (h *Handler) Mount(r chi.Router) {
 				r.Post("/_matrix/client/v3/keys/upload", h.uploadKeys)
 				r.Post("/_matrix/client/v3/keys/query", h.queryKeys)
 				r.Post("/_matrix/client/v3/keys/claim", h.claimKeys)
+				r.Get("/_matrix/client/v3/keys/changes", h.keyChanges)
+				r.Put("/_matrix/client/v3/sendToDevice/{eventType}/{txnID}", h.sendToDevice)
 
 				r.Put("/_matrix/client/v3/user/{userID}/account_data/{type}", h.setAccountData)
 				r.Get("/_matrix/client/v3/user/{userID}/account_data/{type}", h.getAccountData)

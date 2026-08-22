@@ -30,6 +30,7 @@ type srv struct {
 	attempts    repository.AuthAttempt
 	tokens      service.Tokens
 	tenants     service.Tenants
+	deviceLists service.DeviceLists
 	tx          repository.Transactor
 	cfg         config.Auth
 	providers   []provider
@@ -46,6 +47,7 @@ func New(
 	attempts repository.AuthAttempt,
 	tokens service.Tokens,
 	tenants service.Tenants,
+	deviceLists service.DeviceLists,
 	tx repository.Transactor,
 	cfg config.Auth,
 	clock func() time.Time,
@@ -59,7 +61,8 @@ func New(
 	}
 
 	s := &srv{
-		users: usersRepo, credentials: credentials, devices: devices, refresh: refresh,
+		deviceLists: deviceLists,
+		users:       usersRepo, credentials: credentials, devices: devices, refresh: refresh,
 		sessions: sessions, attempts: attempts,
 		tokens: tokens, tenants: tenants, tx: tx, cfg: cfg, clock: clock, rnd: rnd,
 	}
@@ -288,6 +291,7 @@ func (s *srv) issue(ctx context.Context, scope entity.TenantScope, userID, devic
 	if _, err := s.devices.Upsert(ctx, in); err != nil {
 		return service.Session{}, err
 	}
+	s.announceDevices(ctx, scope, userID)
 
 	if _, err := s.tokens.RevokeForDevice(ctx, scope, userID, deviceID); err != nil {
 		return service.Session{}, err
@@ -371,6 +375,15 @@ func (s *srv) issueRefreshed(ctx context.Context, scope entity.TenantScope, old 
 	}, nil
 }
 
+func (s *srv) announceDevices(ctx context.Context, scope entity.TenantScope, userID string) {
+	if s.deviceLists == nil {
+		return
+	}
+	if err := s.deviceLists.Record(ctx, scope, userID); err != nil {
+		slog.WarnContext(ctx, "a device change was not announced", "user_id", userID, "error", err)
+	}
+}
+
 func (s *srv) Logout(ctx context.Context, scope entity.TenantScope, caller entity.AccessToken) error {
 	return s.tx.WithTx(ctx, func(ctx context.Context) error {
 		if _, err := s.tokens.RevokeForDevice(ctx, scope, caller.UserID, caller.DeviceID); err != nil {
@@ -379,6 +392,7 @@ func (s *srv) Logout(ctx context.Context, scope entity.TenantScope, caller entit
 		if _, err := s.refresh.RevokeForDevice(ctx, scope, caller.UserID, caller.DeviceID, s.clock().UTC()); err != nil {
 			return err
 		}
+		s.announceDevices(ctx, scope, caller.UserID)
 		if err := s.devices.Delete(ctx, scope, caller.UserID, caller.DeviceID); err != nil &&
 			!errors.Is(err, repository.ErrDeviceNotFound) {
 			return err
@@ -395,6 +409,7 @@ func (s *srv) LogoutAll(ctx context.Context, scope entity.TenantScope, userID st
 		if _, err := s.refresh.RevokeForUser(ctx, scope, userID, s.clock().UTC()); err != nil {
 			return err
 		}
+		s.announceDevices(ctx, scope, userID)
 		_, err := s.devices.DeleteAllForUser(ctx, scope, userID)
 		return err
 	})
@@ -462,6 +477,7 @@ func (s *srv) DeleteDevices(ctx context.Context, scope entity.TenantScope, userI
 			if _, err := s.refresh.RevokeForDevice(ctx, scope, userID, deviceID, s.clock().UTC()); err != nil {
 				return err
 			}
+			s.announceDevices(ctx, scope, userID)
 			err := s.devices.Delete(ctx, scope, userID, deviceID)
 			if err != nil && !errors.Is(err, repository.ErrDeviceNotFound) {
 				return err

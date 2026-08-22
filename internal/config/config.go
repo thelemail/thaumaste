@@ -23,6 +23,7 @@ type Config struct {
 	Sync      Sync
 	Keys      Keys
 	Directory Directory
+	ToDevice  ToDevice
 	Logger    Logger
 }
 
@@ -143,6 +144,11 @@ type Keys struct {
 	MaxOneTimeKeys  int `env:"THAUMASTE_KEYS_MAX_ONE_TIME"     envDefault:"200"`
 	MaxQueryUsers   int `env:"THAUMASTE_KEYS_MAX_QUERY_USERS"  envDefault:"200"`
 	MaxClaimDevices int `env:"THAUMASTE_KEYS_MAX_CLAIM_DEVICES" envDefault:"200"`
+}
+
+type ToDevice struct {
+	Retention  time.Duration `env:"THAUMASTE_TO_DEVICE_RETENTION"   envDefault:"720h"`
+	SweepEvery time.Duration `env:"THAUMASTE_TO_DEVICE_SWEEP_EVERY" envDefault:"1h"`
 }
 
 type Directory struct {

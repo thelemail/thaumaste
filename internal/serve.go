@@ -26,6 +26,9 @@ type ServeRuntime struct {
 	sync            service.Sync
 	notifier        *notify.Notifier
 	connectionTTL   time.Duration
+	toDeviceRetain  time.Duration
+	toDeviceSweep   time.Duration
+	toDevice        service.ToDevice
 	connectionSweep time.Duration
 	shutdownTimeout time.Duration
 	sweepEvery      time.Duration
@@ -87,7 +90,32 @@ func (r *ServeRuntime) sweepConnections(ctx context.Context) {
 	}
 }
 
+func (r *ServeRuntime) sweepToDevice(ctx context.Context) {
+	if r.toDeviceSweep <= 0 || r.toDeviceRetain <= 0 {
+		return
+	}
+	ticker := time.NewTicker(r.toDeviceSweep)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
+		deleted, err := r.toDevice.Sweep(ctx, r.clock().UTC().Add(-r.toDeviceRetain))
+		if err != nil {
+			slog.ErrorContext(ctx, "could not sweep undelivered to-device messages", "error", err)
+			continue
+		}
+		if deleted > 0 {
+			slog.InfoContext(ctx, "swept undelivered to-device messages", "deleted", deleted)
+		}
+	}
+}
+
 func (r *ServeRuntime) Run(ctx context.Context) error {
+	go r.sweepToDevice(ctx)
 	go r.sweep(ctx)
 	go r.sweepConnections(ctx)
 	go func() { _ = r.notifier.Run(ctx) }()
@@ -127,10 +155,13 @@ func provideServeRuntime(
 	receipts service.Receipts,
 	typingSvc service.Typing,
 	presenceSvc service.Presence,
+	toDevice service.ToDevice,
+	deviceLists service.DeviceLists,
 	filters service.Filters,
 	directory service.Directory,
 	notifier *notify.Notifier,
 	syncCfg config.Sync,
+	toDeviceCfg config.ToDevice,
 	clock func() time.Time,
 ) *ServeRuntime {
 	router := chi.NewRouter()
@@ -140,7 +171,7 @@ func provideServeRuntime(
 	router.Use(middleware.AccessLog)
 
 	matrix.New(tenants, tokens, users, rooms, syncSvc, keys, accountData, receipts, typingSvc,
-		presenceSvc, filters, directory, cfg, sign, clock).Mount(router)
+		presenceSvc, toDevice, deviceLists, filters, directory, cfg, sign, clock).Mount(router)
 
 	return &ServeRuntime{
 		srv: &http.Server{
@@ -154,6 +185,9 @@ func provideServeRuntime(
 		events:          events,
 		sync:            syncSvc,
 		notifier:        notifier,
+		toDevice:        toDevice,
+		toDeviceRetain:  toDeviceCfg.Retention,
+		toDeviceSweep:   toDeviceCfg.SweepEvery,
 		connectionTTL:   syncCfg.ConnectionTTL,
 		connectionSweep: syncCfg.SweepEvery,
 		shutdownTimeout: cfg.ShutdownTimeout,

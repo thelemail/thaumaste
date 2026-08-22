@@ -14,14 +14,17 @@ import (
 )
 
 type srv struct {
-	keys    repository.Key
-	members repository.RoomMember
-	tx      repository.Transactor
-	cfg     config.Keys
+	deviceLists service.DeviceLists
+	keys        repository.Key
+	members     repository.RoomMember
+	tx          repository.Transactor
+	cfg         config.Keys
 }
 
-func New(keys repository.Key, members repository.RoomMember, tx repository.Transactor, cfg config.Keys) service.Keys {
-	return &srv{keys: keys, members: members, tx: tx, cfg: cfg}
+func New(keys repository.Key, members repository.RoomMember, tx repository.Transactor,
+	deviceLists service.DeviceLists, cfg config.Keys,
+) service.Keys {
+	return &srv{keys: keys, members: members, tx: tx, deviceLists: deviceLists, cfg: cfg}
 }
 
 func (s *srv) Upload(ctx context.Context, scope entity.TenantScope, in entity.KeyUpload) (map[string]int, error) {
@@ -69,6 +72,11 @@ func (s *srv) Upload(ctx context.Context, scope entity.TenantScope, in entity.Ke
 	})
 	if err != nil {
 		return nil, err
+	}
+	if len(in.DeviceKeys) > 0 && s.deviceLists != nil {
+		if err := s.deviceLists.Record(ctx, scope, in.UserID); err != nil {
+			return nil, err
+		}
 	}
 	return counts, nil
 }

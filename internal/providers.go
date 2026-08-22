@@ -23,6 +23,7 @@ import (
 	"github.com/thelemail/thaumaste/internal/repository/connection"
 	"github.com/thelemail/thaumaste/internal/repository/credential"
 	"github.com/thelemail/thaumaste/internal/repository/device"
+	devicelistrepo "github.com/thelemail/thaumaste/internal/repository/devicelist"
 	"github.com/thelemail/thaumaste/internal/repository/event"
 	filterrepo "github.com/thelemail/thaumaste/internal/repository/filter"
 	"github.com/thelemail/thaumaste/internal/repository/key"
@@ -35,12 +36,14 @@ import (
 	"github.com/thelemail/thaumaste/internal/repository/signingkey"
 	"github.com/thelemail/thaumaste/internal/repository/state"
 	"github.com/thelemail/thaumaste/internal/repository/tenant"
+	todevicerepo "github.com/thelemail/thaumaste/internal/repository/todevice"
 	"github.com/thelemail/thaumaste/internal/repository/transaction"
 	typingrepo "github.com/thelemail/thaumaste/internal/repository/typing"
 	"github.com/thelemail/thaumaste/internal/repository/uiasession"
 	"github.com/thelemail/thaumaste/internal/repository/user"
 	"github.com/thelemail/thaumaste/internal/service"
 	"github.com/thelemail/thaumaste/internal/service/accountdata"
+	"github.com/thelemail/thaumaste/internal/service/devicelists"
 	"github.com/thelemail/thaumaste/internal/service/directory"
 	"github.com/thelemail/thaumaste/internal/service/events"
 	"github.com/thelemail/thaumaste/internal/service/filters"
@@ -51,6 +54,7 @@ import (
 	"github.com/thelemail/thaumaste/internal/service/sync"
 	"github.com/thelemail/thaumaste/internal/service/tenants"
 	"github.com/thelemail/thaumaste/internal/service/timeline"
+	"github.com/thelemail/thaumaste/internal/service/todevice"
 	"github.com/thelemail/thaumaste/internal/service/tokens"
 	"github.com/thelemail/thaumaste/internal/service/typing"
 	"github.com/thelemail/thaumaste/internal/service/users"
@@ -64,8 +68,9 @@ func provideLimitsConfig(c config.Config) config.Limits       { return c.Limits 
 func provideSyncConfig(c config.Config) config.Sync           { return c.Sync }
 func provideKeysConfig(c config.Config) config.Keys           { return c.Keys }
 func provideDirectoryConfig(c config.Config) config.Directory { return c.Directory }
+func provideToDeviceConfig(c config.Config) config.ToDevice   { return c.ToDevice }
 
-var ConfigSet = wire.NewSet(provideSyncConfig, provideKeysConfig, provideDirectoryConfig, provideServerConfig, providePostgresConfig, provideSigningConfig,
+var ConfigSet = wire.NewSet(provideSyncConfig, provideKeysConfig, provideDirectoryConfig, provideToDeviceConfig, provideServerConfig, providePostgresConfig, provideSigningConfig,
 	provideValkeyConfig, provideLimitsConfig, provideAuthConfig)
 
 func providePostgres(ctx context.Context, cfg config.Postgres) (*postgres.Client, func(), error) {
@@ -117,12 +122,13 @@ func provideUsers(
 	attempts repository.AuthAttempt,
 	tokens service.Tokens,
 	tenants service.Tenants,
+	deviceLists service.DeviceLists,
 	tx repository.Transactor,
 	cfg config.Auth,
 	clock func() time.Time,
 ) service.Users {
 	return users.New(usersRepo, credentials, devices, refresh, sessions, attempts,
-		tokens, tenants, tx, cfg, clock, nil)
+		tokens, tenants, deviceLists, tx, cfg, clock, nil)
 }
 
 func provideUIASessions(db *postgres.Client, clock func() time.Time) repository.UIASession {
@@ -172,14 +178,18 @@ func provideSync(
 	stream *postgres.Stream,
 	notifier *notify.Notifier,
 	gate *serialiser.Serialiser,
+	stores sync.Stores,
+	streams sync.Streams,
 	cfg config.Sync,
 	clock func() time.Time,
 ) service.Sync {
-	return sync.New(connections, members, eventRepo, timelineSvc, tx, stream, notifier, gate, cfg, clock)
+	return sync.New(connections, members, eventRepo, timelineSvc, stores, streams, tx, stream, notifier, gate, cfg, clock)
 }
 
-func provideKeys(keyRepo repository.Key, members repository.RoomMember, tx repository.Transactor, cfg config.Keys) service.Keys {
-	return keys.New(keyRepo, members, tx, cfg)
+func provideKeys(keyRepo repository.Key, members repository.RoomMember, tx repository.Transactor,
+	deviceLists service.DeviceLists, cfg config.Keys,
+) service.Keys {
+	return keys.New(keyRepo, members, tx, deviceLists, cfg)
 }
 
 type AccountDataStream struct{ *postgres.Stream }
@@ -197,9 +207,9 @@ func provideAccountDataStream(ctx context.Context, db *postgres.Client, cfg conf
 }
 
 func provideAccountData(data repository.AccountData, roomRepo repository.Room, tx repository.Transactor,
-	stream *AccountDataStream,
+	stream *AccountDataStream, notifier *notify.Notifier,
 ) service.AccountData {
-	return accountdata.New(data, roomRepo, tx, stream.Stream)
+	return accountdata.New(data, roomRepo, tx, stream.Stream, notifier)
 }
 
 func provideDirectory(userRepo repository.User, roomRepo repository.Room, eventRepo repository.Event,
@@ -233,6 +243,65 @@ func providePresence(presenceRepo repository.Presence, members repository.RoomMe
 	clock func() time.Time,
 ) service.Presence {
 	return presence.New(presenceRepo, members, clock)
+}
+
+type ToDeviceStream struct{ *postgres.Stream }
+
+func provideToDeviceStream(ctx context.Context, db *postgres.Client, cfg config.Server) (*ToDeviceStream, error) {
+	stream, err := postgres.NewStream(ctx, db, postgres.StreamConfig{
+		Name:     "to_device",
+		Instance: cfg.InstanceName,
+		Sequence: "to_device_stream_seq",
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &ToDeviceStream{Stream: stream}, nil
+}
+
+type DeviceListStream struct{ *postgres.Stream }
+
+func provideDeviceListStream(ctx context.Context, db *postgres.Client, cfg config.Server) (*DeviceListStream, error) {
+	stream, err := postgres.NewStream(ctx, db, postgres.StreamConfig{
+		Name:     "device_lists",
+		Instance: cfg.InstanceName,
+		Sequence: "device_list_stream_seq",
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &DeviceListStream{Stream: stream}, nil
+}
+
+func provideToDevice(messages repository.ToDevice, devices repository.Device, tx repository.Transactor,
+	stream *ToDeviceStream, notifier *notify.Notifier,
+) service.ToDevice {
+	return todevice.New(messages, devices, tx, stream.Stream, notifier)
+}
+
+func provideDeviceLists(changes repository.DeviceList, members repository.RoomMember,
+	tx repository.Transactor, stream *DeviceListStream, notifier *notify.Notifier,
+) service.DeviceLists {
+	return devicelists.New(changes, members, tx, stream.Stream, notifier)
+}
+
+func provideSyncStores(toDeviceRepo repository.ToDevice, deviceListRepo repository.DeviceList,
+	data repository.AccountData, receiptRepo repository.Receipt, typingRepo repository.Typing,
+	keyRepo repository.Key,
+) sync.Stores {
+	return sync.Stores{
+		ToDevice: toDeviceRepo, DeviceLists: deviceListRepo, AccountData: data,
+		Receipts: receiptRepo, Typing: typingRepo, Keys: keyRepo,
+	}
+}
+
+func provideSyncStreams(toDevice *ToDeviceStream, deviceLists *DeviceListStream,
+	data *AccountDataStream, receipts *ReceiptStream,
+) sync.Streams {
+	return sync.Streams{
+		ToDevice: toDevice.Stream, DeviceLists: deviceLists.Stream,
+		AccountData: data.Stream, Receipts: receipts.Stream,
+	}
 }
 
 func provideSendLimits(cfg config.Limits) entity.SendLimits {
@@ -276,6 +345,14 @@ var DomainSet = wire.NewSet(
 	presencerepo.New,
 	provideReceiptStream,
 	provideReceipts,
+	todevicerepo.New,
+	devicelistrepo.New,
+	provideToDeviceStream,
+	provideDeviceListStream,
+	provideToDevice,
+	provideDeviceLists,
+	provideSyncStores,
+	provideSyncStreams,
 	typing.New,
 	providePresence,
 	filterrepo.New,
