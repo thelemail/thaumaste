@@ -55,7 +55,7 @@ func (h *Handler) getPresence(w http.ResponseWriter, r *http.Request) {
 
 	out := presenceResponse{Presence: found.Currently(), StatusMsg: found.StatusMsg}
 	if !found.LastActiveAt.IsZero() {
-		out.LastActiveAgo = h.clock().UTC().Sub(found.LastActiveAt).Milliseconds()
+		out.LastActiveAgo = max(h.clock().UTC().Sub(found.LastActiveAt).Milliseconds(), 0)
 		out.CurrentlyActive = found.State == entity.PresenceOnline
 	}
 	writeJSON(w, http.StatusOK, out)

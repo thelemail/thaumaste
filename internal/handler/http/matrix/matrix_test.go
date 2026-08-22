@@ -226,7 +226,7 @@ func wireServer(t *testing.T, instance string, assertion ed25519.PublicKey, pg *
 	receiptSvc := receipts.New(receiptrepo.New(pg), memberRepo, eventSvc, accountDataSvc, pg,
 		receiptStream, notifier, clock.Now)
 	typingSvc := typing.New(typingrepo.New(limiter), memberRepo, eventSvc, notifier, clock.Now)
-	presenceSvc := presence.New(presencerepo.New(pg), memberRepo)
+	presenceSvc := presence.New(presencerepo.New(pg), memberRepo, clock.Now)
 	filterSvc := filters.New(filterrepo.New(pg))
 	directorySvc := directory.New(user.New(pg), roomRepo, eventRepo, config.Directory{MaxResults: 50})
 

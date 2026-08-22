@@ -3,6 +3,7 @@ package presence
 import (
 	"context"
 	"errors"
+	"time"
 
 	"github.com/thelemail/thaumaste/internal/entity"
 	"github.com/thelemail/thaumaste/internal/repository"
@@ -12,10 +13,14 @@ import (
 type srv struct {
 	presence repository.Presence
 	members  repository.RoomMember
+	clock    func() time.Time
 }
 
-func New(presence repository.Presence, members repository.RoomMember) service.Presence {
-	return &srv{presence: presence, members: members}
+func New(presence repository.Presence, members repository.RoomMember, clock func() time.Time) service.Presence {
+	if clock == nil {
+		clock = time.Now
+	}
+	return &srv{presence: presence, members: members, clock: clock}
 }
 
 func (s *srv) Set(ctx context.Context, tenant entity.Tenant, caller, target, state,
@@ -37,7 +42,7 @@ func (s *srv) Set(ctx context.Context, tenant entity.Tenant, caller, target, sta
 	if err := in.Validate(); err != nil {
 		return err
 	}
-	return s.presence.Set(ctx, in)
+	return s.presence.Set(ctx, in, s.clock().UTC())
 }
 
 func (s *srv) Get(ctx context.Context, tenant entity.Tenant, caller,

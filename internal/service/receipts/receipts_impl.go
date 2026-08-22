@@ -218,5 +218,14 @@ func (s *srv) thread(ctx context.Context, room entity.Room, threadID string) err
 	if _, related := entity.RelationOf(root.Event); related {
 		return entity.ErrThreadUnknown
 	}
+	replies, err := s.events.Relations(ctx, room.RoomID, entity.RelationQuery{
+		ParentIDs: []string{threadID}, RelType: entity.RelThread, Limit: 1,
+	})
+	if err != nil {
+		return err
+	}
+	if len(replies) == 0 {
+		return entity.ErrThreadUnknown
+	}
 	return nil
 }

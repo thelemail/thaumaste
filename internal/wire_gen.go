@@ -34,7 +34,6 @@ import (
 	"github.com/thelemail/thaumaste/internal/repository/user"
 	"github.com/thelemail/thaumaste/internal/service"
 	"github.com/thelemail/thaumaste/internal/service/filters"
-	presence2 "github.com/thelemail/thaumaste/internal/service/presence"
 	"github.com/thelemail/thaumaste/internal/service/rooms"
 	"github.com/thelemail/thaumaste/internal/service/timeline"
 	typing2 "github.com/thelemail/thaumaste/internal/service/typing"
@@ -120,7 +119,7 @@ func InitializeServe(ctx context.Context, cfg config.Config) (*ServeRuntime, fun
 	repositoryTyping := typing.New(valkeyClient)
 	serviceTyping := typing2.New(repositoryTyping, roomMember, events, notifier, v)
 	repositoryPresence := presence.New(client)
-	servicePresence := presence2.New(repositoryPresence, roomMember)
+	servicePresence := providePresence(repositoryPresence, roomMember, v)
 	repositoryFilter := filter.New(client)
 	serviceFilters := filters.New(repositoryFilter)
 	directory := provideDirectoryConfig(cfg)

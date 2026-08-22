@@ -229,6 +229,12 @@ func provideReceipts(receiptRepo repository.Receipt, members repository.RoomMemb
 	return receipts.New(receiptRepo, members, events, data, tx, stream.Stream, notifier, clock)
 }
 
+func providePresence(presenceRepo repository.Presence, members repository.RoomMember,
+	clock func() time.Time,
+) service.Presence {
+	return presence.New(presenceRepo, members, clock)
+}
+
 func provideSendLimits(cfg config.Limits) entity.SendLimits {
 	return entity.SendLimits{
 		PerUser:   cfg.SendPerUser,
@@ -271,7 +277,7 @@ var DomainSet = wire.NewSet(
 	provideReceiptStream,
 	provideReceipts,
 	typing.New,
-	presence.New,
+	providePresence,
 	filterrepo.New,
 	filters.New,
 	provideAccountDataStream,

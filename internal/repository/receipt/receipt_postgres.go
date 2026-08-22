@@ -37,7 +37,8 @@ const (
 	unreadSinceSQL = `
 		SELECT count(*) FROM events
 		 WHERE room_nid = $1 AND stream_ordering > $2 AND sender <> $3
-		   AND event_state_key_nid IS NULL AND disposition = 'ok'`
+		   AND event_state_key_nid IS NULL
+		   AND disposition IN ('accepted', 'redacted')`
 )
 
 type repo struct {

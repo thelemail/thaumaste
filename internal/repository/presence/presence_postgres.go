@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/thelemail/thaumaste/internal/entity"
 	"github.com/thelemail/thaumaste/internal/pkg/postgres"
@@ -14,10 +15,10 @@ import (
 const (
 	setPresenceSQL = `
 		INSERT INTO user_presence (tenant_id, user_id, presence, status_msg, last_active_at, updated_at)
-		VALUES ($1, $2, $3, $4, now(), now())
+		VALUES ($1, $2, $3, $4, $5, $5)
 		ON CONFLICT (tenant_id, user_id) DO UPDATE
 		   SET presence = EXCLUDED.presence, status_msg = EXCLUDED.status_msg,
-		       last_active_at = now(), updated_at = now()`
+		       last_active_at = EXCLUDED.last_active_at, updated_at = EXCLUDED.updated_at`
 
 	getPresenceSQL = `
 		SELECT user_id, presence, status_msg, last_active_at
@@ -32,9 +33,9 @@ func New(db *postgres.Client) repository.Presence {
 	return &repo{db: db}
 }
 
-func (r *repo) Set(ctx context.Context, in entity.NewPresence) error {
+func (r *repo) Set(ctx context.Context, in entity.NewPresence, at time.Time) error {
 	_, err := r.db.Querier(ctx).ExecContext(ctx, setPresenceSQL,
-		in.TenantID.String(), in.UserID, in.State, in.StatusMsg)
+		in.TenantID.String(), in.UserID, in.State, in.StatusMsg, at)
 	if err != nil {
 		return fmt.Errorf("repository: set presence: %w", err)
 	}
