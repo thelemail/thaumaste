@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/thelemail/thaumaste/internal/config"
 	"github.com/thelemail/thaumaste/internal/entity"
 	"github.com/thelemail/thaumaste/internal/testutil/pgtest"
 	"github.com/thelemail/thaumaste/internal/testutil/valkeytest"
@@ -102,19 +103,30 @@ func TestARetryOfALimitedTransactionIsStillDeduplicated(t *testing.T) {
 	}
 }
 
-func TestAnUnreachableLimiterLetsSendsThrough(t *testing.T) {
-	s := wireServer(t, "test", nil, pgtest.Connect(t, "tenants"), valkeytest.Unreachable(t),
-		entity.SendLimits{PerUser: 1, Window: time.Minute})
+func TestASendCannotProceedWhileTheRoomLeaseIsHeldElsewhere(t *testing.T) {
+	settings := valkeytest.Settings(t)
+	settings.LockValidity = 300 * time.Millisecond
+	valkeytest.Require(t, settings)
+
+	limits := config.Limits{SendPerUser: 100, SendWindow: time.Minute}
+	s := wireServer(t, "test", nil, pgtest.Connect(t, "tenants", "stream_positions"),
+		valkeytest.ConnectWith(t, settings, limits), entity.SendLimits{})
 	_, token, _ := s.resident(t, "alpha.test", "alice")
 	roomID := s.createRoom(t, "alpha.test", token, map[string]any{})
 
-	for i := range 3 {
-		if rec := s.send(t, "alpha.test", token, roomID, "txn-"+strconv.Itoa(i), text("hello")); rec.Code != http.StatusOK {
-			t.Fatalf("send %d with valkey down = %d: %s", i, rec.Code, rec.Body)
-		}
+	holder := valkeytest.ConnectWith(t, settings, limits)
+	_, release, err := holder.Lock(t.Context(), roomID)
+	if err != nil {
+		t.Fatalf("hold the room lease: %v", err)
 	}
-	if got := s.messageCount(t, roomID); got != 3 {
-		t.Fatalf("%d messages in the room, want 3", got)
+	defer release()
+
+	rec := s.send(t, "alpha.test", token, roomID, "contended", text("hello"))
+	if rec.Code == http.StatusOK {
+		t.Fatalf("a send went through while the room lease was held elsewhere: %s", rec.Body)
+	}
+	if got := s.messageCount(t, roomID); got != 0 {
+		t.Fatalf("%d messages were written without the lease, want 0", got)
 	}
 }
 

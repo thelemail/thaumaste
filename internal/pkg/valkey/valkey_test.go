@@ -144,25 +144,18 @@ func TestLimitsAreCountedPerKey(t *testing.T) {
 	}
 }
 
-func TestAnUnreachableServerStartsDegradedRatherThanFailing(t *testing.T) {
+func TestAnUnreachableServerIsAStartupFailure(t *testing.T) {
 	cfg := config.Valkey{
 		Addrs:        []string{"127.0.0.1:1"},
-		KeyPrefix:    "thaumaste_test_degraded",
+		KeyPrefix:    "thaumaste_test_unreachable",
 		DialTimeout:  200 * time.Millisecond,
 		LockValidity: time.Second,
 	}
 
 	client, err := valkey.New(t.Context(), cfg, limits())
-	if err != nil {
-		t.Fatalf("New refused to build a degraded client: %v", err)
-	}
-	defer client.Close()
-
-	if _, _, err := client.Lock(t.Context(), "room"); !errors.Is(err, valkey.ErrUnavailable) {
-		t.Fatalf("Lock error = %v, want %v", err, valkey.ErrUnavailable)
-	}
-	if _, err := client.Allow(t.Context(), "user", 1, time.Second); !errors.Is(err, valkey.ErrUnavailable) {
-		t.Fatalf("Allow error = %v, want %v", err, valkey.ErrUnavailable)
+	if err == nil {
+		client.Close()
+		t.Fatal("New built a client against an unreachable server, so the process would start without valkey")
 	}
 }
 
@@ -202,8 +195,11 @@ func TestWaitingForALockGivesUpRatherThanHangingForever(t *testing.T) {
 	if err == nil {
 		t.Fatal("a second caller took a lock that was already held")
 	}
-	if !errors.Is(err, valkey.ErrUnavailable) {
-		t.Fatalf("waiting for a held lock returned %v, want it to read as unavailable", err)
+	if !errors.Is(err, valkey.ErrHeld) {
+		t.Fatalf("waiting for a held lock returned %v, want it to read as held", err)
+	}
+	if errors.Is(err, valkey.ErrUnavailable) {
+		t.Fatal("a contended lock is indistinguishable from an outage")
 	}
 	if waited > 5*time.Second {
 		t.Fatalf("waiting for a held lock took %s", waited)

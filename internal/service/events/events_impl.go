@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log/slog"
 	"strings"
 	"sync"
 	"time"
@@ -379,7 +378,7 @@ func (s *srv) recordTransaction(ctx context.Context, scope entity.TenantScope, i
 }
 
 func (s *srv) announce(ctx context.Context, written ...entity.StoredEvent) {
-	if s.notifier == nil || len(written) == 0 {
+	if len(written) == 0 {
 		return
 	}
 	keys := []string{entity.RoomWakeKey(written[0].Event.RoomID())}
@@ -415,19 +414,11 @@ func (s *srv) write(ctx context.Context, roomID string, fn func(context.Context)
 }
 
 func (s *srv) lease(ctx context.Context, roomID string) (context.Context, func(), error) {
-	if s.locks == nil {
-		return ctx, func() {}, nil
-	}
 	held, release, err := s.locks.Lock(ctx, roomID)
-	switch {
-	case err == nil:
-		return held, release, nil
-	case errors.Is(err, valkey.ErrUnavailable):
-		slog.WarnContext(ctx, "writing without the shared room lease", "room_id", roomID, "error", err)
-		return ctx, func() {}, nil
-	default:
+	if err != nil {
 		return nil, nil, err
 	}
+	return held, release, nil
 }
 
 func (s *srv) nextPosition(ctx context.Context) (int64, error) {

@@ -107,12 +107,13 @@ func signAssertion(key ed25519.PrivateKey, subject, serverName string, issued ti
 
 func buildServer(t *testing.T, assertion ed25519.PublicKey) *server {
 	t.Helper()
-	return wireServer(t, "test", assertion, pgtest.Connect(t, "tenants", "stream_positions"), nil, entity.SendLimits{})
+	return wireServer(t, "test", assertion, pgtest.Connect(t, "tenants", "stream_positions"),
+		valkeytest.Connect(t, config.Limits{}), entity.SendLimits{})
 }
 
 func reopen(t *testing.T, s *server) *server {
 	t.Helper()
-	next := wireServer(t, "test", nil, pgtest.Connect(t), nil, entity.SendLimits{})
+	next := wireServer(t, "test", nil, pgtest.Connect(t), valkeytest.Connect(t, config.Limits{}), entity.SendLimits{})
 	next.assertionKey = s.assertionKey
 	return next
 }

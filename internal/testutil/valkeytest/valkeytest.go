@@ -25,22 +25,6 @@ func Settings(t *testing.T) config.Valkey {
 	}
 }
 
-func Unreachable(t *testing.T) *valkey.Client {
-	t.Helper()
-
-	client, err := valkey.New(t.Context(), config.Valkey{
-		Addrs:        []string{"127.0.0.1:1"},
-		KeyPrefix:    prefix(t),
-		DialTimeout:  100 * time.Millisecond,
-		LockValidity: time.Second,
-	}, config.Limits{SendPerUser: 1, SendWindow: time.Second})
-	if err != nil {
-		t.Fatalf("build a degraded client: %v", err)
-	}
-	t.Cleanup(client.Close)
-	return client
-}
-
 func Require(t *testing.T, cfg config.Valkey) {
 	t.Helper()
 
@@ -60,8 +44,13 @@ func Require(t *testing.T, cfg config.Valkey) {
 
 func Connect(t *testing.T, limits config.Limits) *valkey.Client {
 	t.Helper()
+	return ConnectWith(t, Settings(t), limits)
+}
 
-	client, err := valkey.New(t.Context(), Settings(t), limits)
+func ConnectWith(t *testing.T, cfg config.Valkey, limits config.Limits) *valkey.Client {
+	t.Helper()
+
+	client, err := valkey.New(t.Context(), cfg, limits)
 	if err == nil {
 		t.Cleanup(client.Close)
 		err = client.Ping(t.Context())
