@@ -4,6 +4,8 @@ import (
 	"net/http"
 	"net/url"
 	"testing"
+
+	"github.com/thelemail/thaumaste/internal/entity"
 )
 
 type directoryBody struct {
@@ -46,6 +48,10 @@ func TestTheDirectoryFindsWhoTheCallerMaySeeAndNobodyElse(t *testing.T) {
 	s.named(t, of.ServerName, bob, "Bob Marley")
 
 	public := s.seedRoom(t, of, alice)
+	private := s.createRoom(t, of.ServerName, bob.AccessToken, map[string]any{"preset": "private_chat"})
+	if private == "" {
+		t.Fatal("the private room was not created")
+	}
 
 	found := s.searchDirectory(t, of.ServerName, eve, "Alice Cooper")
 	if len(found.Results) != 1 {
@@ -56,7 +62,7 @@ func TestTheDirectoryFindsWhoTheCallerMaySeeAndNobodyElse(t *testing.T) {
 	}
 
 	if hidden := s.searchDirectory(t, of.ServerName, eve, "Bob Marley"); len(hidden.Results) != 0 {
-		t.Fatalf("a user in no public or shared room was found: %v", hidden.Results)
+		t.Fatalf("a user in only a private room was found: %v", hidden.Results)
 	}
 
 	joined := s.do(t, http.MethodPost, of.ServerName,
@@ -145,4 +151,60 @@ func TestDirectorySearchCannotReachAnotherDomain(t *testing.T) {
 
 func hostedBy(userID, serverName string) bool {
 	return len(userID) > len(serverName) && userID[len(userID)-len(serverName)-1:] == ":"+serverName
+}
+
+func (s *server) seedColliding(t *testing.T, of entity.Tenant, roomID, userID, localpart, displayName string) {
+	t.Helper()
+
+	var roomNID, eventNID int64
+	if err := s.db.QueryRowContext(t.Context(),
+		`SELECT r.room_nid, min(e.event_nid) FROM rooms r JOIN events e ON e.room_nid = r.room_nid
+		  WHERE r.room_id = $1 GROUP BY r.room_nid`, roomID).Scan(&roomNID, &eventNID); err != nil {
+		t.Fatalf("read the seeded room: %v", err)
+	}
+	if _, err := s.db.ExecContext(t.Context(),
+		`INSERT INTO users (tenant_id, user_id, localpart, display_name) VALUES ($1, $2, $3, $4)`,
+		of.ID.String(), userID, localpart, displayName); err != nil {
+		t.Fatalf("seed user: %v", err)
+	}
+	if _, err := s.db.ExecContext(t.Context(),
+		`INSERT INTO room_memberships (tenant_id, room_nid, user_id, membership, event_nid)
+		 VALUES ($1, $2, $3, 'join', $4)`,
+		of.ID.String(), roomNID, userID, eventNID); err != nil {
+		t.Fatalf("seed membership: %v", err)
+	}
+}
+
+func TestTheDirectoryScopesEveryReadToOneDomain(t *testing.T) {
+	s := newServer(t)
+	alpha := s.open(t, "alpha.test")
+	beta := s.open(t, "beta.test")
+
+	resident := s.register(t, alpha.ServerName, "resident", goodPassword)
+	elsewhere := s.register(t, beta.ServerName, "resident", goodPassword)
+	here := s.seedRoom(t, alpha, resident)
+	there := s.seedRoom(t, beta, elsewhere)
+
+	const seeker = "@shared:example.test"
+	const target = "@target:example.test"
+
+	s.seedColliding(t, alpha, here.RoomID, seeker, "shared", "Shared Seeker")
+	s.seedColliding(t, beta, there.RoomID, seeker, "shared", "Shared Seeker")
+	s.seedColliding(t, alpha, here.RoomID, target, "target", "Target Alpha")
+	s.seedColliding(t, beta, there.RoomID, target, "target", "Target Beta")
+
+	found, limited, err := s.directory.Search(t.Context(), alpha.Scope(), seeker,
+		entity.DirectorySearch{Term: "Target"})
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	if limited {
+		t.Fatal("the search reported truncation it did not do")
+	}
+	if len(found) != 1 {
+		t.Fatalf("searching under alpha.test returned %d results, want only its own: %+v", len(found), found)
+	}
+	if found[0].DisplayName != "Target Alpha" {
+		t.Fatalf("searching under alpha.test returned %+v", found[0])
+	}
 }
