@@ -3,6 +3,7 @@ package entity
 import (
 	"encoding/json"
 	"errors"
+	"strconv"
 )
 
 const (
@@ -46,7 +47,7 @@ func (s ExtensionScope) Covers(roomID string, lists []string) bool {
 type ToDeviceRequest struct {
 	Enabled bool
 	Limit   int
-	Since   string
+	Since   int64
 }
 
 type SyncExtensionRequest struct {
@@ -128,8 +129,12 @@ func ParseSyncExtensions(raw map[string]json.RawMessage) (SyncExtensionRequest, 
 		if out.ToDevice.Limit <= 0 || out.ToDevice.Limit > MaxToDeviceLimit {
 			return SyncExtensionRequest{}, ErrExtensionMalformed
 		}
-		if decoded.Since != nil {
-			out.ToDevice.Since = *decoded.Since
+		if decoded.Since != nil && *decoded.Since != "" {
+			since, err := strconv.ParseInt(*decoded.Since, 10, 64)
+			if err != nil || since < 0 {
+				return SyncExtensionRequest{}, ErrToDeviceUnknown
+			}
+			out.ToDevice.Since = since
 		}
 	}
 

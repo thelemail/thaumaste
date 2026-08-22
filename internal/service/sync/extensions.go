@@ -32,7 +32,7 @@ func (s *srv) quiet(sess *session) entity.SyncExtensions {
 	var out entity.SyncExtensions
 	if sess.wanted.ToDevice.Enabled {
 		out.ToDevice = &entity.ToDeviceResult{
-			NextBatch: formatBatch(parseBatch(sess.wanted.ToDevice.Since)),
+			NextBatch: formatBatch(sess.wanted.ToDevice.Since),
 		}
 	}
 	return out
@@ -81,7 +81,7 @@ func (s *srv) extensions(ctx context.Context, sess *session) (entity.SyncExtensi
 }
 
 func (s *srv) toDevice(ctx context.Context, sess *session) (*entity.ToDeviceResult, error) {
-	since := parseBatch(sess.wanted.ToDevice.Since)
+	since := sess.wanted.ToDevice.Since
 	if since > 0 {
 		if err := s.stores.ToDevice.DeleteUpTo(ctx, sess.scope, sess.caller, sess.deviceID, since); err != nil {
 			return nil, err
@@ -127,34 +127,17 @@ func (s *srv) e2ee(ctx context.Context, sess *session) (*entity.E2EEResult, erro
 		out.FallbackTypes = []string{}
 	}
 
-	since := sess.connection.ConfirmedCursors.DeviceLists
-	if since >= sess.ceilings.DeviceLists {
+	if sess.initial {
 		return out, nil
 	}
-	changed, err := s.stores.DeviceLists.ChangedSince(ctx, sess.scope, since, sess.ceilings.DeviceLists)
+	lists, err := s.deviceLists.ChangedSince(ctx, sess.scope, sess.caller,
+		sess.connection.ConfirmedCursors, sess.ceilings)
 	if err != nil {
 		return nil, err
 	}
-	if len(changed) == 0 {
+	if lists.Empty() {
 		return out, nil
 	}
-	visible, err := s.members.SharedWith(ctx, sess.scope, sess.caller, changed)
-	if err != nil {
-		return nil, err
-	}
-	sort.Strings(visible)
-
-	seen := map[string]bool{}
-	for _, userID := range visible {
-		seen[userID] = true
-	}
-	lists := entity.DeviceLists{Changed: visible}
-	for _, userID := range changed {
-		if !seen[userID] && userID != sess.caller {
-			lists.Left = append(lists.Left, userID)
-		}
-	}
-	sort.Strings(lists.Left)
 	out.DeviceLists, out.HasDeviceLists = lists, true
 	return out, nil
 }
@@ -304,17 +287,6 @@ func (sess *session) inScope() []int64 {
 		out = append(out, roomNID)
 	}
 	return out
-}
-
-func parseBatch(raw string) int64 {
-	if raw == "" {
-		return 0
-	}
-	value, err := strconv.ParseInt(raw, 10, 64)
-	if err != nil || value < 0 {
-		return 0
-	}
-	return value
 }
 
 func formatBatch(position int64) string { return strconv.FormatInt(position, 10) }

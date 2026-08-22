@@ -18,7 +18,6 @@ type Stores struct {
 	Members     repository.RoomMember
 	Events      repository.Event
 	ToDevice    repository.ToDevice
-	DeviceLists repository.DeviceList
 	AccountData repository.AccountData
 	Receipts    repository.Receipt
 	Typing      repository.Typing
@@ -34,9 +33,10 @@ type Streams struct {
 }
 
 type srv struct {
-	stores   Stores
-	streams  Streams
-	timeline service.Timeline
+	stores      Stores
+	streams     Streams
+	timeline    service.Timeline
+	deviceLists service.DeviceLists
 	tx       repository.Transactor
 	notifier *notify.Notifier
 	cfg      config.Sync
@@ -47,6 +47,7 @@ func New(
 	stores Stores,
 	streams Streams,
 	timeline service.Timeline,
+	deviceLists service.DeviceLists,
 	tx repository.Transactor,
 	notifier *notify.Notifier,
 	cfg config.Sync,
@@ -55,7 +56,7 @@ func New(
 	if clock == nil {
 		clock = time.Now
 	}
-	return &srv{stores: stores, streams: streams, timeline: timeline, tx: tx,
+	return &srv{stores: stores, streams: streams, timeline: timeline, deviceLists: deviceLists, tx: tx,
 		notifier: notifier, cfg: cfg, clock: clock}
 }
 

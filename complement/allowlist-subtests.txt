@@ -1,0 +1,10 @@
+# Complement subtests that must pass, where the parent test cannot.
+# One full subtest path per line, spaces as written in the source.
+#
+# TestDeviceListUpdates: the other five subtests need a second homeserver.
+
+TestDeviceListUpdates/when local user joins a room
+TestDeviceListUpdates/when joining a room with a local user
+TestDeviceListUpdates/when local user leaves a room
+TestDeviceListUpdates/when leaving a room with a local user
+TestDeviceListUpdates/when local user rejoins a room

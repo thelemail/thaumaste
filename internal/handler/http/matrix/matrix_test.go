@@ -126,25 +126,36 @@ func signAssertion(key ed25519.PrivateKey, subject, serverName string, issued ti
 func buildServer(t *testing.T, assertion ed25519.PublicKey) *server {
 	t.Helper()
 	return wireServer(t, "test", assertion, pgtest.Connect(t, "tenants", "stream_positions"),
-		valkeytest.Connect(t, config.Limits{}), entity.SendLimits{})
+		valkeytest.Connect(t, config.Limits{}), entity.SendLimits{}, openToDeviceLimits)
 }
 
 func reopen(t *testing.T, s *server) *server {
 	t.Helper()
-	next := wireServer(t, "test", nil, pgtest.Connect(t), valkeytest.Connect(t, config.Limits{}), entity.SendLimits{})
+	next := wireServer(t, "test", nil, pgtest.Connect(t), valkeytest.Connect(t, config.Limits{}),
+		entity.SendLimits{}, openToDeviceLimits)
 	next.assertionKey = s.assertionKey
 	return next
 }
 
 func newSharedServer(t *testing.T, name string, pg *postgres.Client, bus *valkey.Client) *server {
 	t.Helper()
-	return wireServer(t, name, nil, pg, bus, entity.SendLimits{})
+	return wireServer(t, name, nil, pg, bus, entity.SendLimits{}, openToDeviceLimits)
 }
 
 func newLimitedServer(t *testing.T, limits entity.SendLimits) *server {
 	t.Helper()
 	return wireServer(t, "test", nil, pgtest.Connect(t, "tenants", "stream_positions"),
-		valkeytest.Connect(t, config.Limits{SendPerUser: limits.PerUser, SendWindow: limits.Window}), limits)
+		valkeytest.Connect(t, config.Limits{SendPerUser: limits.PerUser, SendWindow: limits.Window}),
+		limits, openToDeviceLimits)
+}
+
+var openToDeviceLimits = entity.SendLimits{PerUser: 1000, PerTenant: 5000, Window: time.Second}
+
+func newToDeviceLimitedServer(t *testing.T, limits entity.SendLimits) *server {
+	t.Helper()
+	return wireServer(t, "test", nil, pgtest.Connect(t, "tenants", "stream_positions"),
+		valkeytest.Connect(t, config.Limits{SendPerUser: limits.PerUser, SendWindow: limits.Window}),
+		entity.SendLimits{}, limits)
 }
 
 type testClock struct {
@@ -165,7 +176,7 @@ func (c *testClock) Add(d time.Duration) {
 }
 
 func wireServer(t *testing.T, instance string, assertion ed25519.PublicKey, pg *postgres.Client,
-	limiter *valkey.Client, limits entity.SendLimits,
+	limiter *valkey.Client, limits, toDevice entity.SendLimits,
 ) *server {
 	t.Helper()
 
@@ -211,8 +222,9 @@ func wireServer(t *testing.T, instance string, assertion ed25519.PublicKey, pg *
 	toDeviceStream := newStream("to_device", "to_device_stream_seq")
 	deviceListStream := newStream("device_lists", "device_list_stream_seq")
 
-	deviceListSvc := devicelists.New(devicelistrepo.New(pg), memberRepo, pg, deviceListStream, notifier)
-	toDeviceSvc := todevice.New(todevicerepo.New(pg), device.New(pg), pg, toDeviceStream, notifier)
+	deviceListSvc := devicelists.New(devicelistrepo.New(pg), memberRepo, eventRepo, pg, deviceListStream, notifier)
+	toDeviceSvc := todevice.New(todevicerepo.New(pg), device.New(pg), pg, toDeviceStream, notifier,
+		limiter, toDevice, nil)
 	keyRepo := key.New(pg)
 	typingRepo := typingrepo.New(limiter)
 	receiptRepo := receiptrepo.New(pg)
@@ -235,19 +247,18 @@ func wireServer(t *testing.T, instance string, assertion ed25519.PublicKey, pg *
 	legacySvc := legacysync.New(
 		legacysync.Stores{
 			Members: memberRepo, Events: eventRepo, ToDevice: todevicerepo.New(pg),
-			DeviceLists: devicelistrepo.New(pg), AccountData: accountDataRepo,
-			Receipts: receiptRepo, Typing: typingRepo, Keys: keyRepo,
+			AccountData: accountDataRepo, Receipts: receiptRepo, Typing: typingRepo, Keys: keyRepo,
 		},
 		legacysync.Streams{
 			Events: stream, ToDevice: toDeviceStream, DeviceLists: deviceListStream,
 			AccountData: dataStream, Receipts: receiptStream,
 		},
-		timelineSvc, pg, notifier,
+		timelineSvc, deviceListSvc, pg, notifier,
 		config.Sync{MaxTimeout: 2 * time.Second, MaxRoomsPerSync: 200}, nil)
 
-	syncSvc := sync.New(connection.New(pg), memberRepo, eventRepo, timelineSvc,
+	syncSvc := sync.New(connection.New(pg), memberRepo, eventRepo, timelineSvc, deviceListSvc,
 		sync.Stores{
-			ToDevice: todevicerepo.New(pg), DeviceLists: devicelistrepo.New(pg),
+			ToDevice:    todevicerepo.New(pg),
 			AccountData: accountDataRepo, Receipts: receiptRepo, Typing: typingRepo, Keys: keyRepo,
 		},
 		sync.Streams{
@@ -258,7 +269,7 @@ func wireServer(t *testing.T, instance string, assertion ed25519.PublicKey, pg *
 		config.Sync{MaxTimeout: 2 * time.Second, MaxRoomsPerSync: 200}, nil)
 	roomSvc := rooms.New(eventSvc, timelineSvc, userSvc, roomRepo, alias.New(pg), memberRepo, pg,
 		limiter, limits, nil)
-	keySvc := keys.New(keyRepo, memberRepo, pg, deviceListSvc, config.Keys{
+	keySvc := keys.New(keyRepo, pg, deviceListSvc, config.Keys{
 		MaxOneTimeKeys: 8, MaxQueryUsers: 200, MaxClaimDevices: 200,
 	})
 	accountDataSvc := accountdata.New(accountDataRepo, roomRepo, pg, dataStream, notifier)

@@ -9,6 +9,7 @@ import (
 	"github.com/thelemail/thaumaste/internal/entity"
 	"github.com/thelemail/thaumaste/internal/pkg/notify"
 	"github.com/thelemail/thaumaste/internal/pkg/postgres"
+	"github.com/thelemail/thaumaste/internal/pkg/valkey"
 	"github.com/thelemail/thaumaste/internal/repository"
 	"github.com/thelemail/thaumaste/internal/service"
 )
@@ -19,12 +20,46 @@ type srv struct {
 	tx       repository.Transactor
 	stream   *postgres.Stream
 	notifier *notify.Notifier
+	limiter  *valkey.Client
+	limits   entity.SendLimits
+	clock    func() time.Time
 }
 
 func New(messages repository.ToDevice, devices repository.Device, tx repository.Transactor,
-	stream *postgres.Stream, notifier *notify.Notifier,
+	stream *postgres.Stream, notifier *notify.Notifier, limiter *valkey.Client,
+	limits entity.SendLimits, clock func() time.Time,
 ) service.ToDevice {
-	return &srv{messages: messages, devices: devices, tx: tx, stream: stream, notifier: notifier}
+	if clock == nil {
+		clock = time.Now
+	}
+	return &srv{messages: messages, devices: devices, tx: tx, stream: stream, notifier: notifier,
+		limiter: limiter, limits: limits, clock: clock}
+}
+
+func (s *srv) allow(ctx context.Context, scope entity.TenantScope, sender string) error {
+	if !s.limits.Enabled() {
+		return nil
+	}
+	scoped := []struct {
+		key   string
+		limit int
+	}{
+		{"to_device:user:" + scope.ID().String() + ":" + sender, s.limits.PerUser},
+		{"to_device:tenant:" + scope.ID().String(), s.limits.PerTenant},
+	}
+	for _, each := range scoped {
+		if each.limit <= 0 {
+			continue
+		}
+		verdict, err := s.limiter.Allow(ctx, each.key, each.limit, s.limits.Window)
+		if err != nil {
+			return err
+		}
+		if !verdict.Allowed {
+			return entity.RateLimited{RetryAfter: verdict.ResetAt.Sub(s.clock().UTC())}
+		}
+	}
+	return nil
 }
 
 func (s *srv) Send(ctx context.Context, scope entity.TenantScope, in entity.ToDeviceSend) error {
@@ -38,6 +73,9 @@ func (s *srv) Send(ctx context.Context, scope entity.TenantScope, in entity.ToDe
 	}
 	if spent {
 		return nil
+	}
+	if err := s.allow(ctx, scope, in.Sender); err != nil {
+		return err
 	}
 
 	queued, err := s.expand(ctx, scope, in)

@@ -179,18 +179,20 @@ func provideSync(
 	stream *postgres.Stream,
 	notifier *notify.Notifier,
 	gate *serialiser.Serialiser,
+	deviceLists service.DeviceLists,
 	stores sync.Stores,
 	streams sync.Streams,
 	cfg config.Sync,
 	clock func() time.Time,
 ) service.Sync {
-	return sync.New(connections, members, eventRepo, timelineSvc, stores, streams, tx, stream, notifier, gate, cfg, clock)
+	return sync.New(connections, members, eventRepo, timelineSvc, deviceLists, stores, streams,
+		tx, stream, notifier, gate, cfg, clock)
 }
 
-func provideKeys(keyRepo repository.Key, members repository.RoomMember, tx repository.Transactor,
+func provideKeys(keyRepo repository.Key, tx repository.Transactor,
 	deviceLists service.DeviceLists, cfg config.Keys,
 ) service.Keys {
-	return keys.New(keyRepo, members, tx, deviceLists, cfg)
+	return keys.New(keyRepo, tx, deviceLists, cfg)
 }
 
 type AccountDataStream struct{ *postgres.Stream }
@@ -274,24 +276,36 @@ func provideDeviceListStream(ctx context.Context, db *postgres.Client, cfg confi
 	return &DeviceListStream{Stream: stream}, nil
 }
 
+type ToDeviceLimits struct{ entity.SendLimits }
+
+func provideToDeviceLimits(cfg config.Limits) *ToDeviceLimits {
+	return &ToDeviceLimits{SendLimits: entity.SendLimits{
+		PerUser:   cfg.ToDevicePerUser,
+		PerTenant: cfg.ToDevicePerTenant,
+		Window:    cfg.SendWindow,
+	}}
+}
+
 func provideToDevice(messages repository.ToDevice, devices repository.Device, tx repository.Transactor,
-	stream *ToDeviceStream, notifier *notify.Notifier,
+	stream *ToDeviceStream, notifier *notify.Notifier, limiter *valkey.Client,
+	limits *ToDeviceLimits, clock func() time.Time,
 ) service.ToDevice {
-	return todevice.New(messages, devices, tx, stream.Stream, notifier)
+	return todevice.New(messages, devices, tx, stream.Stream, notifier, limiter,
+		limits.SendLimits, clock)
 }
 
 func provideDeviceLists(changes repository.DeviceList, members repository.RoomMember,
-	tx repository.Transactor, stream *DeviceListStream, notifier *notify.Notifier,
+	eventRepo repository.Event, tx repository.Transactor, stream *DeviceListStream,
+	notifier *notify.Notifier,
 ) service.DeviceLists {
-	return devicelists.New(changes, members, tx, stream.Stream, notifier)
+	return devicelists.New(changes, members, eventRepo, tx, stream.Stream, notifier)
 }
 
-func provideSyncStores(toDeviceRepo repository.ToDevice, deviceListRepo repository.DeviceList,
-	data repository.AccountData, receiptRepo repository.Receipt, typingRepo repository.Typing,
-	keyRepo repository.Key,
+func provideSyncStores(toDeviceRepo repository.ToDevice, data repository.AccountData,
+	receiptRepo repository.Receipt, typingRepo repository.Typing, keyRepo repository.Key,
 ) sync.Stores {
 	return sync.Stores{
-		ToDevice: toDeviceRepo, DeviceLists: deviceListRepo, AccountData: data,
+		ToDevice: toDeviceRepo, AccountData: data,
 		Receipts: receiptRepo, Typing: typingRepo, Keys: keyRepo,
 	}
 }
@@ -306,14 +320,12 @@ func provideSyncStreams(toDevice *ToDeviceStream, deviceLists *DeviceListStream,
 }
 
 func provideLegacyStores(members repository.RoomMember, eventRepo repository.Event,
-	toDeviceRepo repository.ToDevice, deviceListRepo repository.DeviceList,
-	data repository.AccountData, receiptRepo repository.Receipt, typingRepo repository.Typing,
-	keyRepo repository.Key,
+	toDeviceRepo repository.ToDevice, data repository.AccountData,
+	receiptRepo repository.Receipt, typingRepo repository.Typing, keyRepo repository.Key,
 ) legacysync.Stores {
 	return legacysync.Stores{
 		Members: members, Events: eventRepo, ToDevice: toDeviceRepo,
-		DeviceLists: deviceListRepo, AccountData: data, Receipts: receiptRepo,
-		Typing: typingRepo, Keys: keyRepo,
+		AccountData: data, Receipts: receiptRepo, Typing: typingRepo, Keys: keyRepo,
 	}
 }
 
@@ -327,10 +339,10 @@ func provideLegacyStreams(events *postgres.Stream, toDevice *ToDeviceStream,
 }
 
 func provideLegacySync(stores legacysync.Stores, streams legacysync.Streams,
-	timelineSvc service.Timeline, tx repository.Transactor, notifier *notify.Notifier,
-	cfg config.Sync, clock func() time.Time,
+	timelineSvc service.Timeline, deviceLists service.DeviceLists, tx repository.Transactor,
+	notifier *notify.Notifier, cfg config.Sync, clock func() time.Time,
 ) service.LegacySync {
-	return legacysync.New(stores, streams, timelineSvc, tx, notifier, cfg, clock)
+	return legacysync.New(stores, streams, timelineSvc, deviceLists, tx, notifier, cfg, clock)
 }
 
 func provideSendLimits(cfg config.Limits) entity.SendLimits {
@@ -344,6 +356,7 @@ func provideSendLimits(cfg config.Limits) entity.SendLimits {
 
 var DomainSet = wire.NewSet(
 	provideSendLimits,
+	provideToDeviceLimits,
 	provideClock,
 	keyseal.New,
 	tenant.New,

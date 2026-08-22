@@ -3,7 +3,6 @@ package legacysync
 import (
 	"context"
 	"encoding/json"
-	"sort"
 
 	"github.com/thelemail/thaumaste/internal/entity"
 )
@@ -108,34 +107,17 @@ func (s *srv) keys(ctx context.Context, sess *session, out *entity.LegacySyncRes
 		out.FallbackTypes = []string{}
 	}
 
-	if sess.initial || sess.since.DeviceLists >= sess.upTo.DeviceLists {
+	if sess.initial {
 		return nil
 	}
-	changed, err := s.stores.DeviceLists.ChangedSince(ctx, sess.scope,
-		sess.since.DeviceLists, sess.upTo.DeviceLists)
+	lists, err := s.deviceLists.ChangedSince(ctx, sess.scope, sess.caller,
+		sess.since.Cursors(), sess.upTo.Cursors())
 	if err != nil {
 		return err
 	}
-	if len(changed) == 0 {
+	if lists.Empty() {
 		return nil
 	}
-	visible, err := s.stores.Members.SharedWith(ctx, sess.scope, sess.caller, changed)
-	if err != nil {
-		return err
-	}
-	sort.Strings(visible)
-
-	seen := map[string]bool{}
-	for _, userID := range visible {
-		seen[userID] = true
-	}
-	lists := entity.DeviceLists{Changed: visible}
-	for _, userID := range changed {
-		if !seen[userID] && userID != sess.caller {
-			lists.Left = append(lists.Left, userID)
-		}
-	}
-	sort.Strings(lists.Left)
 	out.DeviceLists, out.HasDeviceList = lists, true
 	return nil
 }

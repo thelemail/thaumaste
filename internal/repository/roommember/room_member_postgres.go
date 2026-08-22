@@ -312,18 +312,56 @@ func (r *repo) SharedWith(ctx context.Context, scope entity.TenantScope, caller 
 	if err != nil {
 		return nil, fmt.Errorf("repository: list shared users: %w", err)
 	}
-	defer func() { _ = rows.Close() }()
+	return scanUserIDs(rows, "list shared users")
+}
 
+const peersSQL = `
+	SELECT DISTINCT other.user_id
+	  FROM room_memberships mine
+	  JOIN room_memberships other ON other.room_nid = mine.room_nid
+	 WHERE mine.tenant_id = $1
+	   AND mine.user_id = $2
+	   AND mine.membership IN ('join', 'invite')
+	   AND other.tenant_id = $1
+	   AND other.membership IN ('join', 'invite')
+	   AND other.user_id <> $2`
+
+func (r *repo) Peers(ctx context.Context, scope entity.TenantScope, userID string) ([]string, error) {
+	rows, err := r.db.Querier(ctx).QueryContext(ctx, peersSQL, scope.ID().String(), userID)
+	if err != nil {
+		return nil, fmt.Errorf("repository: list peers: %w", err)
+	}
+	return scanUserIDs(rows, "list peers")
+}
+
+func (r *repo) PresentIn(ctx context.Context, roomNIDs []int64) ([]string, error) {
+	if len(roomNIDs) == 0 {
+		return nil, nil
+	}
+	args, slots := placeholders(nil, roomNIDs)
+	rows, err := r.db.Querier(ctx).QueryContext(ctx, `
+		SELECT DISTINCT user_id
+		  FROM room_memberships
+		 WHERE room_nid IN (`+strings.Join(slots, ", ")+`)
+		   AND membership IN ('join', 'invite')`, args...)
+	if err != nil {
+		return nil, fmt.Errorf("repository: list present members: %w", err)
+	}
+	return scanUserIDs(rows, "list present members")
+}
+
+func scanUserIDs(rows *sql.Rows, what string) ([]string, error) {
+	defer func() { _ = rows.Close() }()
 	var out []string
 	for rows.Next() {
 		var userID string
 		if err := rows.Scan(&userID); err != nil {
-			return nil, fmt.Errorf("repository: scan shared user: %w", err)
+			return nil, fmt.Errorf("repository: scan user id: %w", err)
 		}
 		out = append(out, userID)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("repository: list shared users: %w", err)
+		return nil, fmt.Errorf("repository: %s: %w", what, err)
 	}
 	return out, nil
 }
