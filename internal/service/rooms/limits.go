@@ -2,15 +2,12 @@ package rooms
 
 import (
 	"context"
-	"errors"
-	"log/slog"
 
 	"github.com/thelemail/thaumaste/internal/entity"
-	"github.com/thelemail/thaumaste/internal/pkg/valkey"
 )
 
 func (s *srv) allow(ctx context.Context, scope entity.TenantScope, sender, roomID string) error {
-	if s.limiter == nil || !s.limits.Enabled() {
+	if !s.limits.Enabled() {
 		return nil
 	}
 
@@ -29,10 +26,6 @@ func (s *srv) allow(ctx context.Context, scope entity.TenantScope, sender, roomI
 		}
 		verdict, err := s.limiter.Allow(ctx, each.key, each.limit, s.limits.Window)
 		if err != nil {
-			if errors.Is(err, valkey.ErrUnavailable) {
-				slog.WarnContext(ctx, "sending without a rate limit", "error", err)
-				return nil
-			}
 			return err
 		}
 		if !verdict.Allowed {

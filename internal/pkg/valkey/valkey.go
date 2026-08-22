@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -18,13 +19,15 @@ import (
 )
 
 const (
-	reconnectEvery  = 5 * time.Second
-	defaultLockWait = 10 * time.Second
+	reconnectEvery    = 5 * time.Second
+	defaultLockWait   = 20 * time.Second
+	defaultRateWindow = time.Second
 )
 
 var (
 	ErrUnavailable = errors.New("valkey: unavailable")
 	ErrNoAddress   = errors.New("valkey: no address configured")
+	ErrHeld        = errors.New("valkey: lock is held elsewhere")
 )
 
 type Verdict struct {
@@ -62,8 +65,7 @@ func New(ctx context.Context, cfg config.Valkey, limits config.Limits) (*Client,
 	c := &Client{cfg: cfg, limits: limits, closed: make(chan struct{})}
 
 	if err := c.connect(ctx); err != nil {
-		slog.WarnContext(ctx, "starting without valkey; locking falls back to postgres and limits fail open",
-			"error", err)
+		return nil, err
 	}
 	go c.reconnect()
 	return c, nil
@@ -102,8 +104,8 @@ func (c *Client) connect(ctx context.Context) error {
 	limiter, err := valkeylimiter.NewRateLimiter(valkeylimiter.RateLimiterOption{
 		ClientOption: options,
 		KeyPrefix:    c.cfg.KeyPrefix + ":rate",
-		Limit:        c.limits.SendPerUser,
-		Window:       c.limits.SendWindow,
+		Limit:        max(c.limits.SendPerUser, 1),
+		Window:       max(c.limits.SendWindow, defaultRateWindow),
 	})
 	if err != nil {
 		locker.Close()
@@ -182,7 +184,7 @@ func (c *Client) Lock(ctx context.Context, name string) (context.Context, contex
 	case <-timer.C:
 		abandon()
 		go releaseLate(taken)
-		return nil, nil, fmt.Errorf("%w: %q is held elsewhere", ErrUnavailable, name)
+		return nil, nil, fmt.Errorf("%w: %q", ErrHeld, name)
 	}
 }
 
@@ -193,8 +195,8 @@ func releaseLate(taken <-chan lease) {
 }
 
 func (c *Client) waitFor() time.Duration {
-	if c.cfg.LockValidity > 0 {
-		return c.cfg.LockValidity
+	if c.cfg.LockWait > 0 {
+		return c.cfg.LockWait
 	}
 	return defaultLockWait
 }
@@ -247,6 +249,74 @@ func (c *Client) Subscribe(ctx context.Context, channel string, deliver func(str
 		return c.drop(live, err)
 	}
 	return ctx.Err()
+}
+
+func (c *Client) SortedAdd(ctx context.Context, key string, score int64, member string,
+	ttl time.Duration,
+) error {
+	live := c.live.Load()
+	if live == nil {
+		return ErrUnavailable
+	}
+	commands := valkey.Commands{
+		live.conn.B().Zadd().Key(key).ScoreMember().ScoreMember(float64(score), member).Build(),
+		live.conn.B().Pexpire().Key(key).Milliseconds(ttl.Milliseconds()).Build(),
+	}
+	for _, result := range live.conn.DoMulti(ctx, commands...) {
+		if err := result.Error(); err != nil {
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+			return c.drop(live, err)
+		}
+	}
+	return nil
+}
+
+func (c *Client) SortedRange(ctx context.Context, key string, from int64) ([]string, error) {
+	live := c.live.Load()
+	if live == nil {
+		return nil, ErrUnavailable
+	}
+	members, err := live.conn.Do(ctx, live.conn.B().Zrangebyscore().Key(key).
+		Min(strconv.FormatInt(from, 10)).Max("+inf").Build()).AsStrSlice()
+	if err != nil {
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+		return nil, c.drop(live, err)
+	}
+	return members, nil
+}
+
+func (c *Client) SortedRemove(ctx context.Context, key, member string) error {
+	live := c.live.Load()
+	if live == nil {
+		return ErrUnavailable
+	}
+	if err := live.conn.Do(ctx, live.conn.B().Zrem().Key(key).Member(member).Build()).Error(); err != nil {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		return c.drop(live, err)
+	}
+	return nil
+}
+
+func (c *Client) SortedTrim(ctx context.Context, key string, upTo int64) error {
+	live := c.live.Load()
+	if live == nil {
+		return ErrUnavailable
+	}
+	err := live.conn.Do(ctx, live.conn.B().Zremrangebyscore().Key(key).
+		Min("-inf").Max(strconv.FormatInt(upTo, 10)).Build()).Error()
+	if err != nil {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		return c.drop(live, err)
+	}
+	return nil
 }
 
 func (c *Client) Ping(ctx context.Context) error {

@@ -169,6 +169,7 @@ func toTenant(row *dbpg.Tenant) (entity.Tenant, error) {
 		State:              entity.TenantState(row.State),
 		RegistrationMode:   entity.RegistrationMode(row.RegistrationMode),
 		EncryptionRequired: row.EncryptionRequired,
+		PresenceEnabled:    row.PresenceEnabled,
 		CreatedAt:          row.CreatedAt,
 		UpdatedAt:          row.UpdatedAt,
 	}, nil

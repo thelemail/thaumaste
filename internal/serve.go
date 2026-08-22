@@ -124,6 +124,9 @@ func provideServeRuntime(
 	syncSvc service.Sync,
 	keys service.Keys,
 	accountData service.AccountData,
+	receipts service.Receipts,
+	typingSvc service.Typing,
+	presenceSvc service.Presence,
 	filters service.Filters,
 	directory service.Directory,
 	notifier *notify.Notifier,
@@ -136,8 +139,8 @@ func provideServeRuntime(
 	router.Use(middleware.RecoverPanic)
 	router.Use(middleware.AccessLog)
 
-	matrix.New(tenants, tokens, users, rooms, syncSvc, keys, accountData, filters, directory,
-		cfg, sign, clock).Mount(router)
+	matrix.New(tenants, tokens, users, rooms, syncSvc, keys, accountData, receipts, typingSvc,
+		presenceSvc, filters, directory, cfg, sign, clock).Mount(router)
 
 	return &ServeRuntime{
 		srv: &http.Server{

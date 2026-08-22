@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/thelemail/thaumaste/internal/config"
 	"github.com/thelemail/thaumaste/internal/entity"
 	"github.com/thelemail/thaumaste/internal/pkg/keyseal"
 	"github.com/thelemail/thaumaste/internal/pkg/notify"
@@ -28,6 +29,7 @@ import (
 	"github.com/thelemail/thaumaste/internal/service/events"
 	"github.com/thelemail/thaumaste/internal/service/tenants"
 	"github.com/thelemail/thaumaste/internal/testutil/pgtest"
+	"github.com/thelemail/thaumaste/internal/testutil/valkeytest"
 )
 
 type harness struct {
@@ -74,6 +76,7 @@ func buildHarness(t *testing.T, wrap func(repository.Transactor) repository.Tran
 	if err != nil {
 		t.Fatalf("keyseal: %v", err)
 	}
+	locks := valkeytest.Connect(t, config.Limits{})
 	tenantSvc := tenants.New(tenant.New(pg), signingkey.New(pg), sealer, pg, nil, nil)
 
 	eventRepo := event.New(pg)
@@ -88,7 +91,7 @@ func buildHarness(t *testing.T, wrap func(repository.Transactor) repository.Tran
 		tx = wrap(tx)
 	}
 	eventSvc := events.New(room.New(pg, eventRepo), eventRepo, state.New(pg), roommember.New(pg), relation.New(pg), transaction.New(pg),
-		tenantSvc, tx, stream, nil, notify.New(nil, "test"), serialiser.New(), "test", nil, nil)
+		tenantSvc, tx, stream, locks, notify.New(locks, "test"), serialiser.New(), "test", nil, nil)
 
 	return &harness{events: eventSvc, tenants: tenantSvc, stream: stream, db: pg}
 }

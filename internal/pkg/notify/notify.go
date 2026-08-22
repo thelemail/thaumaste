@@ -36,10 +36,6 @@ func New(bus Bus, channel string) *Notifier {
 }
 
 func (n *Notifier) Run(ctx context.Context) error {
-	if n.bus == nil {
-		<-ctx.Done()
-		return nil
-	}
 	for ctx.Err() == nil {
 		if err := n.bus.Subscribe(ctx, n.channel, n.deliver); err != nil && ctx.Err() == nil {
 			slog.WarnContext(ctx, "sync wake-ups are not crossing instances", "error", err)
@@ -59,9 +55,6 @@ func (n *Notifier) Notify(ctx context.Context, keys ...string) {
 		return
 	}
 	n.deliver(strings.Join(keys, keySeparator))
-	if n.bus == nil {
-		return
-	}
 	if err := n.bus.Publish(ctx, n.channel, strings.Join(keys, keySeparator)); err != nil {
 		slog.WarnContext(ctx, "sync wake-up stayed on this instance", "error", err)
 	}

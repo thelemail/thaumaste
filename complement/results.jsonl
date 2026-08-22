@@ -112,7 +112,7 @@
 {"Action":"fail","Test":"TestPowerLevels/PUT_/rooms/:room_id/state/m.room.power_levels_can_set_levels"}
 {"Action":"fail","Test":"TestPowerLevels/PUT_power_levels_should_not_explode_if_the_old_power_levels_were_empty"}
 {"Action":"fail","Test":"TestPresence"}
-{"Action":"fail","Test":"TestPresence/GET_/presence/:user_id/status_fetches_initial_status"}
+{"Action":"pass","Test":"TestPresence/GET_/presence/:user_id/status_fetches_initial_status"}
 {"Action":"fail","Test":"TestPresence/PUT_/presence/:user_id/status_updates_my_presence"}
 {"Action":"fail","Test":"TestPresence/Presence_can_be_set_from_sync"}
 {"Action":"fail","Test":"TestPresence/Presence_changes_are_reported_to_local_room_members"}
