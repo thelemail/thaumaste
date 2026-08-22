@@ -20,6 +20,16 @@ type SyncToken struct {
 	Typing      int64
 }
 
+func (t SyncToken) Cursors() SyncCursors {
+	return SyncCursors{
+		Events:      t.Events,
+		AccountData: t.AccountData,
+		Receipts:    t.Receipts,
+		DeviceLists: t.DeviceLists,
+		Typing:      t.Typing,
+	}
+}
+
 func (t SyncToken) String() string {
 	raw := strings.Join([]string{
 		strconv.FormatInt(t.Events, 36),

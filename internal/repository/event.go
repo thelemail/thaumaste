@@ -24,6 +24,7 @@ type Event interface {
 	LatestState(ctx context.Context, roomNIDs []int64, selectors []entity.StateKey) (map[int64][]entity.StoredEvent, error)
 	Since(ctx context.Context, windows []entity.RoomWindow, upTo int64, limit int) (map[int64][]entity.StoredEvent, error)
 	StateSince(ctx context.Context, windows []entity.RoomWindow, upTo int64) (map[int64][]entity.StoredEvent, error)
+	MembersChangedSince(ctx context.Context, windows []entity.RoomWindow, upTo int64) ([]string, error)
 	AtStream(ctx context.Context, roomNID, stream int64) (entity.StoredEvent, error)
 	Redacted(ctx context.Context, eventNID, redactedByNID int64, eventJSON []byte) error
 	SetStateSnapshot(ctx context.Context, eventNID, snapshotNID int64) error

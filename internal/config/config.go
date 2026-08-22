@@ -102,10 +102,13 @@ type Valkey struct {
 }
 
 type Limits struct {
-	SendPerUser   int           `env:"THAUMASTE_LIMITS_SEND_PER_USER"   envDefault:"10"`
-	SendPerRoom   int           `env:"THAUMASTE_LIMITS_SEND_PER_ROOM"   envDefault:"60"`
-	SendPerTenant int           `env:"THAUMASTE_LIMITS_SEND_PER_TENANT" envDefault:"600"`
-	SendWindow    time.Duration `env:"THAUMASTE_LIMITS_SEND_WINDOW"     envDefault:"5s"`
+	SendPerUser       int           `env:"THAUMASTE_LIMITS_SEND_PER_USER"   envDefault:"10"`
+	SendPerRoom       int           `env:"THAUMASTE_LIMITS_SEND_PER_ROOM"   envDefault:"60"`
+	SendPerTenant     int           `env:"THAUMASTE_LIMITS_SEND_PER_TENANT" envDefault:"600"`
+	SendWindow        time.Duration `env:"THAUMASTE_LIMITS_SEND_WINDOW"     envDefault:"5s"`
+	ToDevicePerUser   int           `env:"THAUMASTE_LIMITS_TO_DEVICE_PER_USER"   envDefault:"20"`
+	ToDevicePerTenant int           `env:"THAUMASTE_LIMITS_TO_DEVICE_PER_TENANT" envDefault:"600"`
+
 	TxnRetention  time.Duration `env:"THAUMASTE_LIMITS_TXN_RETENTION"   envDefault:"24h"`
 	TxnSweepEvery time.Duration `env:"THAUMASTE_LIMITS_TXN_SWEEP_EVERY" envDefault:"1h"`
 }

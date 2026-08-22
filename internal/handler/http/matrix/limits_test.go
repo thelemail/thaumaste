@@ -110,7 +110,7 @@ func TestASendWaitsForTheRoomLeaseAndThenFallsThroughToTheDatabase(t *testing.T)
 
 	limits := config.Limits{SendPerUser: 100, SendWindow: time.Minute}
 	s := wireServer(t, "test", nil, pgtest.Connect(t, "tenants", "stream_positions"),
-		valkeytest.ConnectWith(t, settings, limits), entity.SendLimits{})
+		valkeytest.ConnectWith(t, settings, limits), entity.SendLimits{}, openToDeviceLimits)
 	_, token, _ := s.resident(t, "alpha.test", "alice")
 	roomID := s.createRoom(t, "alpha.test", token, map[string]any{})
 

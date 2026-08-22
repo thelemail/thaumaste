@@ -16,15 +16,14 @@ import (
 type srv struct {
 	deviceLists service.DeviceLists
 	keys        repository.Key
-	members     repository.RoomMember
 	tx          repository.Transactor
 	cfg         config.Keys
 }
 
-func New(keys repository.Key, members repository.RoomMember, tx repository.Transactor,
+func New(keys repository.Key, tx repository.Transactor,
 	deviceLists service.DeviceLists, cfg config.Keys,
 ) service.Keys {
-	return &srv{keys: keys, members: members, tx: tx, deviceLists: deviceLists, cfg: cfg}
+	return &srv{keys: keys, tx: tx, deviceLists: deviceLists, cfg: cfg}
 }
 
 func (s *srv) Upload(ctx context.Context, scope entity.TenantScope, in entity.KeyUpload) (map[string]int, error) {
@@ -203,20 +202,15 @@ func (s *srv) Query(ctx context.Context, scope entity.TenantScope, caller string
 	}
 	sort.Strings(wanted)
 
-	visible, err := s.visible(ctx, scope, caller, wanted)
-	if err != nil {
-		return nil, err
-	}
-
 	out := make(map[string]map[string]entity.DeviceKey, len(wanted))
 	for _, userID := range wanted {
 		out[userID] = map[string]entity.DeviceKey{}
 	}
-	if len(visible) == 0 {
+	if len(wanted) == 0 {
 		return out, nil
 	}
 
-	found, err := s.keys.ListDevices(ctx, scope, visible)
+	found, err := s.keys.ListDevices(ctx, scope, wanted)
 	if err != nil {
 		return nil, err
 	}
@@ -227,23 +221,6 @@ func (s *srv) Query(ctx context.Context, scope entity.TenantScope, caller string
 		out[key.UserID][key.DeviceID] = key
 	}
 	return out, nil
-}
-
-func (s *srv) visible(ctx context.Context, scope entity.TenantScope, caller string, wanted []string) ([]string, error) {
-	others := make([]string, 0, len(wanted))
-	out := make([]string, 0, len(wanted))
-	for _, userID := range wanted {
-		if userID == caller {
-			out = append(out, userID)
-			continue
-		}
-		others = append(others, userID)
-	}
-	shared, err := s.members.SharedWith(ctx, scope, caller, others)
-	if err != nil {
-		return nil, err
-	}
-	return append(out, shared...), nil
 }
 
 func wants(devices []string, deviceID string) bool {

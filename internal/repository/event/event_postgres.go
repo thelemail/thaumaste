@@ -503,3 +503,43 @@ func (r *repo) groupedEvents(ctx context.Context, what, query string, args []any
 	}
 	return out, nil
 }
+
+func (r *repo) MembersChangedSince(ctx context.Context, windows []entity.RoomWindow, upTo int64) ([]string, error) {
+	if len(windows) == 0 {
+		return nil, nil
+	}
+	args := []any{entity.EventTypeMember, upTo}
+	slots := make([]string, 0, len(windows))
+	for _, window := range windows {
+		args = append(args, window.RoomNID, window.After)
+		slots = append(slots, "($"+strconv.Itoa(len(args)-1)+"::bigint, $"+strconv.Itoa(len(args))+"::bigint)")
+	}
+
+	rows, err := r.db.Querier(ctx).QueryContext(ctx, `
+		WITH wanted (room_nid, after) AS (VALUES `+strings.Join(slots, ", ")+`)
+		SELECT DISTINCT k.event_state_key
+		  FROM wanted
+		  JOIN events e ON e.room_nid = wanted.room_nid
+		   AND e.stream_ordering > wanted.after
+		   AND e.stream_ordering <= $2
+		  JOIN event_state_keys k ON k.event_state_key_nid = e.event_state_key_nid
+		 WHERE e.event_type_nid = (SELECT event_type_nid FROM event_types WHERE event_type = $1)
+		   AND e.disposition IN ('accepted', 'redacted')`, args...)
+	if err != nil {
+		return nil, fmt.Errorf("repository: read membership changes: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	var out []string
+	for rows.Next() {
+		var stateKey string
+		if err := rows.Scan(&stateKey); err != nil {
+			return nil, fmt.Errorf("repository: scan membership change: %w", err)
+		}
+		out = append(out, stateKey)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("repository: read membership changes: %w", err)
+	}
+	return out, nil
+}

@@ -17,7 +17,6 @@ import (
 
 type Stores struct {
 	ToDevice    repository.ToDevice
-	DeviceLists repository.DeviceList
 	AccountData repository.AccountData
 	Receipts    repository.Receipt
 	Typing      repository.Typing
@@ -36,6 +35,7 @@ type srv struct {
 	members     repository.RoomMember
 	events      repository.Event
 	timeline    service.Timeline
+	deviceLists service.DeviceLists
 	stores      Stores
 	streams     Streams
 	tx          repository.Transactor
@@ -51,6 +51,7 @@ func New(
 	members repository.RoomMember,
 	events repository.Event,
 	timeline service.Timeline,
+	deviceLists service.DeviceLists,
 	stores Stores,
 	streams Streams,
 	tx repository.Transactor,
@@ -64,7 +65,7 @@ func New(
 		clock = time.Now
 	}
 	return &srv{connections: connections, members: members, events: events, timeline: timeline,
-		stores: stores, streams: streams, tx: tx, stream: stream, notifier: notifier,
+		deviceLists: deviceLists, stores: stores, streams: streams, tx: tx, stream: stream, notifier: notifier,
 		gate: gate, cfg: cfg, clock: clock}
 }
 
@@ -74,6 +75,7 @@ type session struct {
 	deviceID   string
 	request    entity.SyncRequest
 	wanted     entity.SyncExtensionRequest
+	initial    bool
 	connection entity.Connection
 	known      map[int64]entity.RoomStatus
 	delivered  map[int64]string
@@ -114,7 +116,7 @@ func (s *srv) run(ctx context.Context, scope entity.TenantScope, caller, deviceI
 	if err != nil {
 		return entity.SyncResult{}, err
 	}
-	sess.connection = connection
+	sess.connection, sess.initial = connection, initial
 
 	deadline := s.clock().Add(s.timeout(in.Timeout))
 	for {

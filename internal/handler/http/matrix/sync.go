@@ -310,7 +310,8 @@ func writeSyncError(r *http.Request, w http.ResponseWriter, err error) {
 	case errors.Is(err, entity.ErrDeviceRequired):
 		writeError(w, http.StatusForbidden, codeForbidden, "Sync requires a device")
 	case errors.Is(err, entity.ErrFilterUnsupported), errors.Is(err, entity.ErrTooManyLists),
-		errors.Is(err, entity.ErrBadRange), errors.Is(err, entity.ErrBadTimelineLimit):
+		errors.Is(err, entity.ErrBadRange), errors.Is(err, entity.ErrBadTimelineLimit),
+		errors.Is(err, entity.ErrExtensionMalformed), errors.Is(err, entity.ErrToDeviceUnknown):
 		writeError(w, http.StatusBadRequest, codeInvalidParam, err.Error())
 	default:
 		writeRoomError(r, w, err, "Could not sync")

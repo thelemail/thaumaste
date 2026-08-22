@@ -39,11 +39,14 @@ func (h *Handler) sendToDevice(w http.ResponseWriter, r *http.Request) {
 		Messages: body.Messages,
 	})
 	if err != nil {
+		var limited entity.RateLimited
 		switch {
 		case errors.Is(err, entity.ErrToDeviceEmpty):
 			writeError(w, http.StatusBadRequest, codeMissingParam, err.Error())
 		case errors.Is(err, entity.ErrToDeviceTooBig):
 			writeError(w, http.StatusBadRequest, codeTooLarge, err.Error())
+		case errors.As(err, &limited):
+			writeRateLimited(w, limited.RetryAfter)
 		case errors.As(err, &validation.Errors{}):
 			writeError(w, http.StatusBadRequest, codeBadJSON, err.Error())
 		default:
@@ -65,13 +68,24 @@ func (h *Handler) keyChanges(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	from, err := entity.ParseSyncToken(r.URL.Query().Get("from"))
+	query := r.URL.Query()
+	if !query.Has("from") || !query.Has("to") {
+		writeError(w, http.StatusBadRequest, codeMissingParam, "Both from and to are required")
+		return
+	}
+	from, err := entity.ParseSyncToken(query.Get("from"))
 	if err != nil {
 		writeError(w, http.StatusBadRequest, codeInvalidParam, "Unknown from token")
 		return
 	}
+	to, err := entity.ParseSyncToken(query.Get("to"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, codeInvalidParam, "Unknown to token")
+		return
+	}
 
-	lists, _, err := h.deviceLists.ChangedSince(r.Context(), tenant.Scope(), caller.UserID, from.DeviceLists)
+	lists, err := h.deviceLists.ChangedSince(r.Context(), tenant.Scope(), caller.UserID,
+		from.Cursors(), to.Cursors())
 	if err != nil {
 		writeInternal(r.Context(), w, "Could not read the device list changes", err)
 		return

@@ -510,24 +510,35 @@ func TestTheQueryCarriesTheDeviceDisplayName(t *testing.T) {
 	}
 }
 
-func TestACallerSharingNoRoomCannotTellTheTargetFromAUserWithNoKeys(t *testing.T) {
+func TestAUserWhoDoesNotExistIsIndistinguishableFromOneWithNoKeys(t *testing.T) {
 	s := newServer(t)
 	of := s.open(t, "alpha.test")
 	alice := s.register(t, of.ServerName, "alice", "correct horse battery staple")
 	bob := s.register(t, of.ServerName, "bob", "correct horse battery staple")
+	silent := s.register(t, of.ServerName, "silent", "correct horse battery staple")
 	nobody := "@ghost:alpha.test"
 
 	id := newIdentity(t, 16, bob.UserID, bob.DeviceID, 0)
 	s.mustUpload(t, of.ServerName, bob.AccessToken, map[string]any{"device_keys": id.device})
 
-	stranger := s.queryKeys(t, of.ServerName, alice.AccessToken,
-		map[string][]string{bob.UserID: {}, nobody: {}})
-	if len(stranger.DeviceKeys[bob.UserID]) != 0 {
-		t.Fatalf("a caller sharing no room saw %v", stranger.DeviceKeys[bob.UserID])
+	answered := s.queryKeys(t, of.ServerName, alice.AccessToken,
+		map[string][]string{bob.UserID: {}, silent.UserID: {}, nobody: {}})
+	if _, ok := answered.DeviceKeys[bob.UserID][bob.DeviceID]; !ok {
+		t.Fatalf("a caller sharing no room cannot see the device in %v", answered.DeviceKeys)
 	}
-	if len(stranger.DeviceKeys[nobody]) != 0 {
-		t.Fatalf("a user who does not exist answered %v", stranger.DeviceKeys[nobody])
+	if len(answered.DeviceKeys[silent.UserID]) != 0 {
+		t.Fatalf("a user who uploaded nothing answered %v", answered.DeviceKeys[silent.UserID])
 	}
+	if len(answered.DeviceKeys[nobody]) != 0 {
+		t.Fatalf("a user who does not exist answered %v", answered.DeviceKeys[nobody])
+	}
+}
+
+func TestADepartedMemberCanStillBeEncryptedTo(t *testing.T) {
+	s := newServer(t)
+	of := s.open(t, "alpha.test")
+	alice := s.register(t, of.ServerName, "alice", "correct horse battery staple")
+	bob := s.register(t, of.ServerName, "bob", "correct horse battery staple")
 
 	room := s.seedRoom(t, of, alice)
 	joined := s.do(t, http.MethodPost, of.ServerName,
@@ -535,10 +546,19 @@ func TestACallerSharingNoRoomCannotTellTheTargetFromAUserWithNoKeys(t *testing.T
 	if joined.Code != http.StatusOK {
 		t.Fatalf("join = %d: %s", joined.Code, joined.Body)
 	}
+	left := s.do(t, http.MethodPost, of.ServerName,
+		"/_matrix/client/v3/rooms/"+room.RoomID+"/leave", bob.AccessToken, map[string]any{})
+	if left.Code != http.StatusOK {
+		t.Fatalf("leave = %d: %s", left.Code, left.Body)
+	}
 
-	shared := s.queryKeys(t, of.ServerName, alice.AccessToken, map[string][]string{bob.UserID: {}})
-	if _, ok := shared.DeviceKeys[bob.UserID][bob.DeviceID]; !ok {
-		t.Fatalf("a caller sharing a room cannot see the device in %v", shared.DeviceKeys)
+	id := newIdentity(t, 17, bob.UserID, bob.DeviceID, 0)
+	s.mustUpload(t, of.ServerName, bob.AccessToken, map[string]any{"device_keys": id.device})
+
+	answered := s.queryKeys(t, of.ServerName, alice.AccessToken,
+		map[string][]string{bob.UserID: {}})
+	if _, ok := answered.DeviceKeys[bob.UserID][bob.DeviceID]; !ok {
+		t.Fatalf("a message in flight to a departed member cannot be encrypted: %v", answered.DeviceKeys)
 	}
 }
 
