@@ -167,7 +167,7 @@ func TestAServerWithNoAddressIsAConfigurationError(t *testing.T) {
 
 func TestWaitingForALockGivesUpRatherThanHangingForever(t *testing.T) {
 	settings := valkeytest.Settings(t)
-	settings.LockValidity = 300 * time.Millisecond
+	settings.LockWait = 300 * time.Millisecond
 	valkeytest.Require(t, settings)
 
 	holder, err := valkey.New(t.Context(), settings, limits())

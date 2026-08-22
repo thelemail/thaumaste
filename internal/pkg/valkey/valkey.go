@@ -20,7 +20,7 @@ import (
 
 const (
 	reconnectEvery    = 5 * time.Second
-	defaultLockWait   = 10 * time.Second
+	defaultLockWait   = 20 * time.Second
 	defaultRateWindow = time.Second
 )
 
@@ -195,8 +195,8 @@ func releaseLate(taken <-chan lease) {
 }
 
 func (c *Client) waitFor() time.Duration {
-	if c.cfg.LockValidity > 0 {
-		return c.cfg.LockValidity
+	if c.cfg.LockWait > 0 {
+		return c.cfg.LockWait
 	}
 	return defaultLockWait
 }

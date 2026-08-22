@@ -22,6 +22,7 @@ func Settings(t *testing.T) config.Valkey {
 		KeyPrefix:    prefix(t),
 		DialTimeout:  2 * time.Second,
 		LockValidity: 10 * time.Second,
+		LockWait:     20 * time.Second,
 	}
 }
 

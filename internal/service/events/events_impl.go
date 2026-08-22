@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"strings"
 	"sync"
 	"time"
@@ -415,10 +416,16 @@ func (s *srv) write(ctx context.Context, roomID string, fn func(context.Context)
 
 func (s *srv) lease(ctx context.Context, roomID string) (context.Context, func(), error) {
 	held, release, err := s.locks.Lock(ctx, roomID)
-	if err != nil {
+	switch {
+	case err == nil:
+		return held, release, nil
+	case errors.Is(err, valkey.ErrHeld):
+		slog.WarnContext(ctx, "waiting for the room lease timed out; falling through to the database lock",
+			"room_id", roomID)
+		return ctx, func() {}, nil
+	default:
 		return nil, nil, err
 	}
-	return held, release, nil
 }
 
 func (s *srv) nextPosition(ctx context.Context) (int64, error) {

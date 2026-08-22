@@ -97,6 +97,7 @@ type Valkey struct {
 	KeyPrefix    string        `env:"THAUMASTE_VALKEY_KEY_PREFIX"    envDefault:"thaumaste"`
 	DialTimeout  time.Duration `env:"THAUMASTE_VALKEY_DIAL_TIMEOUT"  envDefault:"2s"`
 	LockValidity time.Duration `env:"THAUMASTE_VALKEY_LOCK_VALIDITY" envDefault:"10s"`
+	LockWait     time.Duration `env:"THAUMASTE_VALKEY_LOCK_WAIT"     envDefault:"20s"`
 }
 
 type Limits struct {

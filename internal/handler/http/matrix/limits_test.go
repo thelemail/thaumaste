@@ -103,9 +103,9 @@ func TestARetryOfALimitedTransactionIsStillDeduplicated(t *testing.T) {
 	}
 }
 
-func TestASendCannotProceedWhileTheRoomLeaseIsHeldElsewhere(t *testing.T) {
+func TestASendWaitsForTheRoomLeaseAndThenFallsThroughToTheDatabase(t *testing.T) {
 	settings := valkeytest.Settings(t)
-	settings.LockValidity = 300 * time.Millisecond
+	settings.LockWait = 500 * time.Millisecond
 	valkeytest.Require(t, settings)
 
 	limits := config.Limits{SendPerUser: 100, SendWindow: time.Minute}
@@ -121,12 +121,18 @@ func TestASendCannotProceedWhileTheRoomLeaseIsHeldElsewhere(t *testing.T) {
 	}
 	defer release()
 
+	started := time.Now()
 	rec := s.send(t, "alpha.test", token, roomID, "contended", text("hello"))
-	if rec.Code == http.StatusOK {
-		t.Fatalf("a send went through while the room lease was held elsewhere: %s", rec.Body)
+	waited := time.Since(started)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("a send gave up instead of falling through to the database lock: %d %s", rec.Code, rec.Body)
 	}
-	if got := s.messageCount(t, roomID); got != 0 {
-		t.Fatalf("%d messages were written without the lease, want 0", got)
+	if waited < settings.LockWait {
+		t.Fatalf("the send took %s, so it never waited for the lease", waited)
+	}
+	if got := s.messageCount(t, roomID); got != 1 {
+		t.Fatalf("%d messages in the room, want 1", got)
 	}
 }
 
