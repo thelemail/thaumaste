@@ -29,6 +29,7 @@ import (
 	"github.com/thelemail/thaumaste/internal/repository/connection"
 	"github.com/thelemail/thaumaste/internal/repository/credential"
 	"github.com/thelemail/thaumaste/internal/repository/device"
+	devicelistrepo "github.com/thelemail/thaumaste/internal/repository/devicelist"
 	"github.com/thelemail/thaumaste/internal/repository/event"
 	filterrepo "github.com/thelemail/thaumaste/internal/repository/filter"
 	"github.com/thelemail/thaumaste/internal/repository/key"
@@ -41,22 +42,26 @@ import (
 	"github.com/thelemail/thaumaste/internal/repository/signingkey"
 	"github.com/thelemail/thaumaste/internal/repository/state"
 	"github.com/thelemail/thaumaste/internal/repository/tenant"
+	todevicerepo "github.com/thelemail/thaumaste/internal/repository/todevice"
 	"github.com/thelemail/thaumaste/internal/repository/transaction"
 	typingrepo "github.com/thelemail/thaumaste/internal/repository/typing"
 	"github.com/thelemail/thaumaste/internal/repository/uiasession"
 	"github.com/thelemail/thaumaste/internal/repository/user"
 	"github.com/thelemail/thaumaste/internal/service"
 	"github.com/thelemail/thaumaste/internal/service/accountdata"
+	"github.com/thelemail/thaumaste/internal/service/devicelists"
 	"github.com/thelemail/thaumaste/internal/service/directory"
 	"github.com/thelemail/thaumaste/internal/service/events"
 	"github.com/thelemail/thaumaste/internal/service/filters"
 	"github.com/thelemail/thaumaste/internal/service/keys"
+	"github.com/thelemail/thaumaste/internal/service/legacysync"
 	"github.com/thelemail/thaumaste/internal/service/presence"
 	"github.com/thelemail/thaumaste/internal/service/receipts"
 	"github.com/thelemail/thaumaste/internal/service/rooms"
 	"github.com/thelemail/thaumaste/internal/service/sync"
 	"github.com/thelemail/thaumaste/internal/service/tenants"
 	"github.com/thelemail/thaumaste/internal/service/timeline"
+	"github.com/thelemail/thaumaste/internal/service/todevice"
 	"github.com/thelemail/thaumaste/internal/service/tokens"
 	"github.com/thelemail/thaumaste/internal/service/typing"
 	"github.com/thelemail/thaumaste/internal/service/users"
@@ -77,6 +82,8 @@ type server struct {
 	receipts    service.Receipts
 	typing      service.Typing
 	presence    service.Presence
+	toDevice    service.ToDevice
+	deviceLists service.DeviceLists
 	clock       *testClock
 	filters     service.Filters
 	directory   service.Directory
@@ -188,13 +195,36 @@ func wireServer(t *testing.T, instance string, assertion ed25519.PublicKey, pg *
 	}
 	notifier := notify.New(bus, "test:sync")
 
+	clock := &testClock{at: time.Now().UTC()}
+	newStream := func(name, sequence string) *postgres.Stream {
+		t.Helper()
+		built, err := postgres.NewStream(t.Context(), pg, postgres.StreamConfig{
+			Name: name, Instance: instance, Sequence: sequence,
+		})
+		if err != nil {
+			t.Fatalf("NewStream(%s): %v", name, err)
+		}
+		return built
+	}
+	dataStream := newStream("account_data", "account_data_stream_seq")
+	receiptStream := newStream("receipts", "receipts_stream_seq")
+	toDeviceStream := newStream("to_device", "to_device_stream_seq")
+	deviceListStream := newStream("device_lists", "device_list_stream_seq")
+
+	deviceListSvc := devicelists.New(devicelistrepo.New(pg), memberRepo, pg, deviceListStream, notifier)
+	toDeviceSvc := todevice.New(todevicerepo.New(pg), device.New(pg), pg, toDeviceStream, notifier)
+	keyRepo := key.New(pg)
+	typingRepo := typingrepo.New(limiter)
+	receiptRepo := receiptrepo.New(pg)
+	accountDataRepo := accountdatarepo.New(pg)
+
 	eventSvc := events.New(roomRepo, eventRepo, state.New(pg), memberRepo, relationRepo, transaction.New(pg),
 		tenantSvc, pg, stream, limiter, notifier, serialiser.New(), instance, nil, nil)
 
 	userSvc := users.New(
 		user.New(pg), credential.New(pg), device.New(pg), refreshtoken.New(pg),
 		uiasession.New(pg, nil), authattempt.New(pg),
-		tokenSvc, tenantSvc, pg, config.Auth{
+		tokenSvc, tenantSvc, deviceListSvc, pg, config.Auth{
 			AccessTokenTTL: time.Hour, RefreshTokenTTL: time.Hour, SessionTTL: 15 * time.Minute,
 			Argon2Time: 1, Argon2MemoryK: 8 * 1024, Argon2Threads: 1,
 			MaxFailures: 3, FailureWindow: time.Minute, LockFor: time.Minute,
@@ -202,30 +232,39 @@ func wireServer(t *testing.T, instance string, assertion ed25519.PublicKey, pg *
 		}, nil, nil)
 
 	timelineSvc := timeline.New(eventSvc, nil)
-	syncSvc := sync.New(connection.New(pg), memberRepo, eventRepo, timelineSvc, pg, stream,
-		notifier, serialiser.New(), config.Sync{MaxTimeout: 2 * time.Second, MaxRoomsPerSync: 200}, nil)
+	legacySvc := legacysync.New(
+		legacysync.Stores{
+			Members: memberRepo, Events: eventRepo, ToDevice: todevicerepo.New(pg),
+			DeviceLists: devicelistrepo.New(pg), AccountData: accountDataRepo,
+			Receipts: receiptRepo, Typing: typingRepo, Keys: keyRepo,
+		},
+		legacysync.Streams{
+			Events: stream, ToDevice: toDeviceStream, DeviceLists: deviceListStream,
+			AccountData: dataStream, Receipts: receiptStream,
+		},
+		timelineSvc, pg, notifier,
+		config.Sync{MaxTimeout: 2 * time.Second, MaxRoomsPerSync: 200}, nil)
+
+	syncSvc := sync.New(connection.New(pg), memberRepo, eventRepo, timelineSvc,
+		sync.Stores{
+			ToDevice: todevicerepo.New(pg), DeviceLists: devicelistrepo.New(pg),
+			AccountData: accountDataRepo, Receipts: receiptRepo, Typing: typingRepo, Keys: keyRepo,
+		},
+		sync.Streams{
+			ToDevice: toDeviceStream, DeviceLists: deviceListStream,
+			AccountData: dataStream, Receipts: receiptStream,
+		},
+		pg, stream, notifier, serialiser.New(),
+		config.Sync{MaxTimeout: 2 * time.Second, MaxRoomsPerSync: 200}, nil)
 	roomSvc := rooms.New(eventSvc, timelineSvc, userSvc, roomRepo, alias.New(pg), memberRepo, pg,
 		limiter, limits, nil)
-	keySvc := keys.New(key.New(pg), memberRepo, pg, config.Keys{
+	keySvc := keys.New(keyRepo, memberRepo, pg, deviceListSvc, config.Keys{
 		MaxOneTimeKeys: 8, MaxQueryUsers: 200, MaxClaimDevices: 200,
 	})
-	dataStream, err := postgres.NewStream(t.Context(), pg, postgres.StreamConfig{
-		Name: "account_data", Instance: instance, Sequence: "account_data_stream_seq",
-	})
-	if err != nil {
-		t.Fatalf("NewStream: %v", err)
-	}
-	clock := &testClock{at: time.Now().UTC()}
-	accountDataSvc := accountdata.New(accountdatarepo.New(pg), roomRepo, pg, dataStream)
-	receiptStream, err := postgres.NewStream(t.Context(), pg, postgres.StreamConfig{
-		Name: "receipts", Instance: instance, Sequence: "receipts_stream_seq",
-	})
-	if err != nil {
-		t.Fatalf("NewStream: %v", err)
-	}
-	receiptSvc := receipts.New(receiptrepo.New(pg), memberRepo, eventSvc, accountDataSvc, pg,
+	accountDataSvc := accountdata.New(accountDataRepo, roomRepo, pg, dataStream, notifier)
+	receiptSvc := receipts.New(receiptRepo, memberRepo, eventSvc, accountDataSvc, pg,
 		receiptStream, notifier, clock.Now)
-	typingSvc := typing.New(typingrepo.New(limiter), memberRepo, eventSvc, notifier, clock.Now)
+	typingSvc := typing.New(typingRepo, memberRepo, eventSvc, notifier, clock.Now)
 	presenceSvc := presence.New(presencerepo.New(pg), memberRepo, clock.Now)
 	filterSvc := filters.New(filterrepo.New(pg))
 	directorySvc := directory.New(user.New(pg), roomRepo, eventRepo, config.Directory{MaxResults: 50})
@@ -237,11 +276,14 @@ func wireServer(t *testing.T, instance string, assertion ed25519.PublicKey, pg *
 		userSvc,
 		roomSvc,
 		syncSvc,
+		legacySvc,
 		keySvc,
 		accountDataSvc,
 		receiptSvc,
 		typingSvc,
 		presenceSvc,
+		toDeviceSvc,
+		deviceListSvc,
 		filterSvc,
 		directorySvc,
 		config.Server{PublicScheme: "https"},
@@ -252,7 +294,8 @@ func wireServer(t *testing.T, instance string, assertion ed25519.PublicKey, pg *
 	return &server{router: r, tenants: tenantSvc, tokens: tokenSvc, events: eventSvc,
 		users: userSvc, rooms: roomSvc, sync: syncSvc, keys: keySvc,
 		accountData: accountDataSvc, filters: filterSvc, directory: directorySvc,
-		receipts: receiptSvc, typing: typingSvc, presence: presenceSvc, clock: clock, notifier: notifier, db: pg, queries: queries}
+		receipts: receiptSvc, typing: typingSvc, presence: presenceSvc, clock: clock,
+		toDevice: toDeviceSvc, deviceLists: deviceListSvc, notifier: notifier, db: pg, queries: queries}
 }
 
 func (s *server) tenant(t *testing.T, serverName string, hosts ...string) entity.Tenant {
@@ -708,9 +751,23 @@ func (s *server) seedRoom(t *testing.T, of entity.Tenant, resident sessionBody) 
 	}
 
 	s.seedKeys(t, of, resident)
+	s.seedToDevice(t, of, resident)
 	s.seedAccountData(t, of, resident, created.RoomID)
 	s.seedReadState(t, of, resident, created.RoomID)
 	return created
+}
+
+func (s *server) seedToDevice(t *testing.T, of entity.Tenant, resident sessionBody) {
+	t.Helper()
+
+	sent := s.do(t, http.MethodPut, of.ServerName,
+		"/_matrix/client/v3/sendToDevice/m.room_key_request/seeded-to-device", resident.AccessToken,
+		map[string]any{"messages": map[string]any{
+			resident.UserID: map[string]any{resident.DeviceID: map[string]any{"body": "seeded"}},
+		}})
+	if sent.Code != http.StatusOK {
+		t.Fatalf("seed a to-device message = %d: %s", sent.Code, sent.Body)
+	}
 }
 
 func (s *server) seedReadState(t *testing.T, of entity.Tenant, resident sessionBody, roomID string) {

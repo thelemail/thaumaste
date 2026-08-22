@@ -41,6 +41,7 @@ func (s *srv) build(ctx context.Context, sess *session) (entity.SyncResult, []en
 		return entity.SyncResult{}, nil, err
 	}
 	result := entity.SyncResult{Lists: lists, Rooms: make(map[string]entity.RoomResult)}
+	sess.delivered = map[int64]string{}
 
 	sending := s.due(sess, chosen)
 	if len(sending) == 0 {
@@ -67,6 +68,7 @@ func (s *srv) build(ctx context.Context, sess *session) (entity.SyncResult, []en
 			RequiredState: entry.required.Canonical(),
 		})
 		result.Rooms[entry.room.RoomID] = room
+		sess.delivered[entry.room.RoomNID] = entry.room.RoomID
 	}
 	if len(result.Rooms) == 0 {
 		return result, nil, nil
@@ -176,6 +178,8 @@ func (s *srv) gatherState(ctx context.Context, sess *session, sending []*deliver
 			}
 			if invited(entry.room.Membership) {
 				selectors = append(selectors, strippedKeys...)
+				selectors = append(selectors,
+					entity.StateKey{Type: entity.EventTypeMember, StateKey: sess.caller})
 			}
 		}
 		if wildcard {
@@ -232,7 +236,7 @@ func (s *srv) assemble(ctx context.Context, sess *session, entry *delivery) (ent
 	}
 
 	if invited(entry.room.Membership) {
-		room.StrippedState = stripped(entry.state)
+		room.StrippedState = entity.StrippedState(events(entry.state), sess.caller)
 		return room, true, nil
 	}
 
@@ -276,17 +280,10 @@ func (d *delivery) live(rendered []entity.ClientEvent) int {
 	return live
 }
 
-func stripped(state []entity.StoredEvent) []entity.Event {
-	out := make([]entity.Event, 0, len(state))
-	for _, candidate := range state {
-		key, ok := candidate.Event.StateKey()
-		if !ok {
-			continue
-		}
-		wanted := entity.StateKey{Type: candidate.Event.Type(), StateKey: key}
-		if slices.Contains(strippedKeys, wanted) || candidate.Event.Type() == entity.EventTypeMember {
-			out = append(out, candidate.Event)
-		}
+func events(stored []entity.StoredEvent) []entity.Event {
+	out := make([]entity.Event, 0, len(stored))
+	for _, candidate := range stored {
+		out = append(out, candidate.Event)
 	}
 	return out
 }

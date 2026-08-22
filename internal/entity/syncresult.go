@@ -49,7 +49,8 @@ type RoomResult struct {
 }
 
 type SyncResult struct {
-	Pos   SyncPosition
-	Lists map[string]ListResult
-	Rooms map[string]RoomResult
+	Pos        SyncPosition
+	Lists      map[string]ListResult
+	Rooms      map[string]RoomResult
+	Extensions SyncExtensions
 }

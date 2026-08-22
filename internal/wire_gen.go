@@ -17,6 +17,7 @@ import (
 	"github.com/thelemail/thaumaste/internal/repository/connection"
 	"github.com/thelemail/thaumaste/internal/repository/credential"
 	"github.com/thelemail/thaumaste/internal/repository/device"
+	"github.com/thelemail/thaumaste/internal/repository/devicelist"
 	"github.com/thelemail/thaumaste/internal/repository/event"
 	"github.com/thelemail/thaumaste/internal/repository/filter"
 	"github.com/thelemail/thaumaste/internal/repository/key"
@@ -29,6 +30,7 @@ import (
 	"github.com/thelemail/thaumaste/internal/repository/signingkey"
 	"github.com/thelemail/thaumaste/internal/repository/state"
 	"github.com/thelemail/thaumaste/internal/repository/tenant"
+	"github.com/thelemail/thaumaste/internal/repository/todevice"
 	"github.com/thelemail/thaumaste/internal/repository/transaction"
 	"github.com/thelemail/thaumaste/internal/repository/typing"
 	"github.com/thelemail/thaumaste/internal/repository/user"
@@ -68,15 +70,9 @@ func InitializeServe(ctx context.Context, cfg config.Config) (*ServeRuntime, fun
 	refreshToken := refreshtoken.New(client)
 	uiaSession := provideUIASessions(client, v)
 	authAttempt := authattempt.New(client)
-	auth := provideAuthConfig(cfg)
-	users := provideUsers(repositoryUser, repositoryCredential, repositoryDevice, refreshToken, uiaSession, authAttempt, tokens, tenants, transactor, auth, v)
-	repositoryEvent := event.New(client)
-	repositoryRoom := room.New(client, repositoryEvent)
-	repositoryState := state.New(client)
+	deviceList := devicelist.New(client)
 	roomMember := roommember.New(client)
-	repositoryRelation := relation.New(client)
-	repositoryTransaction := transaction.New(client)
-	stream, err := provideEventStream(ctx, client, server)
+	deviceListStream, err := provideDeviceListStream(ctx, client, server)
 	if err != nil {
 		cleanup()
 		return nil, nil, err
@@ -88,6 +84,20 @@ func InitializeServe(ctx context.Context, cfg config.Config) (*ServeRuntime, fun
 		return nil, nil, err
 	}
 	notifier := provideNotifier(valkeyClient, valkey)
+	deviceLists := provideDeviceLists(deviceList, roomMember, transactor, deviceListStream, notifier)
+	auth := provideAuthConfig(cfg)
+	users := provideUsers(repositoryUser, repositoryCredential, repositoryDevice, refreshToken, uiaSession, authAttempt, tokens, tenants, deviceLists, transactor, auth, v)
+	repositoryEvent := event.New(client)
+	repositoryRoom := room.New(client, repositoryEvent)
+	repositoryState := state.New(client)
+	repositoryRelation := relation.New(client)
+	repositoryTransaction := transaction.New(client)
+	stream, err := provideEventStream(ctx, client, server)
+	if err != nil {
+		cleanup2()
+		cleanup()
+		return nil, nil, err
+	}
 	serialiser := provideSerialiser()
 	events := provideEvents(repositoryRoom, repositoryEvent, repositoryState, roomMember, repositoryRelation, repositoryTransaction, tenants, transactor, stream, valkeyClient, notifier, serialiser, server, v)
 	serviceTimeline := timeline.New(events, v)
@@ -95,36 +105,50 @@ func InitializeServe(ctx context.Context, cfg config.Config) (*ServeRuntime, fun
 	sendLimits := provideSendLimits(limits)
 	serviceRooms := rooms.New(events, serviceTimeline, users, repositoryRoom, repositoryAlias, roomMember, transactor, valkeyClient, sendLimits, v)
 	repositoryConnection := connection.New(client)
-	sync := provideSyncConfig(cfg)
-	serviceSync := provideSync(repositoryConnection, roomMember, repositoryEvent, serviceTimeline, transactor, stream, notifier, serialiser, sync, v)
-	repositoryKey := key.New(client)
-	keys := provideKeysConfig(cfg)
-	serviceKeys := provideKeys(repositoryKey, roomMember, transactor, keys)
+	toDevice := todevice.New(client)
 	accountData := accountdata.New(client)
+	repositoryReceipt := receipt.New(client)
+	repositoryTyping := typing.New(valkeyClient)
+	repositoryKey := key.New(client)
+	stores := provideSyncStores(toDevice, deviceList, accountData, repositoryReceipt, repositoryTyping, repositoryKey)
+	toDeviceStream, err := provideToDeviceStream(ctx, client, server)
+	if err != nil {
+		cleanup2()
+		cleanup()
+		return nil, nil, err
+	}
 	accountDataStream, err := provideAccountDataStream(ctx, client, server)
 	if err != nil {
 		cleanup2()
 		cleanup()
 		return nil, nil, err
 	}
-	serviceAccountData := provideAccountData(accountData, repositoryRoom, transactor, accountDataStream)
-	repositoryReceipt := receipt.New(client)
 	receiptStream, err := provideReceiptStream(ctx, client, server)
 	if err != nil {
 		cleanup2()
 		cleanup()
 		return nil, nil, err
 	}
+	streams := provideSyncStreams(toDeviceStream, deviceListStream, accountDataStream, receiptStream)
+	sync := provideSyncConfig(cfg)
+	serviceSync := provideSync(repositoryConnection, roomMember, repositoryEvent, serviceTimeline, transactor, stream, notifier, serialiser, stores, streams, sync, v)
+	legacysyncStores := provideLegacyStores(roomMember, repositoryEvent, toDevice, deviceList, accountData, repositoryReceipt, repositoryTyping, repositoryKey)
+	legacysyncStreams := provideLegacyStreams(stream, toDeviceStream, deviceListStream, accountDataStream, receiptStream)
+	legacySync := provideLegacySync(legacysyncStores, legacysyncStreams, serviceTimeline, transactor, notifier, sync, v)
+	keys := provideKeysConfig(cfg)
+	serviceKeys := provideKeys(repositoryKey, roomMember, transactor, deviceLists, keys)
+	serviceAccountData := provideAccountData(accountData, repositoryRoom, transactor, accountDataStream, notifier)
 	receipts := provideReceipts(repositoryReceipt, roomMember, events, serviceAccountData, transactor, receiptStream, notifier, v)
-	repositoryTyping := typing.New(valkeyClient)
 	serviceTyping := typing2.New(repositoryTyping, roomMember, events, notifier, v)
 	repositoryPresence := presence.New(client)
 	servicePresence := providePresence(repositoryPresence, roomMember, v)
+	serviceToDevice := provideToDevice(toDevice, repositoryDevice, transactor, toDeviceStream, notifier)
 	repositoryFilter := filter.New(client)
 	serviceFilters := filters.New(repositoryFilter)
 	directory := provideDirectoryConfig(cfg)
 	serviceDirectory := provideDirectory(repositoryUser, repositoryRoom, repositoryEvent, directory)
-	serveRuntime := provideServeRuntime(server, signing, limits, client, tenants, tokens, users, serviceRooms, events, serviceSync, serviceKeys, serviceAccountData, receipts, serviceTyping, servicePresence, serviceFilters, serviceDirectory, notifier, sync, v)
+	configToDevice := provideToDeviceConfig(cfg)
+	serveRuntime := provideServeRuntime(server, signing, limits, client, tenants, tokens, users, serviceRooms, events, serviceSync, legacySync, serviceKeys, serviceAccountData, receipts, serviceTyping, servicePresence, serviceToDevice, deviceLists, serviceFilters, serviceDirectory, notifier, sync, configToDevice, v)
 	return serveRuntime, func() {
 		cleanup2()
 		cleanup()

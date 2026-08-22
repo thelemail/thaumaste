@@ -222,7 +222,7 @@ func renderSync(result entity.SyncResult) (syncResponse, error) {
 		Pos:        result.Pos.String(),
 		Lists:      make(map[string]syncListResult, len(result.Lists)),
 		Rooms:      make(map[string]syncRoomResult, len(result.Rooms)),
-		Extensions: map[string]any{},
+		Extensions: renderExtensions(result.Extensions),
 	}
 	for name, list := range result.Lists {
 		response.Lists[name] = syncListResult{Count: list.Count}
@@ -315,4 +315,59 @@ func writeSyncError(r *http.Request, w http.ResponseWriter, err error) {
 	default:
 		writeRoomError(r, w, err, "Could not sync")
 	}
+}
+
+func renderExtensions(in entity.SyncExtensions) map[string]any {
+	out := map[string]any{}
+
+	if in.ToDevice != nil {
+		out["to_device"] = map[string]any{
+			"next_batch": in.ToDevice.NextBatch,
+			"events":     orEmpty(in.ToDevice.Events),
+		}
+	}
+	if in.E2EE != nil {
+		e2ee := map[string]any{}
+		if in.E2EE.HasOneTimeKeys {
+			e2ee["device_one_time_keys_count"] = in.E2EE.OneTimeKeys
+		}
+		if in.E2EE.HasFallback {
+			e2ee["device_unused_fallback_key_types"] = in.E2EE.FallbackTypes
+		}
+		if in.E2EE.HasDeviceLists {
+			e2ee["device_lists"] = map[string]any{
+				"changed": orEmptyStrings(in.E2EE.DeviceLists.Changed),
+				"left":    orEmptyStrings(in.E2EE.DeviceLists.Left),
+			}
+		}
+		out["e2ee"] = e2ee
+	}
+	if in.AccountData != nil {
+		data := map[string]any{"global": orEmpty(in.AccountData.Global)}
+		if len(in.AccountData.Rooms) > 0 {
+			data["rooms"] = in.AccountData.Rooms
+		}
+		out["account_data"] = data
+	}
+	if len(in.Receipts) > 0 {
+		out["receipts"] = map[string]any{"rooms": in.Receipts}
+	}
+	if len(in.Typing) > 0 {
+		out["typing"] = map[string]any{"rooms": in.Typing}
+	}
+	return out
+}
+
+func orEmpty(events []json.RawMessage) []json.RawMessage {
+	if events == nil {
+		return []json.RawMessage{}
+	}
+	return events
+}
+
+func orEmptyStrings(values []string) []string {
+	if values == nil {
+		return []string{}
+	}
+	return values
 }

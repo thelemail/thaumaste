@@ -6,22 +6,24 @@ import (
 	"errors"
 
 	"github.com/thelemail/thaumaste/internal/entity"
+	"github.com/thelemail/thaumaste/internal/pkg/notify"
 	"github.com/thelemail/thaumaste/internal/pkg/postgres"
 	"github.com/thelemail/thaumaste/internal/repository"
 	"github.com/thelemail/thaumaste/internal/service"
 )
 
 type srv struct {
-	data   repository.AccountData
-	rooms  repository.Room
-	tx     repository.Transactor
-	stream *postgres.Stream
+	notifier *notify.Notifier
+	data     repository.AccountData
+	rooms    repository.Room
+	tx       repository.Transactor
+	stream   *postgres.Stream
 }
 
 func New(data repository.AccountData, rooms repository.Room, tx repository.Transactor,
-	stream *postgres.Stream,
+	stream *postgres.Stream, notifier *notify.Notifier,
 ) service.AccountData {
-	return &srv{data: data, rooms: rooms, tx: tx, stream: stream}
+	return &srv{data: data, rooms: rooms, tx: tx, stream: stream, notifier: notifier}
 }
 
 func (s *srv) Set(ctx context.Context, scope entity.TenantScope, caller, target, roomID, dataType string,
@@ -57,9 +59,15 @@ func (s *srv) commit(ctx context.Context, scope entity.TenantScope, target, room
 	}
 	defer positions.Release()
 
-	return s.tx.WithTx(ctx, func(ctx context.Context) error {
+	if err := s.tx.WithTx(ctx, func(ctx context.Context) error {
 		return s.store(ctx, scope, target, roomID, dataType, canonical, positions.IDs[0])
-	})
+	}); err != nil {
+		return err
+	}
+	if s.notifier != nil {
+		s.notifier.Notify(ctx, entity.UserWakeKey(target))
+	}
+	return nil
 }
 
 func (s *srv) store(ctx context.Context, scope entity.TenantScope, target, roomID, dataType string,

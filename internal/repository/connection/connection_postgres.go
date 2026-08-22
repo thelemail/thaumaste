@@ -22,11 +22,17 @@ const openConnectionSQL = `
 	ON CONFLICT (tenant_id, user_id, device_id, conn_id)
 	DO UPDATE SET last_seen_at = now()
 	RETURNING connection_nid, tenant_id, user_id, device_id, conn_id,
-	          confirmed, confirmed_stream, pending, pending_stream, last_seen_at`
+	          confirmed, confirmed_stream, confirmed_account_data, confirmed_receipts,
+	          confirmed_device_lists, confirmed_typing,
+	          pending, pending_stream, pending_account_data, pending_receipts,
+	          pending_device_lists, pending_typing, last_seen_at`
 
 const getConnectionSQL = `
 	SELECT connection_nid, tenant_id, user_id, device_id, conn_id,
-	       confirmed, confirmed_stream, pending, pending_stream, last_seen_at
+	       confirmed, confirmed_stream, confirmed_account_data, confirmed_receipts,
+	       confirmed_device_lists, confirmed_typing,
+	       pending, pending_stream, pending_account_data, pending_receipts,
+	       pending_device_lists, pending_typing, last_seen_at
 	  FROM sync_connections WHERE connection_nid = $1`
 
 const acknowledgeDeleteSQL = `
@@ -44,18 +50,25 @@ const acknowledgePromoteSQL = `
 
 const acknowledgeConnectionSQL = `
 	UPDATE sync_connections
-	   SET confirmed = $2, confirmed_stream = $3, pending = NULL, pending_stream = NULL,
+	   SET confirmed = $2, confirmed_stream = $3, confirmed_account_data = $4,
+	       confirmed_receipts = $5, confirmed_device_lists = $6, confirmed_typing = $7,
+	       pending = NULL, pending_stream = NULL, pending_account_data = NULL,
+	       pending_receipts = NULL, pending_device_lists = NULL, pending_typing = NULL,
 	       last_seen_at = now()
 	 WHERE connection_nid = $1 AND pending = $2`
 
 const discardSQL = `
 	UPDATE sync_connections
-	   SET pending = NULL, pending_stream = NULL, last_seen_at = now()
+	   SET pending = NULL, pending_stream = NULL, pending_account_data = NULL,
+	       pending_receipts = NULL, pending_device_lists = NULL, pending_typing = NULL,
+	       last_seen_at = now()
 	 WHERE connection_nid = $1`
 
 const stageConnectionSQL = `
 	UPDATE sync_connections
-	   SET pending = $2, pending_stream = $3, last_seen_at = now()
+	   SET pending = $2, pending_stream = $3, pending_account_data = $4,
+	       pending_receipts = $5, pending_device_lists = $6, pending_typing = $7,
+	       last_seen_at = now()
 	 WHERE connection_nid = $1 AND pending IS NULL AND confirmed < $2`
 
 const selectConfigSQL = `SELECT config_nid FROM sync_state_configs WHERE config_hash = $1`
@@ -123,7 +136,7 @@ func (r *repo) Rooms(ctx context.Context, connectionNID int64, pending bool) ([]
 	return out, nil
 }
 
-func (r *repo) Acknowledge(ctx context.Context, connectionNID, generation, stream int64) error {
+func (r *repo) Acknowledge(ctx context.Context, connectionNID, generation int64, cursors entity.SyncCursors) error {
 	exec := r.db.Querier(ctx)
 	if _, err := exec.ExecContext(ctx, acknowledgeDeleteSQL, connectionNID); err != nil {
 		return fmt.Errorf("repository: acknowledge sync position: %w", err)
@@ -131,7 +144,8 @@ func (r *repo) Acknowledge(ctx context.Context, connectionNID, generation, strea
 	if _, err := exec.ExecContext(ctx, acknowledgePromoteSQL, connectionNID); err != nil {
 		return fmt.Errorf("repository: acknowledge sync position: %w", err)
 	}
-	result, err := exec.ExecContext(ctx, acknowledgeConnectionSQL, connectionNID, generation, stream)
+	result, err := exec.ExecContext(ctx, acknowledgeConnectionSQL, connectionNID, generation,
+		cursors.Events, cursors.AccountData, cursors.Receipts, cursors.DeviceLists, cursors.Typing)
 	if err != nil {
 		return fmt.Errorf("repository: acknowledge sync position: %w", err)
 	}
@@ -158,7 +172,10 @@ func (r *repo) Reset(ctx context.Context, connectionNID int64) error {
 	}
 	if _, err := exec.ExecContext(ctx, `
 		UPDATE sync_connections
-		   SET confirmed = 0, confirmed_stream = 0, pending = NULL, pending_stream = NULL,
+		   SET confirmed = 0, confirmed_stream = 0, confirmed_account_data = 0,
+		       confirmed_receipts = 0, confirmed_device_lists = 0, confirmed_typing = 0,
+		       pending = NULL, pending_stream = NULL, pending_account_data = NULL,
+		       pending_receipts = NULL, pending_device_lists = NULL, pending_typing = NULL,
 		       last_seen_at = now()
 		 WHERE connection_nid = $1`, connectionNID); err != nil {
 		return fmt.Errorf("repository: reset sync connection: %w", err)
@@ -166,9 +183,12 @@ func (r *repo) Reset(ctx context.Context, connectionNID int64) error {
 	return nil
 }
 
-func (r *repo) Stage(ctx context.Context, connectionNID, generation, stream int64, rooms []entity.NewRoomStatus) error {
+func (r *repo) Stage(ctx context.Context, connectionNID, generation int64, cursors entity.SyncCursors,
+	rooms []entity.NewRoomStatus,
+) error {
 	exec := r.db.Querier(ctx)
-	result, err := exec.ExecContext(ctx, stageConnectionSQL, connectionNID, generation, stream)
+	result, err := exec.ExecContext(ctx, stageConnectionSQL, connectionNID, generation,
+		cursors.Events, cursors.AccountData, cursors.Receipts, cursors.DeviceLists, cursors.Typing)
 	if err != nil {
 		return fmt.Errorf("repository: stage sync response: %w", err)
 	}
@@ -257,14 +277,21 @@ func (r *repo) DeleteBefore(ctx context.Context, cutoff time.Time) (int64, error
 
 func scanConnection(row *sql.Row) (entity.Connection, error) {
 	var (
-		connection entity.Connection
-		tenantID   string
-		pending    sql.NullInt64
-		stream     sql.NullInt64
+		connection  entity.Connection
+		tenantID    string
+		pending     sql.NullInt64
+		stream      sql.NullInt64
+		accountData sql.NullInt64
+		receipts    sql.NullInt64
+		deviceLists sql.NullInt64
+		typing      sql.NullInt64
 	)
 	if err := row.Scan(&connection.NID, &tenantID, &connection.UserID, &connection.DeviceID,
 		&connection.ConnID, &connection.Confirmed, &connection.ConfirmedStream,
-		&pending, &stream, &connection.LastSeenAt); err != nil {
+		&connection.ConfirmedCursors.AccountData, &connection.ConfirmedCursors.Receipts,
+		&connection.ConfirmedCursors.DeviceLists, &connection.ConfirmedCursors.Typing,
+		&pending, &stream, &accountData, &receipts, &deviceLists, &typing,
+		&connection.LastSeenAt); err != nil {
 		return entity.Connection{}, err
 	}
 	parsed, err := uuid.Parse(tenantID)
@@ -272,9 +299,17 @@ func scanConnection(row *sql.Row) (entity.Connection, error) {
 		return entity.Connection{}, err
 	}
 	connection.TenantID = parsed
+	connection.ConfirmedCursors.Events = connection.ConfirmedStream
 	if pending.Valid {
 		connection.Pending = &pending.Int64
 		connection.PendingStream = &stream.Int64
+		connection.PendingCursors = entity.SyncCursors{
+			Events:      stream.Int64,
+			AccountData: accountData.Int64,
+			Receipts:    receipts.Int64,
+			DeviceLists: deviceLists.Int64,
+			Typing:      typing.Int64,
+		}
 	}
 	return connection, nil
 }
