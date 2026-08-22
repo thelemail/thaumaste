@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"strings"
+	gosync "sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -31,6 +32,8 @@ import (
 	"github.com/thelemail/thaumaste/internal/repository/event"
 	filterrepo "github.com/thelemail/thaumaste/internal/repository/filter"
 	"github.com/thelemail/thaumaste/internal/repository/key"
+	presencerepo "github.com/thelemail/thaumaste/internal/repository/presence"
+	receiptrepo "github.com/thelemail/thaumaste/internal/repository/receipt"
 	"github.com/thelemail/thaumaste/internal/repository/refreshtoken"
 	"github.com/thelemail/thaumaste/internal/repository/relation"
 	"github.com/thelemail/thaumaste/internal/repository/room"
@@ -39,6 +42,7 @@ import (
 	"github.com/thelemail/thaumaste/internal/repository/state"
 	"github.com/thelemail/thaumaste/internal/repository/tenant"
 	"github.com/thelemail/thaumaste/internal/repository/transaction"
+	typingrepo "github.com/thelemail/thaumaste/internal/repository/typing"
 	"github.com/thelemail/thaumaste/internal/repository/uiasession"
 	"github.com/thelemail/thaumaste/internal/repository/user"
 	"github.com/thelemail/thaumaste/internal/service"
@@ -47,11 +51,14 @@ import (
 	"github.com/thelemail/thaumaste/internal/service/events"
 	"github.com/thelemail/thaumaste/internal/service/filters"
 	"github.com/thelemail/thaumaste/internal/service/keys"
+	"github.com/thelemail/thaumaste/internal/service/presence"
+	"github.com/thelemail/thaumaste/internal/service/receipts"
 	"github.com/thelemail/thaumaste/internal/service/rooms"
 	"github.com/thelemail/thaumaste/internal/service/sync"
 	"github.com/thelemail/thaumaste/internal/service/tenants"
 	"github.com/thelemail/thaumaste/internal/service/timeline"
 	"github.com/thelemail/thaumaste/internal/service/tokens"
+	"github.com/thelemail/thaumaste/internal/service/typing"
 	"github.com/thelemail/thaumaste/internal/service/users"
 	"github.com/thelemail/thaumaste/internal/testutil/pgtest"
 	"github.com/thelemail/thaumaste/internal/testutil/valkeytest"
@@ -67,6 +74,10 @@ type server struct {
 	sync        service.Sync
 	keys        service.Keys
 	accountData service.AccountData
+	receipts    service.Receipts
+	typing      service.Typing
+	presence    service.Presence
+	clock       *testClock
 	filters     service.Filters
 	directory   service.Directory
 	notifier    *notify.Notifier
@@ -129,6 +140,23 @@ func newLimitedServer(t *testing.T, limits entity.SendLimits) *server {
 		valkeytest.Connect(t, config.Limits{SendPerUser: limits.PerUser, SendWindow: limits.Window}), limits)
 }
 
+type testClock struct {
+	mu gosync.Mutex
+	at time.Time
+}
+
+func (c *testClock) Now() time.Time {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.at
+}
+
+func (c *testClock) Add(d time.Duration) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.at = c.at.Add(d)
+}
+
 func wireServer(t *testing.T, instance string, assertion ed25519.PublicKey, pg *postgres.Client,
 	limiter *valkey.Client, limits entity.SendLimits,
 ) *server {
@@ -187,7 +215,18 @@ func wireServer(t *testing.T, instance string, assertion ed25519.PublicKey, pg *
 	if err != nil {
 		t.Fatalf("NewStream: %v", err)
 	}
+	clock := &testClock{at: time.Now().UTC()}
 	accountDataSvc := accountdata.New(accountdatarepo.New(pg), roomRepo, pg, dataStream)
+	receiptStream, err := postgres.NewStream(t.Context(), pg, postgres.StreamConfig{
+		Name: "receipts", Instance: instance, Sequence: "receipts_stream_seq",
+	})
+	if err != nil {
+		t.Fatalf("NewStream: %v", err)
+	}
+	receiptSvc := receipts.New(receiptrepo.New(pg), memberRepo, eventSvc, accountDataSvc, pg,
+		receiptStream, notifier, clock.Now)
+	typingSvc := typing.New(typingrepo.New(limiter), memberRepo, eventSvc, notifier, clock.Now)
+	presenceSvc := presence.New(presencerepo.New(pg), memberRepo)
 	filterSvc := filters.New(filterrepo.New(pg))
 	directorySvc := directory.New(user.New(pg), roomRepo, eventRepo, config.Directory{MaxResults: 50})
 
@@ -200,6 +239,9 @@ func wireServer(t *testing.T, instance string, assertion ed25519.PublicKey, pg *
 		syncSvc,
 		keySvc,
 		accountDataSvc,
+		receiptSvc,
+		typingSvc,
+		presenceSvc,
 		filterSvc,
 		directorySvc,
 		config.Server{PublicScheme: "https"},
@@ -209,7 +251,8 @@ func wireServer(t *testing.T, instance string, assertion ed25519.PublicKey, pg *
 
 	return &server{router: r, tenants: tenantSvc, tokens: tokenSvc, events: eventSvc,
 		users: userSvc, rooms: roomSvc, sync: syncSvc, keys: keySvc,
-		accountData: accountDataSvc, filters: filterSvc, directory: directorySvc, notifier: notifier, db: pg, queries: queries}
+		accountData: accountDataSvc, filters: filterSvc, directory: directorySvc,
+		receipts: receiptSvc, typing: typingSvc, presence: presenceSvc, clock: clock, notifier: notifier, db: pg, queries: queries}
 }
 
 func (s *server) tenant(t *testing.T, serverName string, hosts ...string) entity.Tenant {
@@ -666,7 +709,32 @@ func (s *server) seedRoom(t *testing.T, of entity.Tenant, resident sessionBody) 
 
 	s.seedKeys(t, of, resident)
 	s.seedAccountData(t, of, resident, created.RoomID)
+	s.seedReadState(t, of, resident, created.RoomID)
 	return created
+}
+
+func (s *server) seedReadState(t *testing.T, of entity.Tenant, resident sessionBody, roomID string) {
+	t.Helper()
+
+	timeline, err := s.events.Page(t.Context(), roomID, entity.PageRequest{Limit: entity.MaxPageLimit})
+	if err != nil || len(timeline) == 0 {
+		t.Fatalf("read the seeded timeline: %v", err)
+	}
+	latest := timeline[len(timeline)-1].Event.ID()
+
+	marked := s.do(t, http.MethodPost, of.ServerName,
+		"/_matrix/client/v3/rooms/"+url.PathEscape(roomID)+"/read_markers", resident.AccessToken,
+		map[string]any{"m.fully_read": latest, "m.read": latest})
+	if marked.Code != http.StatusOK {
+		t.Fatalf("seed read markers = %d: %s", marked.Code, marked.Body)
+	}
+
+	enabled := of
+	enabled.PresenceEnabled = true
+	if err := s.presence.Set(t.Context(), enabled, resident.UserID, resident.UserID,
+		entity.PresenceOnline, "seeded"); err != nil {
+		t.Fatalf("seed presence: %v", err)
+	}
 }
 
 func (s *server) seedAccountData(t *testing.T, of entity.Tenant, resident sessionBody, roomID string) {

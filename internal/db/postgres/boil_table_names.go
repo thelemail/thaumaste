@@ -18,6 +18,7 @@ var TableNames = struct {
 	EventTransactions   string
 	EventTypes          string
 	Events              string
+	Receipts            string
 	RefreshTokens       string
 	RoomAccountData     string
 	RoomAliases         string
@@ -38,6 +39,7 @@ var TableNames = struct {
 	UiaSessions         string
 	UserCredentials     string
 	UserFilters         string
+	UserPresence        string
 	Users               string
 }{
 	AccessTokens:        "access_tokens",
@@ -54,6 +56,7 @@ var TableNames = struct {
 	EventTransactions:   "event_transactions",
 	EventTypes:          "event_types",
 	Events:              "events",
+	Receipts:            "receipts",
 	RefreshTokens:       "refresh_tokens",
 	RoomAccountData:     "room_account_data",
 	RoomAliases:         "room_aliases",
@@ -74,5 +77,6 @@ var TableNames = struct {
 	UiaSessions:         "uia_sessions",
 	UserCredentials:     "user_credentials",
 	UserFilters:         "user_filters",
+	UserPresence:        "user_presence",
 	Users:               "users",
 }

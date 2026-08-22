@@ -26,6 +26,8 @@ import (
 	"github.com/thelemail/thaumaste/internal/repository/event"
 	filterrepo "github.com/thelemail/thaumaste/internal/repository/filter"
 	"github.com/thelemail/thaumaste/internal/repository/key"
+	presencerepo "github.com/thelemail/thaumaste/internal/repository/presence"
+	receiptrepo "github.com/thelemail/thaumaste/internal/repository/receipt"
 	"github.com/thelemail/thaumaste/internal/repository/refreshtoken"
 	"github.com/thelemail/thaumaste/internal/repository/relation"
 	"github.com/thelemail/thaumaste/internal/repository/room"
@@ -34,6 +36,7 @@ import (
 	"github.com/thelemail/thaumaste/internal/repository/state"
 	"github.com/thelemail/thaumaste/internal/repository/tenant"
 	"github.com/thelemail/thaumaste/internal/repository/transaction"
+	typingrepo "github.com/thelemail/thaumaste/internal/repository/typing"
 	"github.com/thelemail/thaumaste/internal/repository/uiasession"
 	"github.com/thelemail/thaumaste/internal/repository/user"
 	"github.com/thelemail/thaumaste/internal/service"
@@ -42,11 +45,14 @@ import (
 	"github.com/thelemail/thaumaste/internal/service/events"
 	"github.com/thelemail/thaumaste/internal/service/filters"
 	"github.com/thelemail/thaumaste/internal/service/keys"
+	"github.com/thelemail/thaumaste/internal/service/presence"
+	"github.com/thelemail/thaumaste/internal/service/receipts"
 	"github.com/thelemail/thaumaste/internal/service/rooms"
 	"github.com/thelemail/thaumaste/internal/service/sync"
 	"github.com/thelemail/thaumaste/internal/service/tenants"
 	"github.com/thelemail/thaumaste/internal/service/timeline"
 	"github.com/thelemail/thaumaste/internal/service/tokens"
+	"github.com/thelemail/thaumaste/internal/service/typing"
 	"github.com/thelemail/thaumaste/internal/service/users"
 )
 
@@ -202,6 +208,27 @@ func provideDirectory(userRepo repository.User, roomRepo repository.Room, eventR
 	return directory.New(userRepo, roomRepo, eventRepo, cfg)
 }
 
+type ReceiptStream struct{ *postgres.Stream }
+
+func provideReceiptStream(ctx context.Context, db *postgres.Client, cfg config.Server) (*ReceiptStream, error) {
+	stream, err := postgres.NewStream(ctx, db, postgres.StreamConfig{
+		Name:     "receipts",
+		Instance: cfg.InstanceName,
+		Sequence: "receipts_stream_seq",
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &ReceiptStream{Stream: stream}, nil
+}
+
+func provideReceipts(receiptRepo repository.Receipt, members repository.RoomMember, events service.Events,
+	data service.AccountData, tx repository.Transactor, stream *ReceiptStream,
+	notifier *notify.Notifier, clock func() time.Time,
+) service.Receipts {
+	return receipts.New(receiptRepo, members, events, data, tx, stream.Stream, notifier, clock)
+}
+
 func provideSendLimits(cfg config.Limits) entity.SendLimits {
 	return entity.SendLimits{
 		PerUser:   cfg.SendPerUser,
@@ -238,6 +265,13 @@ var DomainSet = wire.NewSet(
 	key.New,
 	provideKeys,
 	accountdatarepo.New,
+	receiptrepo.New,
+	typingrepo.New,
+	presencerepo.New,
+	provideReceiptStream,
+	provideReceipts,
+	typing.New,
+	presence.New,
 	filterrepo.New,
 	filters.New,
 	provideAccountDataStream,

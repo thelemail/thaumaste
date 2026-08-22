@@ -61,6 +61,7 @@ type Tenant struct {
 	State              TenantState
 	RegistrationMode   RegistrationMode
 	EncryptionRequired bool
+	PresenceEnabled    bool
 	CreatedAt          time.Time
 	UpdatedAt          time.Time
 }

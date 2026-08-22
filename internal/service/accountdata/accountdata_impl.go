@@ -39,6 +39,15 @@ func (s *srv) Set(ctx context.Context, scope entity.TenantScope, caller, target,
 	return s.commit(ctx, scope, target, roomID, dataType, content)
 }
 
+func (s *srv) SetReserved(ctx context.Context, scope entity.TenantScope, target, roomID, dataType string,
+	content []byte,
+) error {
+	if err := entity.AccountDataObject(content); err != nil {
+		return err
+	}
+	return s.commit(ctx, scope, target, roomID, dataType, content)
+}
+
 func (s *srv) commit(ctx context.Context, scope entity.TenantScope, target, roomID, dataType string,
 	canonical []byte,
 ) error {

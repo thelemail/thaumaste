@@ -7,6 +7,7 @@ import (
 )
 
 type AccountData interface {
+	SetReserved(ctx context.Context, scope entity.TenantScope, target, roomID, dataType string, content []byte) error
 	Set(ctx context.Context, scope entity.TenantScope, caller, target, roomID, dataType string, content []byte) error
 	Get(ctx context.Context, scope entity.TenantScope, caller, target, roomID, dataType string) (entity.AccountData, error)
 	Tags(ctx context.Context, scope entity.TenantScope, caller, target, roomID string) (entity.RoomTags, error)

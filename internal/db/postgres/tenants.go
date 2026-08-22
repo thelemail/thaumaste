@@ -30,6 +30,7 @@ type Tenant struct {
 	EncryptionRequired bool      `boil:"encryption_required" json:"encryption_required" toml:"encryption_required" yaml:"encryption_required"`
 	CreatedAt          time.Time `boil:"created_at" json:"created_at" toml:"created_at" yaml:"created_at"`
 	UpdatedAt          time.Time `boil:"updated_at" json:"updated_at" toml:"updated_at" yaml:"updated_at"`
+	PresenceEnabled    bool      `boil:"presence_enabled" json:"presence_enabled" toml:"presence_enabled" yaml:"presence_enabled"`
 
 	R *tenantR `boil:"-" json:"-" toml:"-" yaml:"-"`
 	L tenantL  `boil:"-" json:"-" toml:"-" yaml:"-"`
@@ -43,6 +44,7 @@ var TenantColumns = struct {
 	EncryptionRequired string
 	CreatedAt          string
 	UpdatedAt          string
+	PresenceEnabled    string
 }{
 	ID:                 "id",
 	ServerName:         "server_name",
@@ -51,6 +53,7 @@ var TenantColumns = struct {
 	EncryptionRequired: "encryption_required",
 	CreatedAt:          "created_at",
 	UpdatedAt:          "updated_at",
+	PresenceEnabled:    "presence_enabled",
 }
 
 var TenantTableColumns = struct {
@@ -61,6 +64,7 @@ var TenantTableColumns = struct {
 	EncryptionRequired string
 	CreatedAt          string
 	UpdatedAt          string
+	PresenceEnabled    string
 }{
 	ID:                 "tenants.id",
 	ServerName:         "tenants.server_name",
@@ -69,6 +73,7 @@ var TenantTableColumns = struct {
 	EncryptionRequired: "tenants.encryption_required",
 	CreatedAt:          "tenants.created_at",
 	UpdatedAt:          "tenants.updated_at",
+	PresenceEnabled:    "tenants.presence_enabled",
 }
 
 // Generated where
@@ -81,6 +86,7 @@ var TenantWhere = struct {
 	EncryptionRequired whereHelperbool
 	CreatedAt          whereHelpertime_Time
 	UpdatedAt          whereHelpertime_Time
+	PresenceEnabled    whereHelperbool
 }{
 	ID:                 whereHelperstring{field: "\"tenants\".\"id\""},
 	ServerName:         whereHelperstring{field: "\"tenants\".\"server_name\""},
@@ -89,6 +95,7 @@ var TenantWhere = struct {
 	EncryptionRequired: whereHelperbool{field: "\"tenants\".\"encryption_required\""},
 	CreatedAt:          whereHelpertime_Time{field: "\"tenants\".\"created_at\""},
 	UpdatedAt:          whereHelpertime_Time{field: "\"tenants\".\"updated_at\""},
+	PresenceEnabled:    whereHelperbool{field: "\"tenants\".\"presence_enabled\""},
 }
 
 // TenantRels is where relationship names are stored.
@@ -318,9 +325,9 @@ func (r *tenantR) GetUsers() UserSlice {
 type tenantL struct{}
 
 var (
-	tenantAllColumns            = []string{"id", "server_name", "state", "registration_mode", "encryption_required", "created_at", "updated_at"}
+	tenantAllColumns            = []string{"id", "server_name", "state", "registration_mode", "encryption_required", "created_at", "updated_at", "presence_enabled"}
 	tenantColumnsWithoutDefault = []string{"server_name"}
-	tenantColumnsWithDefault    = []string{"id", "state", "registration_mode", "encryption_required", "created_at", "updated_at"}
+	tenantColumnsWithDefault    = []string{"id", "state", "registration_mode", "encryption_required", "created_at", "updated_at", "presence_enabled"}
 	tenantPrimaryKeyColumns     = []string{"id"}
 	tenantGeneratedColumns      = []string{}
 )

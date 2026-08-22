@@ -18,6 +18,9 @@ type Handler struct {
 	syncSvc      service.Sync
 	keys         service.Keys
 	accountData  service.AccountData
+	receipts     service.Receipts
+	typing       service.Typing
+	presence     service.Presence
 	filters      service.Filters
 	directory    service.Directory
 	publicScheme string
@@ -33,6 +36,9 @@ func New(
 	syncSvc service.Sync,
 	keys service.Keys,
 	accountData service.AccountData,
+	receipts service.Receipts,
+	typing service.Typing,
+	presence service.Presence,
 	filters service.Filters,
 	directory service.Directory,
 	srv config.Server,
@@ -50,6 +56,9 @@ func New(
 		syncSvc:      syncSvc,
 		keys:         keys,
 		accountData:  accountData,
+		receipts:     receipts,
+		typing:       typing,
+		presence:     presence,
 		filters:      filters,
 		directory:    directory,
 		publicScheme: srv.PublicScheme,
@@ -128,6 +137,12 @@ func (h *Handler) Mount(r chi.Router) {
 				r.Post("/_matrix/client/v3/user/{userID}/filter", h.createFilter)
 				r.Get("/_matrix/client/v3/user/{userID}/filter/{filterID}", h.getFilter)
 				r.Post("/_matrix/client/v3/user_directory/search", h.searchUsers)
+
+				r.Post("/_matrix/client/v3/rooms/{roomID}/receipt/{receiptType}/{eventID}", h.sendReceipt)
+				r.Post("/_matrix/client/v3/rooms/{roomID}/read_markers", h.setReadMarkers)
+				r.Put("/_matrix/client/v3/rooms/{roomID}/typing/{userID}", h.setTyping)
+				r.Get("/_matrix/client/v3/presence/{userID}/status", h.getPresence)
+				r.Put("/_matrix/client/v3/presence/{userID}/status", h.setPresence)
 
 				r.Get("/_matrix/client/v1/rooms/{roomID}/relations/{eventID}", h.roomRelations)
 				r.Get("/_matrix/client/v1/rooms/{roomID}/relations/{eventID}/{relType}", h.roomRelations)
