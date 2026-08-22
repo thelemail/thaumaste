@@ -54,6 +54,7 @@ import (
 	"github.com/thelemail/thaumaste/internal/service/events"
 	"github.com/thelemail/thaumaste/internal/service/filters"
 	"github.com/thelemail/thaumaste/internal/service/keys"
+	"github.com/thelemail/thaumaste/internal/service/legacysync"
 	"github.com/thelemail/thaumaste/internal/service/presence"
 	"github.com/thelemail/thaumaste/internal/service/receipts"
 	"github.com/thelemail/thaumaste/internal/service/rooms"
@@ -231,6 +232,19 @@ func wireServer(t *testing.T, instance string, assertion ed25519.PublicKey, pg *
 		}, nil, nil)
 
 	timelineSvc := timeline.New(eventSvc, nil)
+	legacySvc := legacysync.New(
+		legacysync.Stores{
+			Members: memberRepo, Events: eventRepo, ToDevice: todevicerepo.New(pg),
+			DeviceLists: devicelistrepo.New(pg), AccountData: accountDataRepo,
+			Receipts: receiptRepo, Typing: typingRepo, Keys: keyRepo,
+		},
+		legacysync.Streams{
+			Events: stream, ToDevice: toDeviceStream, DeviceLists: deviceListStream,
+			AccountData: dataStream, Receipts: receiptStream,
+		},
+		timelineSvc, pg, notifier,
+		config.Sync{MaxTimeout: 2 * time.Second, MaxRoomsPerSync: 200}, nil)
+
 	syncSvc := sync.New(connection.New(pg), memberRepo, eventRepo, timelineSvc,
 		sync.Stores{
 			ToDevice: todevicerepo.New(pg), DeviceLists: devicelistrepo.New(pg),
@@ -241,7 +255,7 @@ func wireServer(t *testing.T, instance string, assertion ed25519.PublicKey, pg *
 			AccountData: dataStream, Receipts: receiptStream,
 		},
 		pg, stream, notifier, serialiser.New(),
-		config.Sync{MaxTimeout: 2 * time.Second, MaxRoomsPerSync: 200}, clock.Now)
+		config.Sync{MaxTimeout: 2 * time.Second, MaxRoomsPerSync: 200}, nil)
 	roomSvc := rooms.New(eventSvc, timelineSvc, userSvc, roomRepo, alias.New(pg), memberRepo, pg,
 		limiter, limits, nil)
 	keySvc := keys.New(keyRepo, memberRepo, pg, deviceListSvc, config.Keys{
@@ -262,6 +276,7 @@ func wireServer(t *testing.T, instance string, assertion ed25519.PublicKey, pg *
 		userSvc,
 		roomSvc,
 		syncSvc,
+		legacySvc,
 		keySvc,
 		accountDataSvc,
 		receiptSvc,

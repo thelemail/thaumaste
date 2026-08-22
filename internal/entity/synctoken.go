@@ -9,7 +9,7 @@ import (
 
 var ErrUnknownToken = errors.New("entity: unknown sync token")
 
-const tokenParts = 5
+const tokenParts = 6
 
 type SyncToken struct {
 	Events      int64
@@ -17,6 +17,7 @@ type SyncToken struct {
 	Receipts    int64
 	ToDevice    int64
 	DeviceLists int64
+	Typing      int64
 }
 
 func (t SyncToken) String() string {
@@ -26,6 +27,7 @@ func (t SyncToken) String() string {
 		strconv.FormatInt(t.Receipts, 36),
 		strconv.FormatInt(t.ToDevice, 36),
 		strconv.FormatInt(t.DeviceLists, 36),
+		strconv.FormatInt(t.Typing, 36),
 	}, ".")
 	return "s" + base64.RawURLEncoding.EncodeToString([]byte(raw))
 }
@@ -59,5 +61,6 @@ func ParseSyncToken(raw string) (SyncToken, error) {
 		Receipts:    positions[2],
 		ToDevice:    positions[3],
 		DeviceLists: positions[4],
+		Typing:      positions[5],
 	}, nil
 }

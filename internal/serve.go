@@ -150,6 +150,7 @@ func provideServeRuntime(
 	rooms service.Rooms,
 	events service.Events,
 	syncSvc service.Sync,
+	legacy service.LegacySync,
 	keys service.Keys,
 	accountData service.AccountData,
 	receipts service.Receipts,
@@ -170,7 +171,7 @@ func provideServeRuntime(
 	router.Use(middleware.RecoverPanic)
 	router.Use(middleware.AccessLog)
 
-	matrix.New(tenants, tokens, users, rooms, syncSvc, keys, accountData, receipts, typingSvc,
+	matrix.New(tenants, tokens, users, rooms, syncSvc, legacy, keys, accountData, receipts, typingSvc,
 		presenceSvc, toDevice, deviceLists, filters, directory, cfg, sign, clock).Mount(router)
 
 	return &ServeRuntime{

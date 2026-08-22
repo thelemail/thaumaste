@@ -132,6 +132,9 @@ func InitializeServe(ctx context.Context, cfg config.Config) (*ServeRuntime, fun
 	streams := provideSyncStreams(toDeviceStream, deviceListStream, accountDataStream, receiptStream)
 	sync := provideSyncConfig(cfg)
 	serviceSync := provideSync(repositoryConnection, roomMember, repositoryEvent, serviceTimeline, transactor, stream, notifier, serialiser, stores, streams, sync, v)
+	legacysyncStores := provideLegacyStores(roomMember, repositoryEvent, toDevice, deviceList, accountData, repositoryReceipt, repositoryTyping, repositoryKey)
+	legacysyncStreams := provideLegacyStreams(stream, toDeviceStream, deviceListStream, accountDataStream, receiptStream)
+	legacySync := provideLegacySync(legacysyncStores, legacysyncStreams, serviceTimeline, transactor, notifier, sync, v)
 	keys := provideKeysConfig(cfg)
 	serviceKeys := provideKeys(repositoryKey, roomMember, transactor, deviceLists, keys)
 	serviceAccountData := provideAccountData(accountData, repositoryRoom, transactor, accountDataStream, notifier)
@@ -145,7 +148,7 @@ func InitializeServe(ctx context.Context, cfg config.Config) (*ServeRuntime, fun
 	directory := provideDirectoryConfig(cfg)
 	serviceDirectory := provideDirectory(repositoryUser, repositoryRoom, repositoryEvent, directory)
 	configToDevice := provideToDeviceConfig(cfg)
-	serveRuntime := provideServeRuntime(server, signing, limits, client, tenants, tokens, users, serviceRooms, events, serviceSync, serviceKeys, serviceAccountData, receipts, serviceTyping, servicePresence, serviceToDevice, deviceLists, serviceFilters, serviceDirectory, notifier, sync, configToDevice, v)
+	serveRuntime := provideServeRuntime(server, signing, limits, client, tenants, tokens, users, serviceRooms, events, serviceSync, legacySync, serviceKeys, serviceAccountData, receipts, serviceTyping, servicePresence, serviceToDevice, deviceLists, serviceFilters, serviceDirectory, notifier, sync, configToDevice, v)
 	return serveRuntime, func() {
 		cleanup2()
 		cleanup()

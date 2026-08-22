@@ -10,6 +10,8 @@ import (
 )
 
 const (
+	EventTypeTyping = "m.typing"
+
 	MaxTypingTimeout     = 2 * time.Minute
 	DefaultTypingTimeout = 30 * time.Second
 
@@ -39,6 +41,11 @@ func (n NewTyping) Validate() error {
 
 func TypingVersionKey(tenantID uuid.UUID) string {
 	return typingKeyPrefix + wakeKeySeparator + "version" + wakeKeySeparator + tenantID.String()
+}
+
+func TypingChangedKey(tenantID uuid.UUID, roomNID int64) string {
+	return typingKeyPrefix + wakeKeySeparator + "changed" + wakeKeySeparator + tenantID.String() +
+		wakeKeySeparator + strconv.FormatInt(roomNID, 10)
 }
 
 func TypingKey(tenantID uuid.UUID, roomNID int64) string {

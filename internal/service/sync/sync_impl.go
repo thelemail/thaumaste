@@ -76,6 +76,7 @@ type session struct {
 	wanted     entity.SyncExtensionRequest
 	connection entity.Connection
 	known      map[int64]entity.RoomStatus
+	delivered  map[int64]string
 	ceiling    int64
 	ceilings   entity.SyncCursors
 }
@@ -160,7 +161,7 @@ func (s *srv) attempt(ctx context.Context, sess *session) (entity.SyncResult, []
 		if err != nil {
 			return err
 		}
-		result.Extensions, err = s.extensions(ctx, sess, &result)
+		result.Extensions, err = s.extensions(ctx, sess)
 		return err
 	})
 	return result, staged, err

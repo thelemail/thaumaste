@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"errors"
+	"slices"
 	"strings"
 
 	validation "github.com/go-ozzo/ozzo-validation/v4"
@@ -221,4 +222,87 @@ func (n NewFilter) Validate() error {
 		validation.Field(&n.TenantID, validation.By(notNilUUID)),
 		validation.Field(&n.UserID, validation.Required, validation.Length(1, MaxUserIDBytes)),
 	)
+}
+
+func section(doc *roomEventFilterDoc) RoomEventFilter {
+	out := RoomEventFilter{}
+	if doc == nil {
+		return out
+	}
+	out.ContainsURL = doc.ContainsURL
+	if doc.Types != nil {
+		out.Types = *doc.Types
+	}
+	if doc.NotTypes != nil {
+		out.NotTypes = *doc.NotTypes
+	}
+	if doc.Senders != nil {
+		out.Senders = *doc.Senders
+	}
+	if doc.NotSenders != nil {
+		out.NotSenders = *doc.NotSenders
+	}
+	if doc.Limit != nil {
+		out.Limit = *doc.Limit
+	}
+	return out
+}
+
+func plain(doc *eventFilterDoc) RoomEventFilter {
+	if doc == nil {
+		return RoomEventFilter{}
+	}
+	return section(&roomEventFilterDoc{
+		Limit: doc.Limit, Types: doc.Types, NotTypes: doc.NotTypes,
+		Senders: doc.Senders, NotSenders: doc.NotSenders,
+	})
+}
+
+func (f Filter) room() *roomFilterDoc {
+	if f.doc.Room == nil {
+		return &roomFilterDoc{}
+	}
+	return f.doc.Room
+}
+
+func (f Filter) State() RoomEventFilter { return section(f.room().State) }
+
+func (f Filter) Ephemeral() RoomEventFilter { return section(f.room().Ephemeral) }
+
+func (f Filter) RoomAccountData() RoomEventFilter { return section(f.room().AccountData) }
+
+func (f Filter) GlobalAccountData() RoomEventFilter { return plain(f.doc.AccountData) }
+
+func (f Filter) Presence() RoomEventFilter { return plain(f.doc.Presence) }
+
+func (f Filter) IncludeLeave() bool {
+	return f.room().IncludeLeave != nil && *f.room().IncludeLeave
+}
+
+func (f Filter) LazyLoadMembers() bool {
+	state := f.room().State
+	return state != nil && state.LazyLoadMembers != nil && *state.LazyLoadMembers
+}
+
+func (f Filter) UnreadThreadNotifications() bool {
+	timeline := f.room().Timeline
+	return timeline != nil && timeline.UnreadThreadNotifications != nil && *timeline.UnreadThreadNotifications
+}
+
+func (f Filter) SelectsRoom(roomID string) bool {
+	doc := f.room()
+	if doc.NotRooms != nil && slices.Contains(*doc.NotRooms, roomID) {
+		return false
+	}
+	if doc.Rooms != nil && !slices.Contains(*doc.Rooms, roomID) {
+		return false
+	}
+	return true
+}
+
+func (f Filter) EventFields() []string {
+	if f.doc.EventFields == nil {
+		return nil
+	}
+	return *f.doc.EventFields
 }

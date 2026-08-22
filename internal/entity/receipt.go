@@ -8,6 +8,8 @@ import (
 )
 
 const (
+	EventTypeReceipt = "m.receipt"
+
 	ReceiptRead        = "m.read"
 	ReceiptReadPrivate = "m.read.private"
 

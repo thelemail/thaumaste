@@ -67,13 +67,13 @@ func (f RoomEventFilter) Validate() error {
 }
 
 func (f RoomEventFilter) Keeps(e Event) bool {
-	if len(f.Types) > 0 && !matchesAny(f.Types, e.Type()) {
+	if f.Types != nil && !matchesAny(f.Types, e.Type()) {
 		return false
 	}
 	if matchesAny(f.NotTypes, e.Type()) {
 		return false
 	}
-	if len(f.Senders) > 0 && !slices.Contains(f.Senders, e.Sender()) {
+	if f.Senders != nil && !slices.Contains(f.Senders, e.Sender()) {
 		return false
 	}
 	if slices.Contains(f.NotSenders, e.Sender()) {
@@ -86,6 +86,18 @@ func (f RoomEventFilter) Keeps(e Event) bool {
 		}
 	}
 	return true
+}
+
+func (f RoomEventFilter) KeepsType(eventType string) bool {
+	if f.Types != nil && !matchesAny(f.Types, eventType) {
+		return false
+	}
+	return !matchesAny(f.NotTypes, eventType)
+}
+
+func (f RoomEventFilter) Trivial() bool {
+	return f.Types == nil && f.NotTypes == nil && f.Senders == nil &&
+		f.NotSenders == nil && f.ContainsURL == nil
 }
 
 func matchesAny(patterns []string, value string) bool {

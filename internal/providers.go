@@ -48,6 +48,7 @@ import (
 	"github.com/thelemail/thaumaste/internal/service/events"
 	"github.com/thelemail/thaumaste/internal/service/filters"
 	"github.com/thelemail/thaumaste/internal/service/keys"
+	"github.com/thelemail/thaumaste/internal/service/legacysync"
 	"github.com/thelemail/thaumaste/internal/service/presence"
 	"github.com/thelemail/thaumaste/internal/service/receipts"
 	"github.com/thelemail/thaumaste/internal/service/rooms"
@@ -304,6 +305,34 @@ func provideSyncStreams(toDevice *ToDeviceStream, deviceLists *DeviceListStream,
 	}
 }
 
+func provideLegacyStores(members repository.RoomMember, eventRepo repository.Event,
+	toDeviceRepo repository.ToDevice, deviceListRepo repository.DeviceList,
+	data repository.AccountData, receiptRepo repository.Receipt, typingRepo repository.Typing,
+	keyRepo repository.Key,
+) legacysync.Stores {
+	return legacysync.Stores{
+		Members: members, Events: eventRepo, ToDevice: toDeviceRepo,
+		DeviceLists: deviceListRepo, AccountData: data, Receipts: receiptRepo,
+		Typing: typingRepo, Keys: keyRepo,
+	}
+}
+
+func provideLegacyStreams(events *postgres.Stream, toDevice *ToDeviceStream,
+	deviceLists *DeviceListStream, data *AccountDataStream, receipts *ReceiptStream,
+) legacysync.Streams {
+	return legacysync.Streams{
+		Events: events, ToDevice: toDevice.Stream, DeviceLists: deviceLists.Stream,
+		AccountData: data.Stream, Receipts: receipts.Stream,
+	}
+}
+
+func provideLegacySync(stores legacysync.Stores, streams legacysync.Streams,
+	timelineSvc service.Timeline, tx repository.Transactor, notifier *notify.Notifier,
+	cfg config.Sync, clock func() time.Time,
+) service.LegacySync {
+	return legacysync.New(stores, streams, timelineSvc, tx, notifier, cfg, clock)
+}
+
 func provideSendLimits(cfg config.Limits) entity.SendLimits {
 	return entity.SendLimits{
 		PerUser:   cfg.SendPerUser,
@@ -353,6 +382,9 @@ var DomainSet = wire.NewSet(
 	provideDeviceLists,
 	provideSyncStores,
 	provideSyncStreams,
+	provideLegacyStores,
+	provideLegacyStreams,
+	provideLegacySync,
 	typing.New,
 	providePresence,
 	filterrepo.New,

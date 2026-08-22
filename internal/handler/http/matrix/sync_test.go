@@ -1044,25 +1044,6 @@ func TestTooManyListsIsRefused(t *testing.T) {
 	}
 }
 
-func TestExtensionsAreAcceptedAndAnsweredEmpty(t *testing.T) {
-	s := newServer(t)
-	tenant, alice, _ := s.resident(t, "alpha.test", "alice")
-	s.createRoom(t, tenant.ServerName, alice, map[string]any{"preset": entity.PresetPublicChat})
-
-	request := window(1, 0, 9)
-	request["extensions"] = map[string]any{
-		"to_device": map[string]any{"enabled": true},
-		"e2ee":      map[string]any{"enabled": true},
-	}
-	body := s.syncOnce(t, tenant.ServerName, alice, "", request)
-	if body.Extensions == nil {
-		t.Fatal("extensions was omitted from the response")
-	}
-	if len(body.Extensions) != 0 {
-		t.Fatalf("extensions = %v, want an empty object until THE-19", body.Extensions)
-	}
-}
-
 func TestAnIdleConnectionCostsABoundedAmount(t *testing.T) {
 	const connections = 150
 

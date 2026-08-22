@@ -38,7 +38,7 @@ func (s *srv) quiet(sess *session) entity.SyncExtensions {
 	return out
 }
 
-func (s *srv) extensions(ctx context.Context, sess *session, result *entity.SyncResult) (entity.SyncExtensions, error) {
+func (s *srv) extensions(ctx context.Context, sess *session) (entity.SyncExtensions, error) {
 	var out entity.SyncExtensions
 
 	if sess.wanted.ToDevice.Enabled {
@@ -56,48 +56,28 @@ func (s *srv) extensions(ctx context.Context, sess *session, result *entity.Sync
 		out.E2EE = keys
 	}
 
-	scoped := s.scoped(sess, result)
-
 	if sess.wanted.AccountData.Enabled {
-		data, err := s.accountData(ctx, sess, scoped)
+		data, err := s.accountData(ctx, sess)
 		if err != nil {
 			return entity.SyncExtensions{}, err
 		}
 		out.AccountData = data
 	}
 	if sess.wanted.Receipts.Enabled {
-		receipts, err := s.receipts(ctx, sess, scoped)
+		receipts, err := s.receipts(ctx, sess)
 		if err != nil {
 			return entity.SyncExtensions{}, err
 		}
 		out.Receipts = receipts
 	}
 	if sess.wanted.Typing.Enabled {
-		typing, err := s.typing(ctx, sess, scoped)
+		typing, err := s.typing(ctx, sess)
 		if err != nil {
 			return entity.SyncExtensions{}, err
 		}
 		out.Typing = typing
 	}
 	return out, nil
-}
-
-type inScope struct {
-	roomIDs []string
-	nids    map[string]int64
-	ids     map[int64]string
-}
-
-func (s *srv) scoped(sess *session, result *entity.SyncResult) inScope {
-	out := inScope{nids: map[string]int64{}, ids: map[int64]string{}}
-	for roomID := range result.Rooms {
-		out.roomIDs = append(out.roomIDs, roomID)
-	}
-	sort.Strings(out.roomIDs)
-	for _, status := range sess.known {
-		out.ids[status.RoomNID] = ""
-	}
-	return out
 }
 
 func (s *srv) toDevice(ctx context.Context, sess *session) (*entity.ToDeviceResult, error) {
@@ -179,7 +159,7 @@ func (s *srv) e2ee(ctx context.Context, sess *session) (*entity.E2EEResult, erro
 	return out, nil
 }
 
-func (s *srv) accountData(ctx context.Context, sess *session, scoped inScope) (*entity.AccountDataResult, error) {
+func (s *srv) accountData(ctx context.Context, sess *session) (*entity.AccountDataResult, error) {
 	since := sess.connection.ConfirmedCursors.AccountData
 	found, err := s.stores.AccountData.Since(ctx, sess.scope, sess.caller, since)
 	if err != nil {
@@ -213,13 +193,10 @@ func (s *srv) accountData(ctx context.Context, sess *session, scoped inScope) (*
 	return out, nil
 }
 
-func (s *srv) receipts(ctx context.Context, sess *session, scoped inScope) (map[string]json.RawMessage, error) {
-	if len(sess.known) == 0 {
+func (s *srv) receipts(ctx context.Context, sess *session) (map[string]json.RawMessage, error) {
+	roomNIDs := sess.inScope()
+	if len(roomNIDs) == 0 {
 		return nil, nil
-	}
-	roomNIDs := make([]int64, 0, len(sess.known))
-	for roomNID := range sess.known {
-		roomNIDs = append(roomNIDs, roomNID)
 	}
 	found, err := s.stores.Receipts.Since(ctx, sess.scope, roomNIDs, sess.caller,
 		sess.connection.ConfirmedCursors.Receipts)
@@ -259,7 +236,7 @@ func (s *srv) receipts(ctx context.Context, sess *session, scoped inScope) (map[
 
 	out := make(map[string]json.RawMessage, len(byRoom))
 	for roomID, content := range byRoom {
-		raw, err := json.Marshal(map[string]any{"type": "m.receipt", "content": content})
+		raw, err := json.Marshal(map[string]any{"type": entity.EventTypeReceipt, "content": content})
 		if err != nil {
 			return nil, err
 		}
@@ -271,15 +248,13 @@ func (s *srv) receipts(ctx context.Context, sess *session, scoped inScope) (map[
 	return out, nil
 }
 
-func (s *srv) typing(ctx context.Context, sess *session, scoped inScope) (map[string]json.RawMessage, error) {
-	if sess.connection.ConfirmedCursors.Typing == sess.ceilings.Typing || len(sess.known) == 0 {
+func (s *srv) typing(ctx context.Context, sess *session) (map[string]json.RawMessage, error) {
+	roomNIDs := sess.inScope()
+	if sess.connection.ConfirmedCursors.Typing == sess.ceilings.Typing || len(roomNIDs) == 0 {
 		return nil, nil
 	}
-	roomNIDs := make([]int64, 0, len(sess.known))
-	for roomNID := range sess.known {
-		roomNIDs = append(roomNIDs, roomNID)
-	}
-	sets, err := s.stores.Typing.ForRooms(ctx, sess.scope, roomNIDs, s.clock().UTC())
+	sets, err := s.stores.Typing.ChangedSince(ctx, sess.scope, roomNIDs,
+		sess.connection.ConfirmedCursors.Typing, s.clock().UTC())
 	if err != nil {
 		return nil, err
 	}
@@ -290,19 +265,19 @@ func (s *srv) typing(ctx context.Context, sess *session, scoped inScope) (map[st
 	}
 	out := map[string]json.RawMessage{}
 	for _, room := range rooms {
-		if _, known := sess.known[room.RoomNID]; !known {
+		if _, scoped := sets[room.RoomNID]; !scoped {
 			continue
 		}
 		if !sess.wanted.Typing.Covers(room.RoomID, nil) {
 			continue
 		}
-		users := sets[room.RoomNID]
-		if users == nil {
-			users = []string{}
+		users, changed := sets[room.RoomNID]
+		if !changed {
+			continue
 		}
 		sort.Strings(users)
 		raw, err := json.Marshal(map[string]any{
-			"type":    "m.typing",
+			"type":    entity.EventTypeTyping,
 			"content": map[string]any{"user_ids": users},
 		})
 		if err != nil {
@@ -314,6 +289,21 @@ func (s *srv) typing(ctx context.Context, sess *session, scoped inScope) (map[st
 		return nil, nil
 	}
 	return out, nil
+}
+
+func (sess *session) inScope() []int64 {
+	seen := make(map[int64]struct{}, len(sess.known)+len(sess.delivered))
+	for roomNID := range sess.known {
+		seen[roomNID] = struct{}{}
+	}
+	for roomNID := range sess.delivered {
+		seen[roomNID] = struct{}{}
+	}
+	out := make([]int64, 0, len(seen))
+	for roomNID := range seen {
+		out = append(out, roomNID)
+	}
+	return out
 }
 
 func parseBatch(raw string) int64 {

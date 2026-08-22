@@ -338,6 +338,48 @@ func (c *Client) Increment(ctx context.Context, key string, ttl time.Duration) (
 	return next, nil
 }
 
+func (c *Client) Store(ctx context.Context, key string, value int64, ttl time.Duration) error {
+	live := c.live.Load()
+	if live == nil {
+		return ErrUnavailable
+	}
+	err := live.conn.Do(ctx, live.conn.B().Set().Key(key).Value(strconv.FormatInt(value, 10)).
+		PxMilliseconds(ttl.Milliseconds()).Build()).Error()
+	if err != nil {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		return c.drop(live, err)
+	}
+	return nil
+}
+
+func (c *Client) Counters(ctx context.Context, keys []string) ([]int64, error) {
+	live := c.live.Load()
+	if live == nil {
+		return nil, ErrUnavailable
+	}
+	if len(keys) == 0 {
+		return nil, nil
+	}
+	values, err := live.conn.Do(ctx, live.conn.B().Mget().Key(keys...).Build()).ToArray()
+	if err != nil {
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+		return nil, c.drop(live, err)
+	}
+	out := make([]int64, len(values))
+	for i, value := range values {
+		parsed, err := value.AsInt64()
+		if err != nil {
+			continue
+		}
+		out[i] = parsed
+	}
+	return out, nil
+}
+
 func (c *Client) Counter(ctx context.Context, key string) (int64, error) {
 	live := c.live.Load()
 	if live == nil {
