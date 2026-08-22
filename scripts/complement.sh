@@ -32,6 +32,23 @@ allowlist_regex() {
 	grep -vE '^[[:space:]]*(#|$)' "$OUT/allowlist.txt" | paste -sd'|' -
 }
 
+subtest_entries() {
+	grep -vE '^[[:space:]]*(#|$)' "$OUT/allowlist-subtests.txt" | tr ' ' '_'
+}
+
+subtest_regexes() {
+	subtest_entries | awk -F/ '{ kept[$1] = kept[$1] == "" ? $2 : kept[$1] "|" $2 }
+		END { for (parent in kept) printf "^(%s)$/^(%s)$\n", parent, kept[parent] }'
+}
+
+run_subtests() {
+	local pattern
+	while read -r pattern; do
+		COMPLEMENT_BASE_IMAGE="$IMAGE" \
+			go test -v -count=1 -timeout 10m -run "$pattern" $PACKAGES
+	done < <(subtest_regexes)
+}
+
 normalise() {
 	jq -Rc 'fromjson? // empty' "$OUT/output.jsonl" \
 		| jq -sc '[.[]
@@ -63,6 +80,14 @@ report() {
 		echo "## Passing"
 		echo
 		jq -sr '.[] | select((.Test | contains("/") | not) and .Action == "pass") | "- \(.Test)"' "$OUT/results.jsonl"
+		echo
+		echo "## Passing subtests"
+		echo
+		echo "Subtests that pass where the parent test cannot. Enforced by \`allowlist-subtests.txt\`."
+		echo
+		subtest_entries | while read -r entry; do
+			jq -sr --arg t "$entry" '.[] | select(.Test == $t) | "- \(.Test) — \(.Action)"' "$OUT/results.jsonl"
+		done
 		echo
 		echo "## Skipped"
 		echo
@@ -98,6 +123,7 @@ allowlist)
 	cd "$COMPLEMENT_DIR"
 	COMPLEMENT_BASE_IMAGE="$IMAGE" \
 		go test -v -count=1 -timeout 10m -run "^($(allowlist_regex))$" $PACKAGES
+	run_subtests
 	;;
 some)
 	shift
