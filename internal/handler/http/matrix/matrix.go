@@ -17,6 +17,9 @@ type Handler struct {
 	rooms        service.Rooms
 	syncSvc      service.Sync
 	keys         service.Keys
+	accountData  service.AccountData
+	filters      service.Filters
+	directory    service.Directory
 	publicScheme string
 	keyValidity  time.Duration
 	clock        func() time.Time
@@ -29,6 +32,9 @@ func New(
 	rooms service.Rooms,
 	syncSvc service.Sync,
 	keys service.Keys,
+	accountData service.AccountData,
+	filters service.Filters,
+	directory service.Directory,
 	srv config.Server,
 	sign config.Signing,
 	clock func() time.Time,
@@ -43,6 +49,9 @@ func New(
 		rooms:        rooms,
 		syncSvc:      syncSvc,
 		keys:         keys,
+		accountData:  accountData,
+		filters:      filters,
+		directory:    directory,
 		publicScheme: srv.PublicScheme,
 		keyValidity:  sign.KeyValidity,
 		clock:        clock,
@@ -87,6 +96,7 @@ func (h *Handler) Mount(r chi.Router) {
 				r.Delete("/_matrix/client/v3/devices/{deviceID}", h.deleteDevice)
 				r.Post("/_matrix/client/v3/delete_devices", h.deleteDevices)
 
+				r.Put("/_matrix/client/v3/profile/{userID}", h.setProfile)
 				r.Put("/_matrix/client/v3/profile/{userID}/{keyName}", h.setProfileField)
 
 				r.Post("/_matrix/client/v3/createRoom", h.createRoom)
@@ -107,6 +117,17 @@ func (h *Handler) Mount(r chi.Router) {
 				r.Post("/_matrix/client/v3/keys/upload", h.uploadKeys)
 				r.Post("/_matrix/client/v3/keys/query", h.queryKeys)
 				r.Post("/_matrix/client/v3/keys/claim", h.claimKeys)
+
+				r.Put("/_matrix/client/v3/user/{userID}/account_data/{type}", h.setAccountData)
+				r.Get("/_matrix/client/v3/user/{userID}/account_data/{type}", h.getAccountData)
+				r.Put("/_matrix/client/v3/user/{userID}/rooms/{roomID}/account_data/{type}", h.setRoomAccountData)
+				r.Get("/_matrix/client/v3/user/{userID}/rooms/{roomID}/account_data/{type}", h.getRoomAccountData)
+				r.Get("/_matrix/client/v3/user/{userID}/rooms/{roomID}/tags", h.listTags)
+				r.Put("/_matrix/client/v3/user/{userID}/rooms/{roomID}/tags/{tag}", h.setTag)
+				r.Delete("/_matrix/client/v3/user/{userID}/rooms/{roomID}/tags/{tag}", h.deleteTag)
+				r.Post("/_matrix/client/v3/user/{userID}/filter", h.createFilter)
+				r.Get("/_matrix/client/v3/user/{userID}/filter/{filterID}", h.getFilter)
+				r.Post("/_matrix/client/v3/user_directory/search", h.searchUsers)
 
 				r.Get("/_matrix/client/v1/rooms/{roomID}/relations/{eventID}", h.roomRelations)
 				r.Get("/_matrix/client/v1/rooms/{roomID}/relations/{eventID}/{relType}", h.roomRelations)

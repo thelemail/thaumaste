@@ -4,6 +4,8 @@ import (
 	"errors"
 	"net/http"
 
+	validation "github.com/go-ozzo/ozzo-validation/v4"
+
 	"github.com/go-chi/chi/v5"
 
 	"github.com/thelemail/thaumaste/internal/entity"
@@ -73,16 +75,44 @@ func (h *Handler) setProfileField(w http.ResponseWriter, r *http.Request) {
 		in.AvatarURL = &text
 	}
 
-	target := chi.URLParam(r, "userID")
-	if _, err := h.users.UpdateProfile(r.Context(), tenant.Scope(), caller.UserID, target, in); err != nil {
+	h.applyProfile(w, r, tenant, caller.UserID, roomParam(r, "userID"), in)
+}
+
+func (h *Handler) setProfile(w http.ResponseWriter, r *http.Request) {
+	tenant, caller, ok := h.callerAndTenant(w, r)
+	if !ok {
+		return
+	}
+
+	var body struct {
+		DisplayName *string `json:"displayname"`
+		AvatarURL   *string `json:"avatar_url"`
+	}
+	if !readJSON(w, r, &body) {
+		return
+	}
+	h.applyProfile(w, r, tenant, caller.UserID,
+		roomParam(r, "userID"), entity.UpdateProfile{DisplayName: body.DisplayName, AvatarURL: body.AvatarURL})
+}
+
+func (h *Handler) applyProfile(w http.ResponseWriter, r *http.Request, tenant entity.Tenant,
+	caller, target string, in entity.UpdateProfile,
+) {
+	if _, err := h.users.UpdateProfile(r.Context(), tenant.Scope(), caller, target, in); err != nil {
 		switch {
 		case errors.Is(err, entity.ErrProfileNotAllowed):
 			writeError(w, http.StatusForbidden, codeForbidden, "Cannot change another user's profile")
 		case errors.Is(err, entity.ErrUserNotFound):
 			writeError(w, http.StatusNotFound, codeNotFound, "Unknown user")
+		case errors.As(err, &validation.Errors{}):
+			writeError(w, http.StatusBadRequest, codeInvalidParam, err.Error())
 		default:
 			writeInternal(r.Context(), w, "Could not update the profile", err)
 		}
+		return
+	}
+	if err := h.rooms.PropagateProfile(r.Context(), tenant.Scope(), target); err != nil {
+		writeInternal(r.Context(), w, "Could not tell the rooms about the profile", err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{})

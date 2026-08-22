@@ -31,3 +31,6 @@ TestKeyClaimOrdering
 TestUploadKeyIdempotency
 TestUploadKeyIdempotencyOverlap
 TestKeysQueryWithDeviceIDAsObjectFails
+
+TestAddAccountData
+TestSyncFilter

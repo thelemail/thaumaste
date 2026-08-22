@@ -23,6 +23,7 @@ type JoinInput struct {
 }
 
 type Rooms interface {
+	PropagateProfile(ctx context.Context, scope entity.TenantScope, userID string) error
 	Create(ctx context.Context, scope entity.TenantScope, in entity.NewRoomRequest) (entity.Room, error)
 
 	Join(ctx context.Context, scope entity.TenantScope, caller, roomIDOrAlias string, in JoinInput) (string, error)
